@@ -1,0 +1,14 @@
+---
+title: "dados_eleicoes"
+---
+
+Pipeline ETL de dados eleitorais do TSE (locais de votação e resultados) para a
+[GeoReDUS](https://www.redus.org.br/georedus). Ver [PLAN.md](https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md)
+para o contexto completo.
+
+- [00 · Auxiliares](00_auxiliares.qmd) — crosswalk TSE↔IBGE, malhas, população adulta por setor.
+- [01 · Locais de votação](01_locais_votacao.qmd) — download e chaves dos locais e seções.
+- [02 · Geocodificação](02_geocodificacao_locais.qmd) — validação e fallback de coordenada.
+
+As etapas 03–05 (distribuição espacial, resultados e exportação) são em Python,
+em `src/eleicoes/` e `scripts/` — ver o README do repositório.

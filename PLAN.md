@@ -259,6 +259,12 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
 ## Riscos e pendências
 
 - Acesso ao CDN do TSE (403 aqui). Testar da rede do CEM no primeiro dia.
+- Qualquer chamada de rede em R (httr2, `url()`) trava com "segmentation fault" no
+  ambiente onde este repositório foi montado — testado até com `base::url()`, sem
+  geobr envolvido, então não é o bug documentado do geobr 2.x. Os `.qmd` das
+  etapas 00–02 têm a lógica de dados testada com fixtures locais (ver
+  `scripts/_teste_manual_*.R`), mas nunca rodaram de ponta a ponta com download
+  real. Rodar numa máquina/rede sem essa restrição antes de confiar no resultado.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.

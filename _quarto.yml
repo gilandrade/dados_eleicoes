@@ -1,0 +1,23 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "dados_eleicoes"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Início
+      - href: 00_auxiliares.qmd
+        text: 00 · Auxiliares
+      - href: 01_locais_votacao.qmd
+        text: 01 · Locais de votação
+      - href: 02_geocodificacao_locais.qmd
+        text: 02 · Geocodificação
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
+    df-print: paged

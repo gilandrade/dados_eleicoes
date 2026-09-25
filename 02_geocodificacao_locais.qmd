@@ -1,0 +1,192 @@
+---
+title: "02 · Geocodificação"
+params:
+  ano: 2022
+---
+
+Valida a coordenada do TSE em `locais_{ano}.parquet` e aplica a cadeia de
+fallback (PLAN.md > Etapa 02): outro ano → Hidalgo → escola → `geocodebr` →
+centróide do município. Cada local termina com `fonte_coord` e `precisao`.
+
+```{r setup}
+#| message: false
+library(dplyr)
+library(sf)
+library(arrow)
+
+ano <- params$ano
+PROCESSADO_DIR <- "dados/02_processado"
+GEOMETRIAS_DIR <- "dados/03_georedus/geometrias"
+dir.create(GEOMETRIAS_DIR, showWarnings = FALSE, recursive = TRUE)
+
+BUFFER_MUNICIPIO_M <- 500
+LIMIAR_DIST_TSE_REF_M <- 800
+```
+
+## 1. Carrega locais e municípios
+
+```{r carrega}
+#| message: false
+locais <- read_parquet(file.path(PROCESSADO_DIR, sprintf("locais_%d.parquet", ano)))
+municipios <- st_read("dados/02_processado/aux/municipios.gpkg", quiet = TRUE)
+```
+
+## 2. Validação da coordenada do TSE
+
+Reprova quando a coordenada é nula, `(0, 0)`, `(-1, -1)` (valor sentinela do
+TSE para o exterior), cai fora do próprio município, ou é repetida em 3 ou
+mais locais do mesmo município (provável centróide usado como preenchimento).
+
+```{r valida_coordenada}
+#| message: false
+valida_coordenada_tse <- function(locais, municipios, buffer_m = BUFFER_MUNICIPIO_M) {
+  locais <- locais |>
+    mutate(
+      coord_nula = is.na(latitude) | is.na(longitude),
+      coord_sentinela = !coord_nula & (
+        (latitude == 0 & longitude == 0) | (latitude == -1 & longitude == -1)
+      )
+    )
+
+  candidatos <- locais |> filter(!coord_nula & !coord_sentinela)
+
+  if (nrow(candidatos) > 0) {
+    pontos <- st_as_sf(candidatos, coords = c("longitude", "latitude"), crs = 4674, remove = FALSE)
+
+    municipios_buffer <- municipios |>
+      st_transform(5880) |>
+      st_buffer(buffer_m) |>
+      st_transform(4674)
+
+    dentro_do_municipio <- rep(FALSE, nrow(pontos))
+    for (i in seq_len(nrow(pontos))) {
+      limite <- municipios_buffer |> filter(cd_mun == pontos$cd_mun[i])
+      if (nrow(limite) == 0) next
+      dentro_do_municipio[i] <- st_intersects(pontos[i, ], limite, sparse = FALSE)[1, 1]
+    }
+    candidatos$coord_fora_municipio <- !dentro_do_municipio
+  } else {
+    candidatos$coord_fora_municipio <- logical(0)
+  }
+
+  candidatos <- candidatos |>
+    group_by(cd_mun, latitude, longitude) |>
+    mutate(coord_repetida = n() >= 3) |>
+    ungroup()
+
+  locais |>
+    left_join(
+      candidatos |> st_drop_geometry() |> select(id_local, coord_fora_municipio, coord_repetida),
+      by = "id_local"
+    ) |>
+    mutate(
+      coord_valida = !coord_nula & !coord_sentinela &
+        !coalesce(coord_fora_municipio, TRUE) & !coalesce(coord_repetida, TRUE)
+    )
+}
+
+locais_validados <- valida_coordenada_tse(locais, municipios)
+locais_validados |> count(coord_valida)
+```
+
+## 3. Cadeia de fallback
+
+```{r fallback}
+#| eval: false
+# MVP (antes de 04/10): outro ano + Hidalgo. Escola e geocodebr entram depois
+# (ver PLAN.md > Etapa 02 > MVP).
+
+locais_outro_ano <- function(locais_validados, ano_referencia) {
+  caminho <- file.path(GEOMETRIAS_DIR, sprintf("geom_locais_votacao_%d.gpkg", ano_referencia))
+  if (!file.exists(caminho)) return(locais_validados)
+
+  referencia <- st_read(caminho, quiet = TRUE) |>
+    st_drop_geometry() |>
+    select(id_local, latitude_ref = latitude, longitude_ref = longitude)
+
+  locais_validados |>
+    left_join(referencia, by = "id_local") |>
+    mutate(
+      usa_referencia = !coord_valida & !is.na(latitude_ref),
+      latitude = if_else(usa_referencia, latitude_ref, latitude),
+      longitude = if_else(usa_referencia, longitude_ref, longitude),
+      fonte_coord = if_else(usa_referencia, sprintf("ano_%d", ano_referencia), NA_character_)
+    ) |>
+    select(-latitude_ref, -longitude_ref, -usa_referencia)
+}
+
+locais_hidalgo <- function(locais_com_fallback) {
+  caminho <- "dados/01_bruto/aux/geocoded_polling_stations.csv.gz"
+  if (!file.exists(caminho)) {
+    warning("Painel Hidalgo não encontrado em ", caminho, " — baixar de ",
+            "github.com/fdhidalgo/geocode_br_polling_stations (release v0.16).")
+    return(locais_com_fallback)
+  }
+  hidalgo <- readr::read_csv(caminho, show_col_types = FALSE) |>
+    janitor::clean_names() |>
+    filter(year == ano) |>
+    transmute(
+      cd_municipio = as.character(cod_localidade_tse),
+      nr_zona = as.integer(zona), nr_local = as.integer(local),
+      latitude_hidalgo = pred_lat, longitude_hidalgo = pred_long
+    )
+
+  # id_local aqui precisa ser reconstruído com os mesmos componentes de
+  # 01_locais_votacao.qmd para o join funcionar.
+  locais_com_fallback |>
+    mutate(
+      cd_municipio = substr(id_local, 1, 5),  # ajustar aos dígitos reais do cd_mun_tse
+      nr_zona = as.integer(substr(id_local, 6, 9)),
+      nr_local = as.integer(substr(id_local, 10, 13))
+    ) |>
+    left_join(hidalgo, by = c("cd_municipio", "nr_zona", "nr_local")) |>
+    mutate(
+      usa_hidalgo = is.na(fonte_coord) & !coord_valida & !is.na(latitude_hidalgo),
+      latitude = if_else(usa_hidalgo, latitude_hidalgo, latitude),
+      longitude = if_else(usa_hidalgo, longitude_hidalgo, longitude),
+      fonte_coord = if_else(usa_hidalgo, "hidalgo", fonte_coord)
+    ) |>
+    select(-cd_municipio, -nr_zona, -nr_local, -latitude_hidalgo, -longitude_hidalgo, -usa_hidalgo)
+}
+
+locais_final <- locais_validados |>
+  mutate(fonte_coord = if_else(coord_valida, "tse", NA_character_)) |>
+  locais_outro_ano(ano_referencia = if (ano == 2026) 2022 else 2018) |>
+  locais_hidalgo() |>
+  mutate(
+    fonte_coord = coalesce(fonte_coord, "sem_coord"),
+    flag_sem_coord = fonte_coord == "sem_coord"
+  )
+
+locais_final |> count(fonte_coord)
+```
+
+## 4. Controle cruzado com a referência
+
+```{r controle_cruzado}
+#| eval: false
+calcula_distancia_m <- function(lat1, lon1, lat2, lon2) {
+  p1 <- st_as_sf(data.frame(lat = lat1, lon = lon1), coords = c("lon", "lat"), crs = 4674)
+  p2 <- st_as_sf(data.frame(lat = lat2, lon = lon2), coords = c("lon", "lat"), crs = 4674)
+  as.numeric(st_distance(st_transform(p1, 5880), st_transform(p2, 5880), by_element = TRUE))
+}
+
+# aplicar calcula_distancia_m entre a coordenada do TSE (antes do fallback) e
+# a referência escolhida, e manter o TSE se dist_tse_ref_m < LIMIAR_DIST_TSE_REF_M
+# — ver PLAN.md > Etapa 02.
+```
+
+## 5. Saída
+
+```{r saida}
+#| eval: false
+geom_locais <- locais_final |>
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4674, remove = FALSE) |>
+  select(id_local, cd_mun, fonte_coord, precisao = fonte_coord, flag_especial, flag_sem_coord)
+
+st_write(geom_locais, file.path(GEOMETRIAS_DIR, sprintf("geom_locais_votacao_%d.gpkg", ano)), delete_dsn = TRUE)
+
+locais_final |>
+  count(fonte_coord) |>
+  mutate(pc = n / sum(n))
+```

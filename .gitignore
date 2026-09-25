@@ -1,0 +1,29 @@
+# Dados (git-ignorados, ver PLAN.md)
+dados/
+input/
+output/
+
+# R / renv / Quarto
+renv/library/
+renv/staging/
+renv/python/
+renv/sandbox/
+.Rproj.user/
+.Rhistory
+.RData
+/.quarto/
+*_files/
+*_cache/
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# outros
+.claude
+.DS_Store
+Thumbs.db
