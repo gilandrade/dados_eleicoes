@@ -25,10 +25,10 @@ CARGA_DIR = GEOREDUS_DIR / "carga"
 CNEFE_ETL_DIR = REPO_ROOT.parent / "cnefe-etl"
 CNEFE_POINTS_PARQUET = CNEFE_ETL_DIR / "output" / "points" / "cnefe_points_all_mun.parquet"
 
-# Repositório irmão com os indicadores de população por setor (cn22-pop)
-CN22_POP_DIR = REPO_ROOT.parent / "cn22-pop"
-CN22_POP01_ABS = CN22_POP_DIR / "dados" / "01_indicadores" / "cn22_pop01_abs.csv"
-CN22_POP03_ABS = CN22_POP_DIR / "dados" / "01_indicadores" / "cn22_pop03_abs.csv"
+# pop18 por setor: calculado em R na etapa 00 (00_auxiliares.qmd), a partir dos
+# indicadores já nomeados do cn22-pop (não das variáveis brutas do IBGE) — ver
+# CLAUDE.md > Conventions and gotchas. Python só lê o resultado.
+POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 
 # ==== CRS ====================================================================
 

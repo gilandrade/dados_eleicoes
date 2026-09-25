@@ -27,3 +27,5 @@ __pycache__/
 .claude
 .DS_Store
 Thumbs.db
+
+**/*.quarto_ipynb

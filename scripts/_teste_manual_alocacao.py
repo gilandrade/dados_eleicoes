@@ -78,15 +78,15 @@ assert (oeste == "L1").mean() > 0.95, "domicílios claramente a oeste deveriam i
 
 setores_unicos = sorted(set(setores_dom))
 cn22_pop01 = pd.DataFrame(
-    {"cd_setor": setores_unicos, "v0001": [1000] * len(setores_unicos)}
+    {"cd_setor": setores_unicos, "cn22_pop01_res_tot_0": [1000] * len(setores_unicos)}
 )
 cn22_pop03 = pd.DataFrame(
     {
         "cd_setor": setores_unicos,
-        "v01031": [50] * len(setores_unicos),  # 0-4
-        "v01032": [50] * len(setores_unicos),  # 5-9
-        "v01033": [50] * len(setores_unicos),  # 10-14
-        "v01034": [50] * len(setores_unicos),  # 15-19
+        "cn22_pop03_0a4_tot_0": [50] * len(setores_unicos),
+        "cn22_pop03_5a9_tot_0": [50] * len(setores_unicos),
+        "cn22_pop03_10a14_tot_0": [50] * len(setores_unicos),
+        "cn22_pop03_15a19_tot_0": [50] * len(setores_unicos),
     }
 )
 pop18 = alocacao.pop18_por_setor(cn22_pop01, cn22_pop03)

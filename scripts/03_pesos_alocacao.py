@@ -29,11 +29,10 @@ import pandas as pd
 
 from eleicoes import alocacao
 from eleicoes.config import (
-    CN22_POP01_ABS,
-    CN22_POP03_ABS,
     CNEFE_ESPECIES_DOMICILIO,
     CNEFE_POINTS_PARQUET,
     GEOMETRIAS_DIR,
+    POP18_SETOR_PARQUET,
     PROCESSADO_DIR,
     RESULTADOS_DIR,
 )
@@ -77,14 +76,17 @@ def carrega_locais_elegiveis(ano: int) -> gpd.GeoDataFrame:
 
 
 def carrega_pop18() -> pd.DataFrame:
-    if not (CN22_POP01_ABS.exists() and CN22_POP03_ABS.exists()):
+    """Lê `pop18_setor.parquet`, calculado em R por `00_auxiliares.qmd`.
+
+    Python não recalcula essa conta a partir dos CSVs do `cn22-pop` — só o R
+    lê o Censo (ver `alocacao.pop18_por_setor` para a versão de referência em
+    Python, não usada aqui).
+    """
+    if not POP18_SETOR_PARQUET.exists():
         raise FileNotFoundError(
-            f"Indicadores do cn22-pop não encontrados em {CN22_POP01_ABS} / "
-            f"{CN22_POP03_ABS}. Ajuste CN22_POP_DIR em src/eleicoes/config.py."
+            f"{POP18_SETOR_PARQUET} não existe — rode 00_auxiliares.qmd (R) primeiro."
         )
-    return alocacao.pop18_por_setor(
-        pd.read_csv(CN22_POP01_ABS), pd.read_csv(CN22_POP03_ABS)
-    )
+    return pd.read_parquet(POP18_SETOR_PARQUET)
 
 
 def carrega_limites_municipio(ano: int) -> gpd.GeoDataFrame:

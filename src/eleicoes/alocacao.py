@@ -160,21 +160,40 @@ def pop18_por_setor(
     Censo 2022 (`cn22-pop`), supondo distribuição uniforme dentro da faixa
     15–19 (3 dos 5 anos são maiores de idade).
 
+    NÃO é o caminho usado pelo pipeline: `00_auxiliares.qmd` (R) já calcula e
+    grava `pop18_setor.parquet`, e `scripts/03_pesos_alocacao.py` só lê esse
+    arquivo (`config.POP18_SETOR_PARQUET`) — ver CLAUDE.md. Esta função existe
+    como referência da mesma conta em Python e para reuso fora do pipeline
+    principal; mantida em sincronia com a versão em R.
+
     Args:
-        cn22_pop01_abs: `cn22_pop01_abs.csv` (total de pessoas por setor,
-            `V0001`).
-        cn22_pop03_abs: `cn22_pop03_abs.csv` (faixas etárias absolutas por
-            setor).
+        cn22_pop01_abs: `cn22_pop01_abs.csv` do `cn22-pop` — atenção: a chave
+            de setor ali é `cod_setor` (não `cd_setor`), e o total é o
+            indicador nomeado `cn22_pop01_res_tot_0` (não a variável bruta do
+            IBGE `V0001`). Renomear antes de chamar esta função.
+        cn22_pop03_abs: `cn22_pop03_abs.csv`, com as mesmas ressalvas de nomes
+            — faixas etárias absolutas: `cn22_pop03_0a4_tot_0`,
+            `cn22_pop03_5a9_tot_0`, `cn22_pop03_10a14_tot_0`,
+            `cn22_pop03_15a19_tot_0`.
 
     Returns:
         DataFrame com `cd_setor` e `pop18`.
     """
-    total = cn22_pop01_abs[["cd_setor", "v0001"]].rename(columns={"v0001": "total"})
-    faixas = cn22_pop03_abs[["cd_setor", "v01031", "v01032", "v01033", "v01034"]]
+    total = cn22_pop01_abs[["cd_setor", "cn22_pop01_res_tot_0"]].rename(
+        columns={"cn22_pop01_res_tot_0": "total"}
+    )
+    faixas = cn22_pop03_abs[
+        ["cd_setor", "cn22_pop03_0a4_tot_0", "cn22_pop03_5a9_tot_0",
+         "cn22_pop03_10a14_tot_0", "cn22_pop03_15a19_tot_0"]
+    ]
 
     df = total.merge(faixas, on="cd_setor", how="left").fillna(0)
     df["pop18"] = (
-        df["total"] - df["v01031"] - df["v01032"] - df["v01033"] - 0.6 * df["v01034"]
+        df["total"]
+        - df["cn22_pop03_0a4_tot_0"]
+        - df["cn22_pop03_5a9_tot_0"]
+        - df["cn22_pop03_10a14_tot_0"]
+        - 0.6 * df["cn22_pop03_15a19_tot_0"]
     ).clip(lower=0)
 
     return df[["cd_setor", "pop18"]]

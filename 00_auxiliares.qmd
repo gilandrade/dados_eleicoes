@@ -104,8 +104,19 @@ divergencias
 ## 2. Malha de municípios (`geobr`, fixado em 1.9.1)
 
 ```{r municipios}
-#| message: false
-municipios <- geobr::read_municipality(code_muni = "all", year = 2022, showProgress = FALSE) |>
+# showProgress = FALSE faz o geobr devolver NULL em silêncio ao renderizar
+# fora de um console interativo (ver CLAUDE.md > Conventions and gotchas) —
+# deixar o padrão (TRUE) mesmo dentro do Quarto.
+municipios <- geobr::read_municipality(code_muni = "all", year = 2022)
+
+if (is.null(municipios) || nrow(municipios) == 0) {
+  stop(
+    "geobr::read_municipality(year = 2022) devolveu NULL/vazio inesperadamente — ",
+    "confirme rodando a mesma chamada direto no console do R."
+  )
+}
+
+municipios <- municipios |>
   rename(cd_mun = code_muni) |>
   mutate(cd_mun = as.character(cd_mun)) |>
   st_transform(4674)
@@ -122,21 +133,31 @@ de `src/eleicoes/alocacao.pop18_por_setor()` (Python) — ver PLAN.md > Método,
 passo 4. É calculada aqui (R, etapa "auxiliares") e só lida em Python, para não
 duplicar a leitura dos CSVs do Censo em duas linguagens.
 
+Os CSVs do `cn22-pop` já vêm com os **indicadores nomeados** no padrão
+GeoReDUS (`cn22_pop01_res_tot_0`, `cn22_pop03_0a4_tot_0`, ...), não com as
+variáveis brutas do IBGE (`V0001`, `V01031`, ...) — a chave de setor ali é
+`cod_setor`, não `cd_setor` (confirmado rodando contra os arquivos reais em
+25/09/2026; renomeado aqui para `cd_setor`, o nome usado no resto do pipeline).
+
 ```{r pop18}
 #| message: false
 pop01 <- read_csv(file.path(CN22_POP_DIR, "cn22_pop01_abs.csv"), show_col_types = FALSE) |>
-  janitor::clean_names() |>
-  select(cd_setor, total = v0001)
+  transmute(cd_setor = cod_setor, total = cn22_pop01_res_tot_0)
 
 pop03 <- read_csv(file.path(CN22_POP_DIR, "cn22_pop03_abs.csv"), show_col_types = FALSE) |>
-  janitor::clean_names() |>
-  select(cd_setor, v01031, v01032, v01033, v01034)
+  transmute(
+    cd_setor = cod_setor,
+    fx_0a4 = cn22_pop03_0a4_tot_0,
+    fx_5a9 = cn22_pop03_5a9_tot_0,
+    fx_10a14 = cn22_pop03_10a14_tot_0,
+    fx_15a19 = cn22_pop03_15a19_tot_0
+  )
 
 pop18_setor <- pop01 |>
   left_join(pop03, by = "cd_setor") |>
   mutate(
-    across(c(v01031, v01032, v01033, v01034), ~ replace(.x, is.na(.x), 0)),
-    pop18 = pmax(total - v01031 - v01032 - v01033 - 0.6 * v01034, 0)
+    across(c(fx_0a4, fx_5a9, fx_10a14, fx_15a19), ~ replace(.x, is.na(.x), 0)),
+    pop18 = pmax(total - fx_0a4 - fx_5a9 - fx_10a14 - 0.6 * fx_15a19, 0)
   ) |>
   select(cd_setor, pop18)
 

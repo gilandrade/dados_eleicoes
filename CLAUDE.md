@@ -63,6 +63,10 @@ the full data model (geometry files vs. result files joined by a shared id).
   EPSG:5880 (SIRGAS 2000 / Brazil Polyconic), métrico nacional.
 - **geobr fixado em 1.9.1** — não atualizar (ver `cnefe-etl/CLAUDE.md` para o motivo:
   2.x quebra o catálogo de malhas).
+- **`geobr::read_municipality(..., showProgress = FALSE)` devolve `NULL` em silêncio**
+  ao renderizar via `quarto render` (fora de um console interativo) — confirmado em
+  25/09/2026. Deixar `showProgress` no padrão (`TRUE`, omitir o argumento), mesmo que
+  isso jogue a barra de progresso no output do Quarto.
 - **Ids são texto**, no formato IBGE/TSE (nunca inteiro, para preservar zeros à
   esquerda): `id_local`, `id_secao`, `id_zona_mun`, `cd_mun`, `cd_setor`.
 - **Camadas observadas vs. estimadas:** `geom_locais_votacao` e
