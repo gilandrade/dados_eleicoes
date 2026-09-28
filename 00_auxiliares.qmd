@@ -93,13 +93,21 @@ normaliza_texto <- function(x) {
     stringr::str_squish()
 }
 
+# Checados à mão e confirmados corretos (25/09/2026) — nome antigo/local no
+# IBGE, nome oficial atual no TSE (ou vice-versa), mesmo município:
+#   2405306 Boa Saúde / Januário Cicco (RN)
+#   1708254 Fortaleza do Tabocão / Tabocão (TO)
+#   2400208 Assú / Açu (RN)
+# Excluídos daqui pra baixo para a lista só mostrar divergências novas.
+CD_MUN_DIVERGENCIA_CONFIRMADA <- c("2405306", "1708254", "2400208")
+
 divergencias <- crosswalk |>
   mutate(
     dist_nome = stringdist::stringdist(
       normaliza_texto(nm_mun_ibge), normaliza_texto(nm_mun_tse), method = "jw"
     )
   ) |>
-  filter(dist_nome > 0.15) |>
+  filter(dist_nome > 0.15, !cd_mun %in% CD_MUN_DIVERGENCIA_CONFIRMADA) |>
   arrange(desc(dist_nome))
 
 divergencias
