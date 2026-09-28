@@ -31,12 +31,13 @@ valida_coordenada_tse <- function(locais, municipios, buffer_m = BUFFER_MUNICIPI
       st_buffer(buffer_m) |>
       st_transform(4674)
 
-    dentro_do_municipio <- rep(FALSE, nrow(pontos))
-    for (i in seq_len(nrow(pontos))) {
-      limite <- municipios_buffer |> filter(cd_mun == pontos$cd_mun[i])
-      if (nrow(limite) == 0) next
-      dentro_do_municipio[i] <- st_intersects(pontos[i, ], limite, sparse = FALSE)[1, 1]
-    }
+    candidatos_por_ponto <- st_intersects(pontos, municipios_buffer)
+    cd_mun_dos_poligonos <- municipios_buffer$cd_mun
+    dentro_do_municipio <- vapply(
+      seq_along(candidatos_por_ponto),
+      \(i) pontos$cd_mun[i] %in% cd_mun_dos_poligonos[candidatos_por_ponto[[i]]],
+      logical(1)
+    )
     candidatos$coord_fora_municipio <- !dentro_do_municipio
   } else {
     candidatos$coord_fora_municipio <- logical(0)
