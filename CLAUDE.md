@@ -197,17 +197,37 @@ the full data model (geometry files vs. result files joined by a shared id).
     soma de `QT_ELEITOR_SECAO` por `id_local` (turno 1), usado pelo
     diagnóstico de alocação e, depois, como `qt_aptos` em `processa_turno.py`
     (ver abaixo). Precisa passar pela etapa 02 também (`select()` da saída).
-- **`detalhe_votacao_secao` não existe** (ou não está mais publicado) — nenhum
-  nome plausível (`detalhe_votacao_secao`, `comparecimento_abstencao`,
-  `perfil_comparecimento_abstencao`, `detalhe_votacao_munzona`) respondeu 200
-  ao tentar de verdade em 29/09/2026. Como o voto para Presidente é único e
-  obrigatório para quem comparece, **`qt_comparecimento` de uma seção é a
-  soma de `qt_votos` de todas as linhas daquela seção** (válidos + brancos +
-  nulos) — não precisa de arquivo à parte. `qt_aptos` não vem do stream de
-  resultados: vem de `locais.qt_eleitores` (soma de `QT_ELEITOR_SECAO` da
-  etapa 01). `fontes.ler_votacao_secao()` não recebe mais
-  `caminho_detalhe_votacao_secao`, e `resultados.agrega_por_local()`/
-  `agrega_por_zona_mun()` recebem `locais` para buscar `qt_aptos`.
+- **`detalhe_votacao_secao` existe, mas com nome diferente do que eu tinha
+  chutado.** Eu tentei `detalhe_votacao_secao_{ano}_BR.zip` (copiando o
+  padrão do `votacao_secao`) e tomei 404 repetidas vezes em 29/09/2026; o
+  Gil achou o arquivo certo pelo portal humano
+  (`dadosabertos.tse.jus.br/organization/tse-agel`, card "Detalhe da
+  apuração por seção eleitoral"): o zip **não tem `_BR` no nome**
+  (`detalhe_votacao_secao/detalhe_votacao_secao_{ano}.zip`), só os CSVs de
+  dentro dele têm (`detalhe_votacao_secao_{ano}_BR.csv`, uma UF por arquivo
+  + `_BR.csv` já filtrado para Presidente/`TP_ABRANGENCIA='F'` + `_BRASIL.csv`
+  com todos os cargos). **Padrão de nome do TSE não é uniforme entre
+  datasets — sempre confirmar no portal antes de adivinhar um nome de zip.**
+
+  Esse arquivo tem `QT_APTOS`/`QT_COMPARECIMENTO`/`QT_ABSTENCOES` reais por
+  seção×turno. Conferido nas 944.150 linhas de 2022 (Presidente, ambos os
+  turnos): `QT_COMPARECIMENTO` bate **sem exceção** com a soma de
+  `QT_VOTOS_NOMINAIS+BRANCOS+NULOS+LEGENDA+ANULADOS_APU_SEP` — confirma que
+  o cálculo por soma de `qt_votos` (que já não dependia deste arquivo) está
+  certo. O ganho real é `QT_APTOS`: a soma nacional do arquivo (156.454.011)
+  bate bem mais perto do valor por seção do que a aproximação por
+  `locais.qt_eleitores` (156.451.515, um `QT_ELEITOR_SECAO` só do turno 1,
+  por local) — usar o arquivo derrubou a diferença de 2.496 para 657
+  (~74%). `fontes.ler_votacao_secao()` aceita `caminho_detalhe` opcional: se
+  informado, faz `LEFT JOIN` por `(cd_mun_tse, nr_zona, nr_secao, turno)` e
+  usa `QT_APTOS`/`QT_COMPARECIMENTO` do arquivo, com `COALESCE` para a soma
+  de `qt_votos` nas poucas seções sem match (~5%, provavelmente seções
+  canceladas/não instaladas, que saem do `detalhe` mas ficam no
+  `eleitorado_local_votacao`). `resultados.agrega_por_local()`/
+  `agrega_por_zona_mun()` preferem esse `qt_aptos` por seção quando
+  presente, caindo em `locais.qt_eleitores` só onde ele faltar. O arquivo é
+  grande (243 MB) e opcional — `processa_turno.py` só usa se já estiver em
+  `dados/01_bruto/{ano}/detalhe_votacao_secao_{ano}.zip`, não baixa sozinho.
 - **`CD_MUNICIPIO` não tem o mesmo padding em todos os arquivos do TSE.**
   Confirmado real: `eleitorado_local_votacao` sempre tem 5 dígitos
   (`"01120"`); `votacao_secao` **não** — varia de 2 a 5 dígitos (`"1120"`).

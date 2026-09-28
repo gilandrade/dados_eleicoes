@@ -41,6 +41,7 @@ com_id = pd.DataFrame(
         "id_secao": [f"{CD_MUN}00010001"] * 2 + ["ZZ00010001"] * 2,
         "id_local": ["L1", "L1", "L_EXT", "L_EXT"],
         "qt_comparecimento": [105, 105, 22, 22],
+        "qt_aptos": [pd.NA, pd.NA, pd.NA, pd.NA],  # sem detalhe_votacao_secao aqui, cai no fallback
     }
 )
 

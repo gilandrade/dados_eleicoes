@@ -69,12 +69,15 @@ def agrega_por_local(
     col_id_local: str = "id_local",
     col_qt_eleitores: str = "qt_eleitores",
 ) -> pd.DataFrame:
-    """Soma `qt_votos` por `id_local` × `nr_votavel`, e `qt_comparecimento`
-    por `id_local` (contando cada seção uma única vez).
+    """Soma `qt_votos` por `id_local` × `nr_votavel`, e `qt_comparecimento`/
+    `qt_aptos` por `id_local` (contando cada seção uma única vez).
 
-    `qt_aptos` não vem do stream de resultados (`fontes.py` não traz mais
-    essa coluna, ver o módulo) — vem de `locais.qt_eleitores`, já somado na
-    etapa 01 a partir de `QT_ELEITOR_SECAO` do arquivo de locais.
+    `qt_aptos`: se `resultados_secao_com_id` já traz um `qt_aptos` por seção
+    (de `fontes.ler_votacao_secao(..., caminho_detalhe=...)`, o real do TSE),
+    soma esse valor por local. Onde ele faltar — `fontes.ler_bweb()`, ou
+    `ler_votacao_secao()` sem o arquivo de detalhe — cai em
+    `locais.qt_eleitores` (soma de `QT_ELEITOR_SECAO` da etapa 01,
+    aproximação a menos de 0,002% no teste com 2022).
 
     Args:
         resultados_secao_com_id: saída de `secao_para_id_local`.
@@ -99,19 +102,24 @@ def agrega_por_local(
         .reset_index()
     )
 
-    # qt_comparecimento é por seção, não por (seção, votável) — contar uma
-    # vez por (id_secao) para não somar em duplicidade.
-    comparecimento = (
-        base.drop_duplicates("id_secao").groupby("id_local")["qt_comparecimento"].sum()
+    # qt_comparecimento/qt_aptos são por seção, não por (seção, votável) —
+    # contar uma vez por (id_secao) para não somar em duplicidade. sum(min_count=1)
+    # devolve NA (não 0) quando todas as seções do local não têm qt_aptos, para
+    # o fillna por locais.qt_eleitores funcionar certo em seguida.
+    por_secao = base.drop_duplicates("id_secao").groupby("id_local").agg(
+        qt_comparecimento=("qt_comparecimento", "sum"),
+        qt_aptos=("qt_aptos", lambda s: s.sum(min_count=1)),
     ).reset_index()
 
-    aptos = locais[[col_id_local, col_qt_eleitores]].rename(
-        columns={col_id_local: "id_local", col_qt_eleitores: "qt_aptos"}
+    aptos_fallback = locais[[col_id_local, col_qt_eleitores]].rename(
+        columns={col_id_local: "id_local", col_qt_eleitores: "qt_aptos_fallback"}
     )
 
-    return votos_largo.merge(comparecimento, on="id_local", how="left").merge(
-        aptos, on="id_local", how="left"
+    saida = votos_largo.merge(por_secao, on="id_local", how="left").merge(
+        aptos_fallback, on="id_local", how="left"
     )
+    saida["qt_aptos"] = saida["qt_aptos"].fillna(saida["qt_aptos_fallback"])
+    return saida.drop(columns="qt_aptos_fallback")
 
 
 def agrega_por_zona_mun(
@@ -164,8 +172,13 @@ def agrega_por_zona_mun(
         .reset_index()
     )
 
-    comparecimento = (
-        base.drop_duplicates("id_secao").groupby("id_zona_mun")["qt_comparecimento"].sum()
+    # qt_aptos: prefere o valor real por seção (de detalhe_votacao_secao, via
+    # fontes.py), somado uma vez por seção. Onde faltar (NA em todas as
+    # seções da zona), cai no fallback de locais.qt_eleitores — mesma lógica
+    # de agrega_por_local, ver lá.
+    por_secao = base.drop_duplicates("id_secao").groupby("id_zona_mun").agg(
+        qt_comparecimento=("qt_comparecimento", "sum"),
+        qt_aptos=("qt_aptos", lambda s: s.sum(min_count=1)),
     ).reset_index()
 
     # id_zona_mun de cada local: mesma conta de `base`, mas a partir de
@@ -176,16 +189,18 @@ def agrega_por_zona_mun(
         aptos_por_local[col_cd_mun].fillna(SENTINELA_EXTERIOR).astype(str)
         + aptos_por_local["nr_zona"].astype(int).astype(str).str.zfill(4)
     )
-    aptos = (
+    aptos_fallback = (
         aptos_por_local.groupby("id_zona_mun")[col_qt_eleitores]
         .sum()
-        .rename("qt_aptos")
+        .rename("qt_aptos_fallback")
         .reset_index()
     )
 
-    return votos_largo.merge(comparecimento, on="id_zona_mun", how="left").merge(
-        aptos, on="id_zona_mun", how="left"
+    saida = votos_largo.merge(por_secao, on="id_zona_mun", how="left").merge(
+        aptos_fallback, on="id_zona_mun", how="left"
     )
+    saida["qt_aptos"] = saida["qt_aptos"].fillna(saida["qt_aptos_fallback"])
+    return saida.drop(columns="qt_aptos_fallback")
 
 
 def agrega_por_setor(

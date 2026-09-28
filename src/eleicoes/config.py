@@ -57,11 +57,14 @@ URL_LOCAIS_VOTACAO = (
     f"{TSE_CDN_BASE}/eleitorado_locais_votacao/eleitorado_local_votacao_{{ano}}.zip"
 )
 URL_VOTACAO_SECAO = f"{TSE_CDN_BASE}/votacao_secao/votacao_secao_{{ano}}_BR.zip"
-# Não existe (ou não está mais publicado): nenhum nome plausível de
-# "detalhe_votacao_secao"/"comparecimento_abstencao"/"detalhe_votacao_munzona"
-# respondeu 200 ao tentar de verdade em 29/09/2026 — ver `fontes.py`, que
-# calcula qt_comparecimento a partir da própria soma de qt_votos por seção
-# em vez de depender de um arquivo à parte.
+# QT_APTOS/QT_COMPARECIMENTO reais por seção — opcional (ver fontes.py:
+# qt_comparecimento já sai certo sem ele, calculado como soma de qt_votos).
+# Achado no portal humano em 29/09/2026, depois de eu chutar
+# "detalhe_votacao_secao_{ano}_BR.zip" (com "_BR") e tomar 404: o nome certo
+# NÃO tem "_BR" no zip — só nos CSVs de dentro dele.
+URL_DETALHE_VOTACAO_SECAO = (
+    f"{TSE_CDN_BASE}/detalhe_votacao_secao/detalhe_votacao_secao_{{ano}}.zip"
+)
 URL_CONSULTA_CAND = f"{TSE_CDN_BASE}/consulta_cand/consulta_cand_{{ano}}.zip"
 URL_VOTACAO_CANDIDATO_MUNZONA = (
     f"{TSE_CDN_BASE}/votacao_candidato_munzona/votacao_candidato_munzona_{{ano}}.zip"

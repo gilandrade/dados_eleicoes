@@ -31,6 +31,7 @@ from eleicoes.config import (
     PROCESSADO_DIR,
     RESULTADOS_DIR,
     URL_BWEB,
+    URL_DETALHE_VOTACAO_SECAO,
     URL_VOTACAO_SECAO,
 )
 from eleicoes.download import baixar
@@ -69,6 +70,33 @@ def carrega_pesos(ano: int) -> pd.DataFrame:
     return pd.read_parquet(caminho)
 
 
+def extrai_csv_do_zip(caminho_zip: Path, caminho_csv: Path, *, nome_interno: str | None = None) -> None:
+    """Extrai um CSV de dentro de um zip do TSE, sem descompactar o resto.
+
+    Args:
+        caminho_zip: zip baixado do CDN.
+        caminho_csv: onde salvar o CSV extraído.
+        nome_interno: nome exato do arquivo dentro do zip. Se `None`, pega o
+            primeiro `.csv` encontrado (zips com um CSV só, como
+            `votacao_secao`). Zips com vários CSVs (como
+            `detalhe_votacao_secao`, um por UF + BR + BRASIL) precisam do
+            nome exato — pegar "o primeiro" pegaria uma UF qualquer.
+    """
+    if not caminho_zip.exists():
+        raise FileNotFoundError(
+            f"Nem {caminho_csv} nem {caminho_zip} existem — baixe manualmente "
+            "(ver PLAN.md > Fontes de dados: o CDN do TSE só respondeu via "
+            "R/httr2 daqui, não via curl direto)."
+        )
+    logger.info("Extraindo %s de %s...", nome_interno or "(primeiro .csv)", caminho_zip)
+    import zipfile
+
+    with zipfile.ZipFile(caminho_zip) as z:
+        alvo = nome_interno or next(n for n in z.namelist() if n.lower().endswith(".csv"))
+        with z.open(alvo) as origem, open(caminho_csv, "wb") as saida:
+            saida.write(origem.read())
+
+
 def obtem_resultados_secao(
     ano: int, turno: int, fonte: str, deve_baixar: bool
 ) -> pd.DataFrame:
@@ -98,20 +126,30 @@ def obtem_resultados_secao(
         if deve_baixar:
             baixar(URL_VOTACAO_SECAO.format(ano=ano), caminho_zip)
         if not caminho_votos.exists():
-            if not caminho_zip.exists():
-                raise FileNotFoundError(
-                    f"Nem {caminho_zip} nem {caminho_votos} existem — rode com --baixar "
-                    "ou baixe manualmente (ver PLAN.md > Fontes de dados: o CDN do TSE "
-                    "só respondeu via R/httr2 daqui, não via curl direto)."
-                )
-            logger.info("Extraindo %s...", caminho_zip)
-            import zipfile
+            extrai_csv_do_zip(caminho_zip, caminho_votos)
 
-            with zipfile.ZipFile(caminho_zip) as z:
-                nome_interno = next(n for n in z.namelist() if n.lower().endswith(".csv"))
-                with z.open(nome_interno) as origem, open(caminho_votos, "wb") as saida:
-                    saida.write(origem.read())
-        return fontes.ler_votacao_secao(caminho_votos, ano, turno)
+        # detalhe_votacao_secao é opcional: dá qt_aptos real por seção em vez
+        # da aproximação por local (locais.qt_eleitores) — ver fontes.py. Nome
+        # do zip NÃO tem "_BR" (diferente de votacao_secao), achado no portal
+        # humano em 29/09/2026 depois de eu chutar errado. Não baixa sozinho
+        # (243 MB, opcional) — só usa se já estiver em disco.
+        caminho_zip_detalhe = destino / f"detalhe_votacao_secao_{ano}.zip"
+        caminho_detalhe = destino / f"detalhe_votacao_secao_{ano}_BR.csv"
+        if not caminho_detalhe.exists() and caminho_zip_detalhe.exists():
+            extrai_csv_do_zip(
+                caminho_zip_detalhe, caminho_detalhe,
+                nome_interno=f"detalhe_votacao_secao_{ano}_BR.csv",
+            )
+        if not caminho_detalhe.exists():
+            logger.info(
+                "%s não encontrado — qt_aptos vem da aproximação por local "
+                "(locais.qt_eleitores), não do TSE direto. Não bloqueia. Para "
+                "baixar (243 MB, opcional): %s",
+                caminho_detalhe.name, URL_DETALHE_VOTACAO_SECAO.format(ano=ano),
+            )
+            caminho_detalhe = None
+
+        return fontes.ler_votacao_secao(caminho_votos, ano, turno, caminho_detalhe=caminho_detalhe)
 
     raise ValueError(f"Fonte desconhecida: {fonte!r} (use 'bweb' ou 'votacao_secao')")
 

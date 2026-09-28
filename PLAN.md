@@ -306,9 +306,13 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   - `CD_MUNICIPIO` **não tem o mesmo padding em todos os arquivos do TSE**
     (`eleitorado_local_votacao` sempre 5 dígitos, `votacao_secao` não) — sem
     corrigir, ~10% das linhas de resultado não achavam `id_local`;
-  - `detalhe_votacao_secao` não existe (nenhum nome tentado respondeu 200) —
-    como o voto é único e obrigatório, `qt_comparecimento` agora é somado
-    direto de `qt_votos` por seção, e `qt_aptos` vem de `locais.qt_eleitores`;
+  - `detalhe_votacao_secao` existe, com nome diferente do que eu tinha
+    chutado (sem `_BR` no zip) — o Gil achou pelo portal humano. Tem
+    `QT_APTOS`/`QT_COMPARECIMENTO` reais por seção×turno; `qt_comparecimento`
+    bate sem exceção com a soma de `qt_votos` (confirma o cálculo que já
+    fazíamos), e `qt_aptos` ficou mais preciso usando o arquivo (diferença
+    contra o total oficial caiu de 2.496 para 657). Opcional — cai em
+    `locais.qt_eleitores` se o arquivo (243 MB) não estiver baixado;
   - **bug de conservação real:** `pandas.astype(str)` numa coluna nula
     devolve `NaN` de verdade, e a concatenação propaga — o `id_zona_mun` do
     exterior (`cd_mun` nulo) virava `NaN`, e `pivot_table()` descarta grupos

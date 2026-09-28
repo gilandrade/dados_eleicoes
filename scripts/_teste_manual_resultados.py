@@ -62,6 +62,10 @@ resultados_secao = pd.DataFrame(linhas)
 resultados_secao["qt_comparecimento"] = resultados_secao.groupby(
     ["cd_mun_tse", "nr_zona", "nr_secao"]
 )["qt_votos"].transform("sum")
+# qt_aptos por seção fica NA (sem detalhe_votacao_secao neste teste) — cai no
+# fallback de locais.qt_eleitores, como fontes.ler_votacao_secao() sem
+# caminho_detalhe também devolve.
+resultados_secao["qt_aptos"] = pd.NA
 
 # ---- 1. seção -> local -------------------------------------------------------
 
