@@ -114,15 +114,24 @@ Combina os três achados. A unidade de alocação é o **endereço residencial d
 |---|---|
 | `res_presidente_{ano}_t{t}_local.parquet` | `id_local` → pontos e áreas (valores observados) |
 | `res_presidente_{ano}_t{t}_zona_mun.parquet` | `id_zona_mun` → zona × município (valores observados; soma dos locais, incluindo os especiais) |
+| `res_presidente_{ano}_t{t}_municipio.parquet` | `cd_mun` → município do IBGE (valores observados; soma de zona×município. Para anos sem locais processados — ex. 2018 — sai direto da seção via `resultados.agrega_secao_por_municipio`, sem depender de `secao_local`/`locais`) |
 | `res_presidente_{ano}_t{t}_setor.parquet` | `cd_setor` → malha de setores (valores estimados) |
+| `mudanca_presidente_{ano_antes}_{ano_depois}_t2_municipio.parquet` | `cd_mun` → só 2º turno (2 candidatos): `var_pc_validos_pt` (Δ p.p. do PT entre os dois anos) e `sentido_virada` |
 | `pesos_local_setor_{ano}.parquet` | `id_local`, `cd_setor`, `n_dom`, `adultos`, `peso`; publicado por transparência/reuso |
 | `secao_local_{ano}.parquet` | `id_secao` → `id_local` |
 
 **Colunas dos resultados:**
 - `qt_aptos`, `qt_comparecimento`, `qt_brancos`, `qt_nulos`, `qt_votos_{nr}`;
-- `pc_comparecimento`, `pc_abstencao`, `pc_brancos`, `pc_nulos`, `pc_validos_{nr}` (0–1);
+- `pc_comparecimento`, `pc_abstencao`, `pc_brancos`, `pc_nulos`, `pc_brancos_nulos`,
+  `pc_validos_{nr}` (0–1);
 - `nr_vencedor`, `margem`;
 - no setor, também `qualidade_alocacao`.
+
+**Mapas de pontos (locais de votação), além dos coropléticos por polígono** — três
+métricas por local, cada uma numa escala de cor diferente (ver `src/eleicoes/mapas.py`):
+`pc_validos_{nr}` (Presidente, divergente Lula×Bolsonaro), `pc_brancos_nulos`
+(sequencial, sobre o total de votos) e `pc_abstencao` (sequencial, sobre os
+inscritos). Pontos vêm de `geom_locais_votacao_{ano}.gpkg` + `res_..._local`.
 
 **Ids:**
 - `id_local = {cd_mun_tse}{nr_zona:04}{nr_local:04}` (texto);
@@ -322,6 +331,36 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
 
   `res_..._setor` fica ~0,8% abaixo do total por desenho (locais especiais e
   sem domicílio alocado ficam fora da matriz de pesos) — não é bug.
+- **Resolvido (28/09/2026): camada de pontos, `pc_brancos_nulos`, resultado por
+  município e comparação 2018→2022 implementados.** `res_..._municipio.parquet`
+  (soma de zona×mun; para anos sem locais processados, `resultados.
+  agrega_secao_por_municipio` agrega direto da seção via crosswalk) e
+  `mudanca_presidente_{a}_{b}_t2_municipio.parquet` (`resultados.mudanca_votacao`,
+  Δ p.p. do PT + `sentido_virada`) são as duas tabelas novas. Validado: o
+  caminho "direto da seção" bate voto a voto com o caminho "via zona×mun" para
+  2022 t2 (diferença zero em todos os 5.571 `cd_mun`), e os totais de
+  `_municipio` continuam batendo exato com o TSE nos dois turnos de 2022 (t1:
+  Lula 57.259.504/Bolsonaro 51.072.345; t2: 60.345.999/58.206.354). Mapas de
+  pontos (Presidente, branco/nulo, abstenção — `docs/mapas/{ano}_t{turno}/
+  pontos_*.html`) gerados para 2022 t1 e t2, 26–33 MB cada, bem abaixo do
+  teto do GitHub Pages; usam `folium.CircleMarker` com `prefer_canvas=True`
+  (obrigatório: ~92 mil marcadores SVG travam o navegador).
+- **Resolvido (28/09/2026): mudança de votação 2018→2022 (2º turno) rodada
+  com dados reais.** O Gil baixou `votacao_secao_2018_BR.zip` fora do sandbox
+  (cabeçalho conferido contra `fontes.ESQUEMA_COLUNAS` antes de rodar —
+  bateu sem surpresas). `res_presidente_2018_t2_municipio.parquet`
+  (`scripts/processa_municipio.py`) tem os totais nacionais **exatos**:
+  Haddad 47.040.906, Bolsonaro 57.797.847, comparecimento 115.933.451.
+  `mudanca_presidente_2018_2022_t2_municipio.parquet`
+  (`scripts/06_mudanca_votacao.py --de 2018 --para 2022`) classifica os
+  5.570 municípios (exterior fora, por não ser território): 2.756
+  `manteve_pt`, 2.391 `manteve_bolsonaro`, 369 `virou_pt`, 54
+  `virou_bolsonaro`. Conferido à mão contra resultados conhecidos: São Paulo
+  (capital) `virou_pt` (+13,9 p.p., bate com a virada real de 2022), Rio de
+  Janeiro e Curitiba `manteve_bolsonaro`, Fortaleza `manteve_pt` — todos
+  batendo com o resultado público. Mapa em
+  `docs/mapas/2022_t2/mudanca_2018_municipio.html` (29 MB), com contorno mais
+  grosso nos municípios que viraram.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.

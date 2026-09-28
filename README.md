@@ -11,14 +11,17 @@ os resultados no território (locais → setores censitários) e o cronograma.
 
 - **Locais de votação georreferenciados** (ponto), com validação e fallback de
   coordenada.
-- **Resultados de Presidente** em três agregações, ligadas por id compartilhado à
+- **Resultados de Presidente** em quatro agregações, ligadas por id compartilhado à
   respectiva geometria:
   - por **local de votação** (observado);
   - por **zona eleitoral × município** (observado, mesma agregação do TSE em
     `votacao_candidato_munzona`);
+  - por **município** (observado, soma da zona×município);
   - por **setor censitário 2022** (estimado, por distribuição dasimétrica usando o
     CNEFE como dado auxiliar).
-- Artefatos de carga para o banco da GeoReDUS e mapas Folium de prévia.
+- **Mudança de votação entre anos** (2º turno, Δ p.p. do PT + virada), por município.
+- Artefatos de carga para o banco da GeoReDUS e mapas Folium de prévia (polígonos e
+  pontos por local de votação).
 
 ## Stack
 
@@ -44,6 +47,13 @@ cp .env.example .env             # preencher CARTO_API_KEY antes de gerar mapas
 python scripts/03_pesos_alocacao.py --ano 2022
 python scripts/processa_turno.py --ano 2022 --turno 1 --fonte votacao_secao
 python scripts/05_gera_mapas.py --ano 2022 --turno 1
+
+# Mudança de votação entre anos (2º turno; precisa de res_..._municipio dos dois anos —
+# scripts/processa_turno.py gera para anos com locais processados,
+# scripts/processa_municipio.py para anos sem, ex. 2018)
+python scripts/processa_municipio.py --ano 2018 --turno 2
+python scripts/06_mudanca_votacao.py --de 2018 --para 2022
+python scripts/05_gera_mapas.py --ano 2022 --turno 2 --camadas mudanca municipio pontos --mudanca-de 2018
 ```
 
 `dados/`, `venv/` e `renv/library/` são git-ignorados — ver `PLAN.md` para as fontes

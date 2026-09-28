@@ -187,6 +187,12 @@ def main(ano: int, turno: int, fonte: str, deve_baixar: bool) -> None:
         res_zona_mun, cols_votos_validos=cols_votos_validos
     )
 
+    logger.info("Agregando por município...")
+    res_municipio = resultados.agrega_zona_mun_por_municipio(res_zona_mun)
+    res_municipio = resultados.calcula_indicadores(
+        res_municipio, cols_votos_validos=cols_votos_validos
+    )
+
     logger.info("Distribuindo para os setores (W x votos)...")
     res_setor = resultados.agrega_por_setor(res_local, pesos)
     res_setor = resultados.calcula_indicadores(res_setor, cols_votos_validos=cols_votos_validos)
@@ -194,6 +200,7 @@ def main(ano: int, turno: int, fonte: str, deve_baixar: bool) -> None:
     prefixo = f"res_presidente_{ano}_t{turno}"
     exporta.escreve_resultados(res_local, RESULTADOS_DIR / f"{prefixo}_local.parquet")
     exporta.escreve_resultados(res_zona_mun, RESULTADOS_DIR / f"{prefixo}_zona_mun.parquet")
+    exporta.escreve_resultados(res_municipio, RESULTADOS_DIR / f"{prefixo}_municipio.parquet")
     exporta.escreve_resultados(res_setor, RESULTADOS_DIR / f"{prefixo}_setor.parquet")
 
     logger.info(

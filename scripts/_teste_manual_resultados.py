@@ -107,5 +107,93 @@ res_local_ind = resultados.calcula_indicadores(res_local, cols_votos_validos=["q
 print("\nindicadores por local:\n", res_local_ind[["id_local", "pc_comparecimento", "pc_validos_13", "pc_validos_22", "nr_vencedor", "margem"]])
 assert res_local_ind["pc_validos_13"].add(res_local_ind["pc_validos_22"]).round(6).eq(1.0).all()
 assert set(res_local_ind["nr_vencedor"]) <= {13, 22}
+assert res_local_ind["pc_brancos_nulos"].round(6).eq(
+    res_local_ind["pc_brancos"].add(res_local_ind["pc_nulos"]).round(6)
+).all()
+
+# ---- 5. município (soma de zona_mun por cd_mun, com exterior) ---------------
+
+res_zona_mun_ind = resultados.calcula_indicadores(
+    res_zona_mun, cols_votos_validos=["qt_votos_13", "qt_votos_22"]
+)
+res_municipio = resultados.agrega_zona_mun_por_municipio(res_zona_mun_ind)
+total_votos_municipio = res_municipio[
+    ["qt_votos_13", "qt_votos_22", "qt_votos_95", "qt_votos_96"]
+].sum().sum()
+assert total_votos_municipio == total_votos_zona, (total_votos_municipio, total_votos_zona)
+print(f"\nConservação zona_mun == município: {total_votos_municipio} votos")
+
+# Simula um segundo local no exterior (sem cd_mun no crosswalk) e confere que
+# o total dele não some (bug real corrigido em 29/09/2026 — ver CLAUDE.md).
+zona_mun_com_exterior = pd.concat(
+    [
+        res_zona_mun,
+        pd.DataFrame(
+            [{"id_zona_mun": f"{resultados.SENTINELA_EXTERIOR}0001", "qt_votos_13": 10,
+              "qt_votos_22": 5, "qt_votos_95": 1, "qt_votos_96": 1,
+              "qt_comparecimento": 17, "qt_aptos": 20}]
+        ),
+    ],
+    ignore_index=True,
+)
+res_municipio_ext = resultados.agrega_zona_mun_por_municipio(zona_mun_com_exterior)
+assert resultados.SENTINELA_EXTERIOR in set(res_municipio_ext["cd_mun"])
+linha_exterior = res_municipio_ext[res_municipio_ext["cd_mun"] == resultados.SENTINELA_EXTERIOR]
+assert linha_exterior["qt_votos_13"].iloc[0] == 10
+print("Exterior preservado em agrega_zona_mun_por_municipio: OK")
+
+# ---- 6. mudança de votação (2018 -> 2022, 2º turno) -------------------------
+
+res_2018 = pd.DataFrame(
+    {
+        "cd_mun": ["1000000", "1000001", "1000002", "1000003", resultados.SENTINELA_EXTERIOR],
+        "pc_validos_13": [0.60, 0.30, 0.55, 0.40, 0.90],
+        "nr_vencedor": [13, 17, 13, 17, 13],
+    }
+)
+res_2022 = pd.DataFrame(
+    {
+        "cd_mun": ["1000000", "1000001", "1000002", "1000003", resultados.SENTINELA_EXTERIOR],
+        "pc_validos_13": [0.65, 0.45, 0.40, 0.55, 0.80],
+        "nr_vencedor": [13, 22, 22, 13, 13],
+    }
+)
+mudanca = resultados.mudanca_votacao(res_2018, res_2022, ano_antes=2018, ano_depois=2022, nr_pt=13)
+print("\nmudança 2018->2022:\n", mudanca)
+assert resultados.SENTINELA_EXTERIOR not in set(mudanca["cd_mun"])
+sentidos = mudanca.set_index("cd_mun")["sentido_virada"]
+assert sentidos["1000000"] == "manteve_pt"
+assert sentidos["1000001"] == "manteve_bolsonaro"
+assert sentidos["1000002"] == "virou_bolsonaro"
+assert sentidos["1000003"] == "virou_pt"
+assert np.isclose(mudanca.set_index("cd_mun").loc["1000000", "var_pc_validos_pt"], 0.05)
+
+# ---- 7. município direto da seção (agrega_secao_por_municipio) -------------
+# Simula um ano sem locais processados (o caso de 2018): agrega direto de
+# resultados_secao via crosswalk, sem passar por secao_local/locais.
+
+crosswalk = pd.DataFrame({"cd_mun_tse": [CD_MUN], "cd_mun": ["3500000"]})
+res_municipio_direto = resultados.agrega_secao_por_municipio(resultados_secao, crosswalk)
+total_votos_direto = res_municipio_direto[
+    ["qt_votos_13", "qt_votos_22", "qt_votos_95", "qt_votos_96"]
+].sum().sum()
+assert total_votos_direto == total_votos_local, (total_votos_direto, total_votos_local)
+print(f"\nConservação seção == município (direto): {total_votos_direto} votos")
+
+# Seção de município sem crosswalk vira SENTINELA_EXTERIOR, sem perder votos.
+resultados_secao_exterior = pd.concat(
+    [
+        resultados_secao,
+        pd.DataFrame(
+            [{"ano": 2022, "turno": 1, "sg_uf": "ZZ", "cd_mun_tse": "888888", "nr_zona": 1,
+              "nr_secao": 1, "cd_cargo": 1, "nr_votavel": 13, "nm_votavel": "13",
+              "qt_votos": 7, "qt_comparecimento": 7, "qt_aptos": pd.NA}]
+        ),
+    ],
+    ignore_index=True,
+)
+res_com_exterior = resultados.agrega_secao_por_municipio(resultados_secao_exterior, crosswalk)
+assert resultados.SENTINELA_EXTERIOR in set(res_com_exterior["cd_mun"])
+print("Exterior preservado em agrega_secao_por_municipio: OK")
 
 print("\nOK — todos os testes manuais de resultados.py passaram.")

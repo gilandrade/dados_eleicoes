@@ -203,6 +203,135 @@ def agrega_por_zona_mun(
     return saida.drop(columns="qt_aptos_fallback")
 
 
+def agrega_zona_mun_por_municipio(res_zona_mun: pd.DataFrame) -> pd.DataFrame:
+    """Soma `res_..._zona_mun` por `cd_mun` (os 7 primeiros dígitos de
+    `id_zona_mun`) — a camada **observada** (bate exato com o TSE), usada
+    tanto para o arquivo `_municipio` quanto para o mapa nacional.
+
+    O exterior (`id_zona_mun` prefixado por `SENTINELA_EXTERIOR`) vira uma
+    linha `cd_mun = SENTINELA_EXTERIOR`, mantida para conservar o total — não
+    truncar para 7 caracteres, senão vira `"EXTERIO"` e o total do exterior
+    se espalha por várias linhas falsas (uma por combinação truncada).
+    """
+    df = res_zona_mun.copy()
+    eh_exterior = df["id_zona_mun"].str.startswith(SENTINELA_EXTERIOR)
+    df["cd_mun"] = np.where(eh_exterior, SENTINELA_EXTERIOR, df["id_zona_mun"].str[:7])
+
+    colunas_qt = [c for c in df.columns if c.startswith("qt_")]
+    return df.groupby("cd_mun")[colunas_qt].sum().reset_index()
+
+
+def agrega_secao_por_municipio(
+    resultados_secao: pd.DataFrame, crosswalk: pd.DataFrame
+) -> pd.DataFrame:
+    """Agrega direto da seção por `cd_mun`, via crosswalk `cd_mun_tse` -> `cd_mun`.
+
+    Serve para anos sem `id_local`/locais processados (ex.: 2018) — não
+    depende de `secao_local`, só do crosswalk de município (etapa 00).
+    Município do TSE sem crosswalk (o exterior) vira `SENTINELA_EXTERIOR`,
+    mesma convenção de `agrega_por_zona_mun`/`agrega_zona_mun_por_municipio`.
+
+    `qt_aptos` fica NA quando `resultados_secao` não tiver vindo de
+    `fontes.ler_votacao_secao(..., caminho_detalhe=...)` — sem
+    `locais.qt_eleitores` (que depende da etapa 01, não rodada para este
+    ano), não há fallback. `qt_comparecimento` não depende disso (soma de
+    `qt_votos`, ver fontes.py).
+
+    Args:
+        resultados_secao: esquema longo de `fontes.py`, com `cd_mun_tse`.
+        crosswalk: `crosswalk_mun_tse_ibge.parquet` (etapa 00), com
+            `cd_mun_tse` (5 dígitos) e `cd_mun` (IBGE).
+
+    Returns:
+        DataFrame largo por `cd_mun`: `qt_votos_{nr_votavel}`, `qt_aptos`,
+        `qt_comparecimento`.
+    """
+    base = resultados_secao.merge(
+        crosswalk[["cd_mun_tse", "cd_mun"]], on="cd_mun_tse", how="left"
+    )
+    base["cd_mun"] = base["cd_mun"].fillna(SENTINELA_EXTERIOR)
+    base["id_secao"] = (
+        base["cd_mun_tse"].astype(str)
+        + base["nr_zona"].astype(int).astype(str).str.zfill(4)
+        + base["nr_secao"].astype(int).astype(str).str.zfill(4)
+    )
+
+    votos_largo = (
+        base.pivot_table(
+            index="cd_mun",
+            columns="nr_votavel",
+            values="qt_votos",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        .rename(columns=lambda nr: f"qt_votos_{int(nr)}")
+        .reset_index()
+    )
+
+    por_secao = base.drop_duplicates("id_secao").groupby("cd_mun").agg(
+        qt_comparecimento=("qt_comparecimento", "sum"),
+        qt_aptos=("qt_aptos", lambda s: s.sum(min_count=1)),
+    ).reset_index()
+
+    return votos_largo.merge(por_secao, on="cd_mun", how="left")
+
+
+def mudanca_votacao(
+    res_antes: pd.DataFrame,
+    res_depois: pd.DataFrame,
+    *,
+    ano_antes: int,
+    ano_depois: int,
+    nr_pt: int,
+) -> pd.DataFrame:
+    """Compara dois `res_..._municipio` (já com `calcula_indicadores`) por `cd_mun`.
+
+    Pensado para o 2º turno, com só dois candidatos — o Δ do PT é o espelho
+    exato do Δ de Bolsonaro nesse caso. `nr_vencedor` (já calculado por
+    `calcula_indicadores`) é o que decide a virada, então o número do
+    Bolsonaro (que muda de partido a cada eleição) não entra aqui.
+
+    O exterior (`SENTINELA_EXTERIOR`) é descartado: não é um "município" para
+    efeito de mudança territorial, e é o mesmo tratamento dado aos mapas.
+
+    Returns:
+        Uma linha por `cd_mun`, com `pc_validos_pt_{ano_antes}`,
+        `pc_validos_pt_{ano_depois}`, `var_pc_validos_pt` (fração, depois -
+        antes), `nr_vencedor_{ano_antes}`, `nr_vencedor_{ano_depois}`,
+        `mudou_vencedor` (bool) e `sentido_virada` (categórico).
+    """
+    col_pt = f"pc_validos_{nr_pt}"
+
+    a = res_antes[res_antes["cd_mun"] != SENTINELA_EXTERIOR][
+        ["cd_mun", col_pt, "nr_vencedor"]
+    ].rename(
+        columns={col_pt: f"pc_validos_pt_{ano_antes}", "nr_vencedor": f"nr_vencedor_{ano_antes}"}
+    )
+    d = res_depois[res_depois["cd_mun"] != SENTINELA_EXTERIOR][
+        ["cd_mun", col_pt, "nr_vencedor"]
+    ].rename(
+        columns={col_pt: f"pc_validos_pt_{ano_depois}", "nr_vencedor": f"nr_vencedor_{ano_depois}"}
+    )
+
+    df = a.merge(d, on="cd_mun", how="inner")
+    df["var_pc_validos_pt"] = df[f"pc_validos_pt_{ano_depois}"] - df[f"pc_validos_pt_{ano_antes}"]
+    df["mudou_vencedor"] = df[f"nr_vencedor_{ano_antes}"] != df[f"nr_vencedor_{ano_depois}"]
+
+    def _sentido(row) -> str:
+        venceu_antes_pt = row[f"nr_vencedor_{ano_antes}"] == nr_pt
+        venceu_depois_pt = row[f"nr_vencedor_{ano_depois}"] == nr_pt
+        if venceu_antes_pt and venceu_depois_pt:
+            return "manteve_pt"
+        if not venceu_antes_pt and not venceu_depois_pt:
+            return "manteve_bolsonaro"
+        if venceu_depois_pt:
+            return "virou_pt"
+        return "virou_bolsonaro"
+
+    df["sentido_virada"] = df.apply(_sentido, axis=1)
+    return df
+
+
 def agrega_por_setor(
     resultados_local: pd.DataFrame,
     pesos_local_setor: pd.DataFrame,
@@ -263,6 +392,9 @@ def calcula_indicadores(
     qt_validos = df[cols_votos_validos].sum(axis=1)
     df["pc_brancos"] = df.get(col_brancos, 0) / df["qt_comparecimento"]
     df["pc_nulos"] = df.get(col_nulos, 0) / df["qt_comparecimento"]
+    df["pc_brancos_nulos"] = (df.get(col_brancos, 0) + df.get(col_nulos, 0)) / df[
+        "qt_comparecimento"
+    ]
 
     for col in cols_votos_validos:
         df[col.replace("qt_votos_", "pc_validos_")] = df[col] / qt_validos.replace(

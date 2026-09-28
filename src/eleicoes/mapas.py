@@ -1,11 +1,13 @@
-"""Mapas coropléticos (Folium) dos resultados de Presidente.
+"""Mapas Folium (coropléticos e de pontos) dos resultados de Presidente.
 
-Um mapa por UF, em setor censitário (o pedido original), mais um mapa
-nacional por município como visão geral — ver PLAN.md > "Mapas coropléticos
-por setor" para o porquê da divisão (um único arquivo nacional em setor dá
-~380 MB só de geometria, mesmo simplificada; inviável para o GitHub Pages).
+Um mapa por UF, em setor censitário (o pedido original), mapas nacionais por
+município e zona×município, mapas de pontos por local de votação (Presidente,
+branco/nulo, abstenção) e um mapa de mudança de votação entre dois anos (2º
+turno) — ver PLAN.md > "Mapas coropléticos por setor" para o porquê da
+divisão por UF (um único arquivo nacional em setor dá ~380 MB só de
+geometria, mesmo simplificada; inviável para o GitHub Pages).
 
-Cor: escala **divergente** (não duas escalas sequenciais separadas) sobre a
+Cor (mapas de Presidente): escala **divergente** (não duas escalas sequenciais separadas) sobre a
 margem **assinada** entre os dois candidatos dominantes,
 `pc_validos_13 - pc_validos_22` (positivo = Lula, negativo = Bolsonaro,
 0 = empate técnico) — é o desenho padrão de mapa eleitoral de dois polos
@@ -26,13 +28,13 @@ from pathlib import Path
 
 import folium
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import shapely
 from matplotlib.colors import LinearSegmentedColormap, to_hex
 
 logger = logging.getLogger(__name__)
 
-from . import resultados as resultados_mod
 from .config import (
     CARTO_API_KEY,
     CD_UF_POR_SG_UF,
@@ -60,6 +62,12 @@ CMAP_MARGEM = LinearSegmentedColormap.from_list(
 NR_LULA = 13
 NR_BOLSONARO = 22
 
+# Rampa sequencial (azul, claro -> escuro; skill dataviz > references/palette.md
+# > "Sequential hue", passos 150/300/450/600/700) — para métricas sem polo
+# (branco/nulo, abstenção), onde "mais" não tem um lado bom/ruim como a
+# margem Lula×Bolsonaro.
+_CORES_SEQUENCIAL = ["#b7d3f6", "#6da7ec", "#2a78d6", "#184f95", "#0d366b"]
+
 
 def cor_por_margem(margem_assinada: float | None) -> str:
     """`margem_assinada` em [-1, 1] (negativo = Bolsonaro, positivo = Lula) -> hex.
@@ -80,6 +88,33 @@ def _adiciona_margem_assinada(df: pd.DataFrame) -> pd.DataFrame:
     col_bolsonaro = f"pc_validos_{NR_BOLSONARO}"
     df["margem_assinada"] = df.get(col_lula) - df.get(col_bolsonaro)
     df["cor"] = df["margem_assinada"].apply(cor_por_margem)
+    return df
+
+
+def calcula_quebras_quantis(serie: pd.Series, *, n_classes: int = len(_CORES_SEQUENCIAL)) -> np.ndarray:
+    """Pontos de corte por quantil (não domínio fixo) — locais com poucos
+    eleitores geram extremos que um domínio fixo (0-100%) esmagaria no mesmo
+    tom para a maioria dos pontos."""
+    validos = serie.dropna()
+    if validos.empty:
+        return np.array([0.0, 1.0])
+    return np.unique(np.nanquantile(validos, np.linspace(0, 1, n_classes + 1)))
+
+
+def cor_por_quantil(valor: float | None, quebras: np.ndarray) -> str:
+    """`valor` -> hex na rampa sequencial, pela classe de `quebras`
+    (`calcula_quebras_quantis`). `None`/NaN -> cor neutra de "sem dado"."""
+    if valor is None or pd.isna(valor):
+        return _COR_SEM_DADO
+    classe = int(np.searchsorted(quebras, valor, side="right")) - 1
+    classe = min(max(classe, 0), len(_CORES_SEQUENCIAL) - 1)
+    return _CORES_SEQUENCIAL[classe]
+
+
+def _adiciona_cor_sequencial(df: pd.DataFrame, coluna: str) -> pd.DataFrame:
+    df = df.copy()
+    quebras = calcula_quebras_quantis(df[coluna])
+    df["cor"] = df[coluna].apply(lambda v: cor_por_quantil(v, quebras))
     return df
 
 
@@ -107,27 +142,15 @@ def carrega_resultados_zona_mun(ano: int, turno: int) -> pd.DataFrame:
 
 
 def carrega_resultados_municipio(ano: int, turno: int) -> pd.DataFrame:
-    """Agrega `res_presidente_{ano}_t{turno}_zona_mun.parquet` por `cd_mun`
-    (os 7 primeiros dígitos de `id_zona_mun`) — a camada **observada** (bate
-    exato com o TSE), não a estimativa por setor, para a visão nacional.
+    """Lê `res_presidente_{ano}_t{turno}_municipio.parquet` — a camada
+    **observada** (bate exato com o TSE, soma de `res_..._zona_mun` por
+    `cd_mun`), usada na visão nacional.
     """
-    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_zona_mun.parquet"
+    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet"
     if not caminho.exists():
         raise FileNotFoundError(f"{caminho} não existe — rode processa_turno.py primeiro.")
     df = pd.read_parquet(caminho)
-    df["cd_mun"] = df["id_zona_mun"].str[:7]
-
-    colunas_qt = [c for c in df.columns if c.startswith("qt_")]
-    por_mun = df.groupby("cd_mun")[colunas_qt].sum().reset_index()
-
-    candidatos = sorted(
-        int(c.replace("qt_votos_", ""))
-        for c in colunas_qt
-        if c.startswith("qt_votos_") and int(c.replace("qt_votos_", "")) not in (95, 96)
-    )
-    cols_votos_validos = [f"qt_votos_{c}" for c in candidatos]
-    por_mun = resultados_mod.calcula_indicadores(por_mun, cols_votos_validos=cols_votos_validos)
-    return _adiciona_margem_assinada(por_mun)
+    return _adiciona_margem_assinada(df)
 
 
 def simplifica_geometria(
@@ -260,8 +283,124 @@ def monta_zona_mun(
     return gdf
 
 
+def carrega_resultados_local(ano: int, turno: int) -> pd.DataFrame:
+    """Lê `res_presidente_{ano}_t{turno}_local.parquet` — valores observados
+    por local (sem locais especiais excluídos: eles têm resultado, só não
+    entram na distribuição por setor — ver `resultados.agrega_por_setor`)."""
+    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet"
+    if not caminho.exists():
+        raise FileNotFoundError(f"{caminho} não existe — rode processa_turno.py primeiro.")
+    df = pd.read_parquet(caminho)
+    return _adiciona_margem_assinada(df)
+
+
+def monta_pontos(ano: int, turno: int) -> gpd.GeoDataFrame:
+    """Pontos dos locais de votação (etapa 02) + resultados por local.
+
+    Descarta locais `flag_sem_coord` (sem nenhuma coordenada resolvida, nem
+    o fallback de centróide do município) — não têm o que mostrar num mapa
+    de pontos. Arredonda a coordenada para ~1 m (`grid_size=0.00001`, bem
+    mais fino que a simplificação de polígono, já que aqui não há forma a
+    simplificar, só a precisão de ponto flutuante do float64 original).
+    """
+    caminho_geom = GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg"
+    if not caminho_geom.exists():
+        raise FileNotFoundError(
+            f"{caminho_geom} não existe — rode 02_geocodificacao_locais.qmd (R)."
+        )
+    gdf = gpd.read_file(caminho_geom)
+
+    if "flag_sem_coord" in gdf.columns:
+        sem_coord = gdf["flag_sem_coord"].fillna(False).astype(bool)
+        if sem_coord.any():
+            logger.info(
+                "Pontos: %d/%d locais sem coordenada — descartados.", sem_coord.sum(), len(gdf)
+            )
+        gdf = gdf.loc[~sem_coord].copy()
+
+    gdf["geometry"] = shapely.set_precision(gdf.geometry.values, grid_size=0.00001)
+
+    resultados_local = carrega_resultados_local(ano, turno)
+    gdf = gdf.merge(resultados_local, on="id_local", how="left")
+    n_sem_resultado = gdf["qt_comparecimento"].isna().sum() if "qt_comparecimento" in gdf else 0
+    if n_sem_resultado:
+        logger.warning(
+            "Pontos: %d/%d locais sem resultado (fora da fonte de votos deste turno).",
+            n_sem_resultado, len(gdf),
+        )
+    return gdf
+
+
+def monta_pontos_presidente(ano: int, turno: int) -> gpd.GeoDataFrame:
+    """Pontos coloridos pela margem Lula−Bolsonaro (mesma escala dos polígonos)."""
+    gdf = monta_pontos(ano, turno)
+    gdf.loc[gdf["cor"].isna(), "cor"] = _COR_SEM_DADO
+    return gdf
+
+
+def monta_pontos_branco_nulo(ano: int, turno: int) -> gpd.GeoDataFrame:
+    """Pontos coloridos por `pc_brancos_nulos` (sobre o comparecimento — os
+    votos totais), em escala sequencial (sem polo bom/ruim)."""
+    gdf = monta_pontos(ano, turno)
+    return _adiciona_cor_sequencial(gdf, "pc_brancos_nulos")
+
+
+def monta_pontos_abstencao(ano: int, turno: int) -> gpd.GeoDataFrame:
+    """Pontos coloridos por `pc_abstencao` (sobre os inscritos/aptos), em
+    escala sequencial."""
+    gdf = monta_pontos(ano, turno)
+    return _adiciona_cor_sequencial(gdf, "pc_abstencao")
+
+
+def monta_mudanca_municipio(ano_antes: int, ano_depois: int) -> gpd.GeoDataFrame:
+    """Malha de municípios + `mudanca_presidente_{ano_antes}_{ano_depois}_t2_municipio.parquet`.
+
+    Cor: escala divergente sobre `var_pc_validos_pt` (mesmos polos da margem
+    Lula×Bolsonaro — positivo = foi em direção ao PT, negativo = em direção
+    ao Bolsonaro), com domínio simétrico em vez de min/max observado (um
+    município que virou 40 p.p. não deveria "estourar" a escala e esmagar a
+    variação típica, bem menor, do resto do país).
+    """
+    caminho_municipios = PROCESSADO_DIR / "aux" / "municipios.gpkg"
+    if not caminho_municipios.exists():
+        raise FileNotFoundError(f"{caminho_municipios} não existe — rode 00_auxiliares.qmd (R).")
+    caminho_mudanca = (
+        RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t2_municipio.parquet"
+    )
+    if not caminho_mudanca.exists():
+        raise FileNotFoundError(
+            f"{caminho_mudanca} não existe — rode scripts/06_mudanca_votacao.py "
+            f"--de {ano_antes} --para {ano_depois}."
+        )
+
+    gdf = gpd.read_file(caminho_municipios)[["cd_mun", "geometry"]]
+    gdf["geometry"] = simplifica_geometria(gdf.geometry.values, tolerancia=0.0005, grid_size=0.0001)
+    n_vazias = gdf.geometry.is_empty.sum()
+    if n_vazias:
+        logger.warning(
+            "Mudança %d-%d: %d/%d municípios viraram geometria vazia ao simplificar — descartados.",
+            ano_antes, ano_depois, n_vazias, len(gdf),
+        )
+        gdf = gdf.loc[~gdf.geometry.is_empty].copy()
+
+    mudanca = pd.read_parquet(caminho_mudanca)
+    limite = mudanca["var_pc_validos_pt"].abs().max()
+    limite = limite if pd.notna(limite) and limite > 0 else None
+    mudanca["cor"] = mudanca["var_pc_validos_pt"].apply(
+        lambda v: _COR_SEM_DADO if pd.isna(v) or limite is None else cor_por_margem(v / limite)
+    )
+
+    gdf = gdf.merge(mudanca, on="cd_mun", how="left")
+    gdf.loc[gdf["cor"].isna(), "cor"] = _COR_SEM_DADO
+    return gdf
+
+
 def _pc_fmt(valor) -> str:
     return "—" if pd.isna(valor) else f"{100 * valor:.1f}%"
+
+
+def _qt_fmt(valor) -> str:
+    return "—" if pd.isna(valor) else f"{int(valor):,}".replace(",", ".")
 
 
 def _adiciona_campos_exibicao(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -278,24 +417,86 @@ def _adiciona_campos_exibicao(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return gdf
 
 
+CAMPOS_MARGEM = [
+    ("comparecimento_fmt", "Comparecimento:"),
+    ("lula_fmt", "Lula (13):"),
+    ("bolsonaro_fmt", "Bolsonaro (22):"),
+    ("vencedor_fmt", "Vencedor:"),
+    ("margem_fmt", "Margem (Lula − Bolsonaro):"),
+]
+
+
+def campos_pontos_presidente(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, list[tuple[str, str]]]:
+    return _adiciona_campos_exibicao(gdf), CAMPOS_MARGEM
+
+
+def campos_pontos_branco_nulo(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, list[tuple[str, str]]]:
+    gdf = gdf.copy()
+    gdf["comparecimento_qt_fmt"] = gdf["qt_comparecimento"].apply(_qt_fmt)
+    gdf["brancos_nulos_fmt"] = gdf["pc_brancos_nulos"].apply(_pc_fmt)
+    campos = [
+        ("comparecimento_qt_fmt", "Comparecimento (votos):"),
+        ("brancos_nulos_fmt", "Brancos + nulos:"),
+    ]
+    return gdf, campos
+
+
+def campos_pontos_abstencao(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, list[tuple[str, str]]]:
+    gdf = gdf.copy()
+    gdf["aptos_qt_fmt"] = gdf["qt_aptos"].apply(_qt_fmt)
+    gdf["abstencao_fmt"] = gdf["pc_abstencao"].apply(_pc_fmt)
+    campos = [
+        ("aptos_qt_fmt", "Inscritos:"),
+        ("abstencao_fmt", "Abstenção:"),
+    ]
+    return gdf, campos
+
+
+def campos_mudanca_municipio(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, list[tuple[str, str]]]:
+    gdf = gdf.copy()
+    gdf["var_pt_fmt"] = gdf["var_pc_validos_pt"].apply(
+        lambda v: "—" if pd.isna(v) else f"{100 * v:+.1f} p.p."
+    )
+    gdf["virada_fmt"] = gdf["sentido_virada"].fillna("—")
+    # Município que virou de vencedor ganha um contorno mais grosso no mapa
+    # (ver `gera_mapa`) — destaque visual além da cor, para não depender só
+    # da tonalidade (o Δ pode ser pequeno mesmo numa virada apertada).
+    gdf["_contorno_largura"] = gdf["mudou_vencedor"].fillna(False).map({True: 1.4, False: 0.3})
+    campos = [
+        ("var_pt_fmt", "Δ PT (p.p.):"),
+        ("virada_fmt", "Situação:"),
+    ]
+    return gdf, campos
+
+
 def gera_mapa(
     gdf: gpd.GeoDataFrame,
     caminho_saida: Path,
     *,
     col_id: str,
     rotulo_id: str,
+    campos: list[tuple[str, str]] | None = None,
+    pontos: bool = False,
 ) -> Path:
-    """Constrói e salva um `folium.Map` coroplético a partir de `gdf`.
+    """Constrói e salva um `folium.Map` coroplético (ou de pontos) a partir de `gdf`.
 
-    `gdf` já deve ter as colunas `cor` (hex) e `margem_assinada` (de
-    `monta_setor_uf`/`monta_municipios`). Genérico o bastante para os dois
-    níveis (setor por UF, município nacional) — só muda `col_id`/`rotulo_id`.
+    `gdf` já deve ter a coluna `cor` (hex), mais as colunas de exibição já
+    formatadas em texto (ver `_adiciona_campos_exibicao`/`campos_pontos_*`).
+    `campos` é a lista `(coluna, rótulo)` do tooltip, sem `col_id` — que
+    sempre entra primeiro. Se `None` (padrão, usado pelos mapas por
+    polígono já existentes), usa `_adiciona_campos_exibicao` +
+    `CAMPOS_MARGEM`, preservando o comportamento anterior.
+
+    `pontos=True` desenha `gdf` como marcadores (`folium.CircleMarker`) em
+    vez de polígonos preenchidos — usado pelos mapas de locais de votação.
+    `prefer_canvas=True` no mapa é obrigatório nesse caso: ~92 mil
+    marcadores SVG (o padrão do Leaflet) travam o navegador; canvas resolve.
 
     Uma única camada `folium.GeoJson` para o `gdf` inteiro (não uma por
     feição) — um `folium.GeoJson`/`Popup` por linha, com dezenas de milhares
-    de setores por UF, incharia o HTML e travaria o navegador; o padrão do
-    Folium para isso é `style_function` lendo a propriedade de cada feição do
-    próprio GeoJSON, mais `GeoJsonTooltip`/`GeoJsonPopup` declarativos.
+    de feições, incharia o HTML e travaria o navegador; o padrão do Folium
+    para isso é `style_function` lendo a propriedade de cada feição do
+    próprio GeoJSON, mais `GeoJsonTooltip` declarativo.
     """
     if not CARTO_API_KEY:
         raise RuntimeError(
@@ -305,29 +506,48 @@ def gera_mapa(
         )
 
     gdf = gdf.to_crs(CRS_SIRGAS2000)
-    gdf = _adiciona_campos_exibicao(gdf)
+    if campos is None:
+        gdf = _adiciona_campos_exibicao(gdf)
+        campos = CAMPOS_MARGEM
     minx, miny, maxx, maxy = gdf.total_bounds
 
-    mapa = folium.Map(tiles=TILES_CARTO_POSITRON, attr=TILES_CARTO_ATTR, control_scale=True)
+    mapa = folium.Map(
+        tiles=TILES_CARTO_POSITRON, attr=TILES_CARTO_ATTR, control_scale=True, prefer_canvas=pontos
+    )
     mapa.fit_bounds([[miny, minx], [maxy, maxx]])
 
-    campos = [col_id, "comparecimento_fmt", "lula_fmt", "bolsonaro_fmt", "vencedor_fmt", "margem_fmt"]
-    apelidos = [
-        f"{rotulo_id}:", "Comparecimento:", "Lula (13):", "Bolsonaro (22):",
-        "Vencedor:", "Margem (Lula − Bolsonaro):",
-    ]
+    campos_nomes = [col_id, *(c for c, _ in campos)]
+    apelidos = [f"{rotulo_id}:", *(a for _, a in campos)]
 
-    colunas_geojson = [col_id, "cor", *campos[1:], "geometry"]
+    tem_contorno_custom = "_contorno_largura" in gdf.columns
+    colunas_geojson = list(
+        dict.fromkeys(
+            [*campos_nomes, "cor", *(["_contorno_largura"] if tem_contorno_custom else []), "geometry"]
+        )
+    )
+    marcador = folium.CircleMarker(radius=3, weight=0, fill=True, fill_opacity=0.85) if pontos else None
     folium.GeoJson(
         gdf[colunas_geojson],
-        style_function=lambda feature: {
-            "fillColor": feature["properties"]["cor"],
-            "color": "#ffffff",
-            "weight": 0.3,
-            "fillOpacity": 0.75 if feature["properties"]["cor"] != _COR_SEM_DADO else 0.35,
-        },
-        tooltip=folium.GeoJsonTooltip(fields=campos, aliases=apelidos, sticky=True),
-        popup=folium.GeoJsonPopup(fields=campos, aliases=apelidos, max_width=280),
+        marker=marcador,
+        style_function=(
+            (lambda feature: {
+                "fillColor": feature["properties"]["cor"],
+                "color": feature["properties"]["cor"],
+                "fillOpacity": 0.85 if feature["properties"]["cor"] != _COR_SEM_DADO else 0.35,
+            })
+            if pontos
+            else (lambda feature: {
+                "fillColor": feature["properties"]["cor"],
+                "color": "#ffffff",
+                "weight": feature["properties"].get("_contorno_largura", 0.3),
+                "fillOpacity": 0.75 if feature["properties"]["cor"] != _COR_SEM_DADO else 0.35,
+            })
+        ),
+        tooltip=folium.GeoJsonTooltip(fields=campos_nomes, aliases=apelidos, sticky=True),
+        popup=(
+            None if pontos
+            else folium.GeoJsonPopup(fields=campos_nomes, aliases=apelidos, max_width=280)
+        ),
     ).add_to(mapa)
 
     caminho_saida.parent.mkdir(parents=True, exist_ok=True)

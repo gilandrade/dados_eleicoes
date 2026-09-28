@@ -56,6 +56,11 @@ CARGO_PRESIDENTE = 1  # código TSE do cargo Presidente (CD_CARGO / NR_CARGO = 1
 CODIGO_BRANCO = 95
 CODIGO_NULO = 96
 
+# Número do PT no 2º turno — usado em `resultados.mudanca_votacao` para achar
+# quem venceu (o do Bolsonaro muda de partido a cada eleição: 17 em 2018,
+# 22 em 2022, então não dá para fixar um "número do opositor").
+NR_PT = 13
+
 # ==== Fontes do TSE ===========================================================
 
 TSE_CDN_BASE = "https://cdn.tse.jus.br/estatistica/sead/odsele"

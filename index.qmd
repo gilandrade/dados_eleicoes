@@ -25,6 +25,10 @@ para o porquê de cada uma):
   fronteira interna das cidades com mais de uma zona é estimada.
 - **[Nacional · município](mapas/2022_t1/index.html)** — **observado**, visão
   geral rápida (menos polígonos, carrega mais rápido).
+- **Locais de votação (pontos)** — **observado**, um ponto por local:
+  [Presidente](mapas/2022_t1/pontos_presidente.html) (margem Lula×Bolsonaro) ·
+  [Branco/nulo](mapas/2022_t1/pontos_branco_nulo.html) (sobre o total de votos) ·
+  [Abstenção](mapas/2022_t1/pontos_abstencao.html) (sobre os inscritos).
 - **Por UF · setor censitário** — **estimado** por distribuição dasimétrica
   via CNEFE (não é o voto real do setor, ver PLAN.md > "Pesquisa: como
   distribuir os resultados no território"):
@@ -55,3 +59,15 @@ para o porquê de cada uma):
   [SP](mapas/2022_t1/SP.html) ·
   [SE](mapas/2022_t1/SE.html) ·
   [TO](mapas/2022_t1/TO.html)
+
+## Mapas · Presidente 2022, 2º turno
+
+- **[Nacional · município](mapas/2022_t2/index.html)** — **observado**.
+- **[Mudança de votação 2018 → 2022](mapas/2022_t2/mudanca_2018_municipio.html)** —
+  Δ em pontos percentuais do candidato do PT (Haddad → Lula) por município,
+  escala divergente (vermelho = foi em direção ao PT, azul = em direção ao
+  Bolsonaro); municípios que trocaram de vencedor têm contorno mais grosso.
+- **Locais de votação (pontos)**:
+  [Presidente](mapas/2022_t2/pontos_presidente.html) ·
+  [Branco/nulo](mapas/2022_t2/pontos_branco_nulo.html) ·
+  [Abstenção](mapas/2022_t2/pontos_abstencao.html).

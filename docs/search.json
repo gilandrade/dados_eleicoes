@@ -221,6 +221,13 @@
     "href": "index.html#mapas-presidente-2022-1º-turno",
     "title": "dados_eleicoes",
     "section": "Mapas · Presidente 2022, 1º turno",
-    "text": "Mapas · Presidente 2022, 1º turno\nCoroplético: margem entre Lula e Bolsonaro (vermelho/azul, mais escuro quanto maior a margem, cinza = empate ou sem resultado). Três camadas, da mais “real” para a mais detalhada (ver PLAN.md para o porquê de cada uma):\n\nNacional · zona × município — observado, bate exatamente com o que o TSE publica por município e zona. Só a fronteira interna das cidades com mais de uma zona é estimada.\nNacional · município — observado, visão geral rápida (menos polígonos, carrega mais rápido).\nPor UF · setor censitário — estimado por distribuição dasimétrica via CNEFE (não é o voto real do setor, ver PLAN.md &gt; “Pesquisa: como distribuir os resultados no território”): AC · AL · AP · AM · BA · CE · DF · ES · GO · MA · MT · MS · MG · PA · PB · PR · PE · PI · RJ · RN · RS · RO · RR · SC · SP · SE · TO"
+    "text": "Mapas · Presidente 2022, 1º turno\nCoroplético: margem entre Lula e Bolsonaro (vermelho/azul, mais escuro quanto maior a margem, cinza = empate ou sem resultado). Três camadas, da mais “real” para a mais detalhada (ver PLAN.md para o porquê de cada uma):\n\nNacional · zona × município — observado, bate exatamente com o que o TSE publica por município e zona. Só a fronteira interna das cidades com mais de uma zona é estimada.\nNacional · município — observado, visão geral rápida (menos polígonos, carrega mais rápido).\nLocais de votação (pontos) — observado, um ponto por local: Presidente (margem Lula×Bolsonaro) · Branco/nulo (sobre o total de votos) · Abstenção (sobre os inscritos).\nPor UF · setor censitário — estimado por distribuição dasimétrica via CNEFE (não é o voto real do setor, ver PLAN.md &gt; “Pesquisa: como distribuir os resultados no território”): AC · AL · AP · AM · BA · CE · DF · ES · GO · MA · MT · MS · MG · PA · PB · PR · PE · PI · RJ · RN · RS · RO · RR · SC · SP · SE · TO"
+  },
+  {
+    "objectID": "index.html#mapas-presidente-2022-2º-turno",
+    "href": "index.html#mapas-presidente-2022-2º-turno",
+    "title": "dados_eleicoes",
+    "section": "Mapas · Presidente 2022, 2º turno",
+    "text": "Mapas · Presidente 2022, 2º turno\n\nNacional · município — observado.\nMudança de votação 2018 → 2022 — Δ em pontos percentuais do candidato do PT (Haddad → Lula) por município, escala divergente (vermelho = foi em direção ao PT, azul = em direção ao Bolsonaro); municípios que trocaram de vencedor têm contorno mais grosso.\nLocais de votação (pontos): Presidente · Branco/nulo · Abstenção."
   }
 ]
