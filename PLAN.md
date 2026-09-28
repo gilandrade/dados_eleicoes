@@ -278,6 +278,18 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   locais, 993.712 seções×turno, 262 flags especiais, 0 coordenadas nulas.
   `pop18` também usava nomes de variável do IBGE em vez dos indicadores já
   nomeados do `cn22-pop` — corrigido do mesmo jeito.
+- **Resolvido (28/09/2026):** a etapa 02 também rodou de ponta a ponta com
+  2022. Quatro correções — detalhes em CLAUDE.md: validação de coordenada
+  vetorizada (o loop original não terminava em 5 min para ~90 mil locais);
+  uma função de distância que não aguentava `NA` (`dplyr::if_else()` avalia
+  os dois ramos inteiros, não só o escolhido); um `select()` que perdia a
+  coluna `fonte_coord`; e o último degrau do fallback (centróide do
+  município) que faltava — sem ele, locais não resolvidos publicavam a
+  coordenada **inválida** do TSE (`-1,-1`) como se fosse real, só visível
+  inspecionando os limites geográficos da saída. Também corrigido o esquema
+  assumido do painel Hidalgo contra o real. Resultado: 92.185 pontos (92.393
+  locais menos o exterior, fora do mapa por design); 91,5% TSE original,
+  7,8% Hidalgo, 0,56% centróide do município, 0,12% TSE confirmado a <800m.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.

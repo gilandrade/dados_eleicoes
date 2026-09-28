@@ -127,3 +127,36 @@ the full data model (geometry files vs. result files joined by a shared id).
   - Resultado real (2022, ambos os turnos): 993.712 seções×turno, 92.393 locais,
     262 flags especiais, 0 coordenadas nulas, 181 municípios sem crosswalk —
     **todos** com `SG_UF = "ZZ"` (exterior; ex.: Katmandu), como esperado.
+- **`02_geocodificacao_locais.qmd` rodou de ponta a ponta com 2022** em
+  28/09/2026, depois de quatro correções (ver histórico do commit para o
+  detalhe de cada uma — não repetir os erros):
+  - `valida_coordenada_tse` fazia um `st_intersects` por local num loop (~90
+    mil iterações, refiltrando os 5.570 municípios a cada uma) — trocado por
+    uma chamada vetorizada em modo esparso. O loop chegou a rodar por mais
+    de 5 minutos sem terminar; a versão vetorizada leva segundos.
+  - `dplyr::if_else()` avalia os dois ramos para o vetor inteiro antes de
+    escolher — uma função chamada dentro dele (aqui, `calcula_distancia_m`)
+    **não pode presumir** que só recebe as linhas do ramo escolhido; tem que
+    tratar `NA` sozinha.
+  - `select(fonte_coord, precisao = fonte_coord)` mantém só a última
+    referência quando a mesma coluna de origem é citada duas vezes com nomes
+    diferentes — a primeira (`fonte_coord`, sem renomear) desaparece em
+    silêncio. Usar `mutate(nova = coluna)` antes do `select()` para ter as
+    duas.
+  - **Esquema real do painel Hidalgo** (`geocode_br_polling_stations` v0.16,
+    confirmado em 28/09/2026 — não é o que eu tinha assumido sem checar):
+    colunas `cd_localidade_tse` (sem zero à esquerda), `nr_zona`, `nr_locvot`,
+    `pred_lat`/`pred_long` (a coordenada geocodificada, independente da do
+    TSE). **Não usar** `lat`/`long`: essas colunas já vêm misturadas com a
+    coordenada do TSE de outro snapshot/ano, o que dobraria a fonte errada
+    na hora de aplicar a regra dos 800 m.
+  - Faltava o último degrau do fallback (centróide do município) — sem ele,
+    locais não resolvidos publicavam a coordenada **inválida** original do
+    TSE (o sentinela `-1,-1`) como se fosse um ponto de verdade. Só apareceu
+    inspecionando os `bounds` da saída (`longitude` batendo exatamente em
+    `-1.0`) — vale sempre conferir os limites geográficos do resultado, não
+    só a contagem por `fonte_coord`.
+  - Resultado real (2022): 92.185 pontos na camada espacial (92.393 locais
+    menos os 208 do exterior, fora do mapa por design). 91,5% mantém a
+    coordenada do TSE, 7,8% usa o Hidalgo, 0,56% cai no centróide do
+    município, 0,12% é TSE reprovado mas confirmado a <800 m da referência.
