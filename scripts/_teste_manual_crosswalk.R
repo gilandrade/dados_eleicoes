@@ -22,7 +22,7 @@ crosswalk_bruto <- read_csv(
 
 crosswalk <- crosswalk_bruto |>
   transmute(
-    cd_mun_tse = cd_mun_tse,
+    cd_mun_tse = str_pad(cd_mun_tse, 5, pad = "0"),
     cd_mun = str_pad(cd_mun_ibge, 7, pad = "0"),
     sg_uf = SG_UF,
     nm_mun_ibge = nm_mun_ibge,
@@ -34,7 +34,10 @@ stopifnot(
   "cd_mun_tse não deveria ter duplicatas" = !anyDuplicated(crosswalk$cd_mun_tse),
   "cd_mun (IBGE) não deveria ter duplicatas" = !anyDuplicated(crosswalk$cd_mun)
 )
-cat("OK: crosswalk com", nrow(crosswalk), "municípios, sem duplicatas.\n")
+stopifnot(
+  "cd_mun_tse deveria ter sempre 5 dígitos" = all(nchar(crosswalk$cd_mun_tse) == 5)
+)
+cat("OK: crosswalk com", nrow(crosswalk), "municípios, sem duplicatas, cd_mun_tse com 5 dígitos.\n")
 
 normaliza_texto <- function(x) {
   x |>

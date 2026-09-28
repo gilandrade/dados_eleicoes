@@ -91,16 +91,28 @@ nrow(locais_bruto)
 
 ## 3. Chaves e crosswalk
 
+O arquivo real (confirmado em 28/09/2026, ver CLAUDE.md) traz **uma linha por
+seção por turno** (`NR_TURNO`), não uma linha por seção — então `id_secao`
+sozinho não é único; a chave completa da linha é `(id_secao, nr_turno)`. O
+`CD_MUNICIPIO` já vem com 5 dígitos e zero à esquerda (`"01120"`), no mesmo
+formato do `cd_mun_tse` do crosswalk depois do `str_pad()` da etapa 00.
+
 ```{r chaves}
 #| message: false
 crosswalk <- read_parquet("dados/02_processado/aux/crosswalk_mun_tse_ibge.parquet")
 
 locais_com_chave <- locais_bruto |>
   mutate(
-    id_local = str_c(
+    nr_turno = as.integer(nr_turno),
+    id_local_proprio = str_c(
       cd_municipio,
       str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
       str_pad(nr_local_votacao, CRESCE_NUM, pad = "0")
+    ),
+    id_secao = str_c(
+      cd_municipio,
+      str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
+      str_pad(nr_secao, CRESCE_NUM, pad = "0")
     )
   ) |>
   left_join(crosswalk, by = c("cd_municipio" = "cd_mun_tse"))
@@ -111,31 +123,78 @@ if (n_sem_crosswalk > 0) {
 }
 ```
 
+### Seções agregadas: resolver o local pela seção principal
+
+`DS_TIPO_SECAO_AGREGADA` tem três valores (contados no arquivo real de 2022):
+`Principal` (944.150 linhas), `Agregada` (48.326) e `Distribuída de ofício`
+(1.236). Só a `Agregada` tem `NR_SECAO_PRINCIPAL` de verdade (as outras trazem
+`-1`, sentinela de "não se aplica"). Em **952 das 48.326** (~2%) o
+`NR_LOCAL_VOTACAO` da própria linha "Agregada" diverge do local da seção
+principal — resolver pelo `NR_SECAO_PRINCIPAL` é obrigatório, não um detalhe
+cosmético. A resolução é feita dentro do mesmo `nr_turno`, porque a seção
+principal referenciada é a do mesmo turno.
+
+```{r resolve_secao_principal}
+#| message: false
+locais_com_chave <- locais_com_chave |>
+  mutate(
+    id_secao_principal = if_else(
+      nr_secao_principal != "-1",
+      str_c(
+        cd_municipio,
+        str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
+        str_pad(nr_secao_principal, CRESCE_NUM, pad = "0")
+      ),
+      NA_character_
+    )
+  )
+
+local_por_secao <- locais_com_chave |>
+  distinct(id_secao, nr_turno, .keep_all = TRUE) |>
+  select(id_secao, nr_turno, id_local_da_secao = id_local_proprio)
+
+locais_com_chave <- locais_com_chave |>
+  left_join(
+    local_por_secao,
+    by = c("id_secao_principal" = "id_secao", "nr_turno" = "nr_turno")
+  ) |>
+  mutate(id_local = coalesce(id_local_da_secao, id_local_proprio))
+
+n_resolvidas_por_principal <- sum(
+  locais_com_chave$id_local != locais_com_chave$id_local_proprio
+)
+n_resolvidas_por_principal
+```
+
 ## 4. Seções especiais
+
+`DS_TIPO_LOCAL` tem quatro valores reais (não é um campo de texto livre a
+adivinhar): `Convencional`, `Temporário`, `Preso provisório` e `Voto em
+trânsito`. Só as duas últimas quebram o pressuposto "vota perto de casa" (ver
+PLAN.md > Pesquisa) e ficam de fora da distribuição espacial — `Temporário` é
+mantido (o prédio é temporário, não necessariamente o eleitorado).
 
 ```{r flags}
 #| message: false
-# Os nomes exatos das colunas que indicam voto em trânsito / seção especial
-# variam ligeiramente entre anos — confirmar contra o dicionário de dados do
-# ano corrente antes de rodar (ver PLAN.md > Riscos e pendências).
 locais_flag <- locais_com_chave |>
   mutate(
-    flag_transito = str_detect(coalesce(ds_situacao_local_votacao, ""), regex("trânsito", ignore_case = TRUE)),
-    flag_especial_endereco = str_detect(
-      coalesce(nm_local_votacao, ""),
-      regex("presídio|penitenciári|unidade de internação|hospital", ignore_case = TRUE)
-    ),
-    flag_especial = flag_transito | flag_especial_endereco
+    flag_transito = ds_tipo_local == "Voto em trânsito",
+    flag_presidio = ds_tipo_local == "Preso provisório",
+    flag_especial = flag_transito | flag_presidio
   )
 
-locais_flag |> count(flag_especial)
+locais_flag |> count(ds_tipo_local, flag_especial)
 ```
 
-## 5. Locais e seções (uma linha por local / por seção)
+## 5. Locais e seções (uma linha por local / por (seção, turno))
 
 ```{r locais_secoes}
 #| message: false
+# Prioriza linhas Principal/Distribuída de ofício para os metadados do local
+# (endereço, coordenadas, tipo) — uma linha Agregada aponta para o mesmo
+# prédio, mas prefere-se a fonte "canônica" quando ambas existem.
 locais <- locais_flag |>
+  arrange(id_local, ds_tipo_secao_agregada != "Principal") |>
   distinct(id_local, .keep_all = TRUE) |>
   transmute(
     id_local,
@@ -147,19 +206,13 @@ locais <- locais_flag |>
     nr_cep = coalesce(nr_cep, ""),
     latitude = suppressWarnings(as.numeric(nr_latitude)),
     longitude = suppressWarnings(as.numeric(nr_longitude)),
+    ds_tipo_local,
     flag_especial
   )
 
 secao_local <- locais_flag |>
-  transmute(
-    id_secao = str_c(
-      cd_municipio,
-      str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
-      str_pad(nr_secao, CRESCE_NUM, pad = "0")
-    ),
-    id_local
-  ) |>
-  distinct(id_secao, .keep_all = TRUE)
+  transmute(id_secao, nr_turno, id_local) |>
+  distinct(id_secao, nr_turno, .keep_all = TRUE)
 
 stopifnot(
   "toda seção deveria apontar para um local existente" =
@@ -169,7 +222,7 @@ stopifnot(
 write_parquet(locais, file.path(PROCESSADO_DIR, sprintf("locais_%d.parquet", ano)))
 write_parquet(secao_local, file.path(PROCESSADO_DIR, sprintf("secao_local_%d.parquet", ano)))
 
-list(n_locais = nrow(locais), n_secoes = nrow(secao_local))
+list(n_locais = nrow(locais), n_secoes_x_turno = nrow(secao_local))
 ```
 
 ## 6. Municípios com mais de uma zona

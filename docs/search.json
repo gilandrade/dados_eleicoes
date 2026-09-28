@@ -1,0 +1,86 @@
+[
+  {
+    "objectID": "00_auxiliares.html",
+    "href": "00_auxiliares.html",
+    "title": "00 · Auxiliares",
+    "section": "",
+    "text": "Prepara três insumos usados por todas as etapas seguintes:\nlibrary(dplyr)\nlibrary(readr)\nlibrary(stringr)\nlibrary(httr2)\n\nWarning: pacote 'httr2' foi compilado no R versão 4.5.3\n\nlibrary(sf)\n\nWarning: pacote 'sf' foi compilado no R versão 4.5.3\n\nlibrary(geobr)\nlibrary(arrow)\n\nWarning: pacote 'arrow' foi compilado no R versão 4.5.3\n\n# ==== Caminhos ===============================================================\n\nAUX_DIR &lt;- \"dados/02_processado/aux\"\ndir.create(AUX_DIR, showWarnings = FALSE, recursive = TRUE)\n\n# Repositório irmão com os indicadores de população do Censo 2022 (cn22-pop)\nCN22_POP_DIR &lt;- file.path(\"..\", \"cn22-pop\", \"dados\", \"01_indicadores\")"
+  },
+  {
+    "objectID": "00_auxiliares.html#crosswalk-cd_mun_tse-cd_mun",
+    "href": "00_auxiliares.html#crosswalk-cd_mun_tse-cd_mun",
+    "title": "00 · Auxiliares",
+    "section": "1. Crosswalk cd_mun_tse ↔︎ cd_mun",
+    "text": "1. Crosswalk cd_mun_tse ↔︎ cd_mun\nO TSE usa um código de município próprio (CD_MUNICIPIO), diferente do código IBGE de 7 dígitos usado no resto da GeoReDUS. Não existe crosswalk em nenhum dos nossos repos (ver PLAN.md &gt; Fontes de dados) — usamos a tabela pronta do projeto yuripassuelo/codigos_mun_tse_ibge, que já cruza os 5.570 municípios (sem o exterior).\n\ncaminho_crosswalk_bruto &lt;- \"dados/01_bruto/aux/relacao_mun_tse_ibge.csv\"\ndir.create(dirname(caminho_crosswalk_bruto), showWarnings = FALSE, recursive = TRUE)\n\nif (!file.exists(caminho_crosswalk_bruto)) {\n  req &lt;- request(\n    \"https://raw.githubusercontent.com/yuripassuelo/codigos_mun_tse_ibge/master/relacao_mun_tse_ibge.csv\"\n  ) |&gt;\n    req_retry(max_tries = 3, backoff = \\(n) 2^n) |&gt;\n    req_user_agent(\"dados_eleicoes (CEM/USP)\")\n  resp &lt;- req_perform(req)\n  writeBin(resp_body_raw(resp), caminho_crosswalk_bruto)\n}\n\ncrosswalk_bruto &lt;- read_csv(\n  caminho_crosswalk_bruto,\n  locale = locale(encoding = \"latin1\"),\n  col_types = cols(.default = col_character())\n)\n\ncrosswalk &lt;- crosswalk_bruto |&gt;\n  transmute(\n    # o CD_MUNICIPIO dos arquivos do TSE vem com 5 dígitos e zero à esquerda\n    # (ex.: \"01120\"), mas o CSV de origem do crosswalk guarda cd_mun_tse sem\n    # padding (\"1120\") — confirmado contra o arquivo real de locais em\n    # 28/09/2026 (ver CLAUDE.md).\n    cd_mun_tse = str_pad(cd_mun_tse, 5, pad = \"0\"),\n    cd_mun = str_pad(cd_mun_ibge, 7, pad = \"0\"),\n    sg_uf = SG_UF,\n    nm_mun_ibge = nm_mun_ibge,\n    nm_mun_tse = nm_mun_tse\n  )\n\nstopifnot(\n  \"crosswalk deveria ter 5.570 municípios (sem o exterior)\" = nrow(crosswalk) == 5570,\n  \"cd_mun_tse não deveria ter duplicatas\" = !anyDuplicated(crosswalk$cd_mun_tse),\n  \"cd_mun (IBGE) não deveria ter duplicatas\" = !anyDuplicated(crosswalk$cd_mun)\n)\n\nwrite_parquet(crosswalk, file.path(AUX_DIR, \"crosswalk_mun_tse_ibge.parquet\"))\ncrosswalk\n\n\n  \n\n\n\n\nChecagem por nome (municípios novos/renomeados)\nNomes muito diferentes entre nm_mun_ibge e nm_mun_tse no mesmo cd_mun costumam indicar um município criado ou renomeado depois da tabela do crosswalk ter sido montada — checar à mão os que aparecerem aqui.\n\nnormaliza_texto &lt;- function(x) {\n  x |&gt;\n    stringr::str_to_upper() |&gt;\n    stringi::stri_trans_general(\"Latin-ASCII\") |&gt;\n    stringr::str_squish()\n}\n\ndivergencias &lt;- crosswalk |&gt;\n  mutate(\n    dist_nome = stringdist::stringdist(\n      normaliza_texto(nm_mun_ibge), normaliza_texto(nm_mun_tse), method = \"jw\"\n    )\n  ) |&gt;\n  filter(dist_nome &gt; 0.15) |&gt;\n  arrange(desc(dist_nome))\n\ndivergencias"
+  },
+  {
+    "objectID": "00_auxiliares.html#malha-de-municípios-geobr-fixado-em-1.9.1",
+    "href": "00_auxiliares.html#malha-de-municípios-geobr-fixado-em-1.9.1",
+    "title": "00 · Auxiliares",
+    "section": "2. Malha de municípios (geobr, fixado em 1.9.1)",
+    "text": "2. Malha de municípios (geobr, fixado em 1.9.1)\n\n# showProgress = FALSE faz o geobr devolver NULL em silêncio ao renderizar\n# fora de um console interativo (ver CLAUDE.md &gt; Conventions and gotchas) —\n# deixar o padrão (TRUE) mesmo dentro do Quarto.\nmunicipios &lt;- geobr::read_municipality(code_muni = \"all\", year = 2022)\n\nUsing year/date 2022\n\nif (is.null(municipios) || nrow(municipios) == 0) {\n  stop(\n    \"geobr::read_municipality(year = 2022) devolveu NULL/vazio inesperadamente — \",\n    \"confirme rodando a mesma chamada direto no console do R.\"\n  )\n}\n\nmunicipios &lt;- municipios |&gt;\n  rename(cd_mun = code_muni) |&gt;\n  mutate(cd_mun = as.character(cd_mun)) |&gt;\n  st_transform(4674)\n\nstopifnot(nrow(municipios) == 5570)\n\nst_write(municipios, file.path(AUX_DIR, \"municipios.gpkg\"), delete_dsn = TRUE)\n\nDeleting source `dados/02_processado/aux/municipios.gpkg' using driver `GPKG'\nWriting layer `municipios' to data source \n  `dados/02_processado/aux/municipios.gpkg' using driver `GPKG'\nWriting 5570 features with 7 fields and geometry type Multi Polygon."
+  },
+  {
+    "objectID": "00_auxiliares.html#população-adulta-estimada-por-setor-pop18",
+    "href": "00_auxiliares.html#população-adulta-estimada-por-setor-pop18",
+    "title": "00 · Auxiliares",
+    "section": "3. População adulta estimada por setor (pop18)",
+    "text": "3. População adulta estimada por setor (pop18)\npop18(s) = total(s) − [0,4] − [5,9] − [10,14] − 0,6 × [15,19], a mesma conta de src/eleicoes/alocacao.pop18_por_setor() (Python) — ver PLAN.md &gt; Método, passo 4. É calculada aqui (R, etapa “auxiliares”) e só lida em Python, para não duplicar a leitura dos CSVs do Censo em duas linguagens.\nOs CSVs do cn22-pop já vêm com os indicadores nomeados no padrão GeoReDUS (cn22_pop01_res_tot_0, cn22_pop03_0a4_tot_0, …), não com as variáveis brutas do IBGE (V0001, V01031, …) — a chave de setor ali é cod_setor, não cd_setor (confirmado rodando contra os arquivos reais em 25/09/2026; renomeado aqui para cd_setor, o nome usado no resto do pipeline).\n\npop01 &lt;- read_csv(file.path(CN22_POP_DIR, \"cn22_pop01_abs.csv\"), show_col_types = FALSE) |&gt;\n  transmute(cd_setor = cod_setor, total = cn22_pop01_res_tot_0)\n\npop03 &lt;- read_csv(file.path(CN22_POP_DIR, \"cn22_pop03_abs.csv\"), show_col_types = FALSE) |&gt;\n  transmute(\n    cd_setor = cod_setor,\n    fx_0a4 = cn22_pop03_0a4_tot_0,\n    fx_5a9 = cn22_pop03_5a9_tot_0,\n    fx_10a14 = cn22_pop03_10a14_tot_0,\n    fx_15a19 = cn22_pop03_15a19_tot_0\n  )\n\npop18_setor &lt;- pop01 |&gt;\n  left_join(pop03, by = \"cd_setor\") |&gt;\n  mutate(\n    across(c(fx_0a4, fx_5a9, fx_10a14, fx_15a19), ~ replace(.x, is.na(.x), 0)),\n    pop18 = pmax(total - fx_0a4 - fx_5a9 - fx_10a14 - 0.6 * fx_15a19, 0)\n  ) |&gt;\n  select(cd_setor, pop18)\n\nwrite_parquet(pop18_setor, file.path(AUX_DIR, \"pop18_setor.parquet\"))\npop18_setor"
+  },
+  {
+    "objectID": "00_auxiliares.html#setores-censitários-2022",
+    "href": "00_auxiliares.html#setores-censitários-2022",
+    "title": "00 · Auxiliares",
+    "section": "4. Setores censitários 2022",
+    "text": "4. Setores censitários 2022\nO shapefile de setores 2022 do IBGE é grande demais para versionar; espera-se que já esteja em dados/01_bruto/aux/BR_Malha_Preliminar_2022.zip (baixado à mão, ver PLAN.md &gt; Fontes de dados), lido de dentro do zip sem extrair — o mesmo padrão de cnefe-etl/index.qmd (/vsizip/).\n\ncaminho_zip &lt;- \"dados/01_bruto/aux/BR_Malha_Preliminar_2022.zip\"\n\nsetores &lt;- st_read(\n  paste0(\"/vsizip/\", caminho_zip),\n  quiet = TRUE\n) |&gt;\n  rename(cd_setor = CD_SETOR) |&gt;\n  st_transform(4674)\n\nst_write(setores, file.path(AUX_DIR, \"setores_2022.gpkg\"), delete_dsn = TRUE)"
+  },
+  {
+    "objectID": "01_locais_votacao.html",
+    "href": "01_locais_votacao.html",
+    "title": "01 · Locais de votação",
+    "section": "",
+    "text": "Baixa eleitorado_local_votacao_{ano} do TSE e constrói as chaves usadas pelo resto do pipeline (id_local, id_secao), tratando seções agregadas e marcando as seções especiais (voto em trânsito, presídio, internação) que não entram na distribuição espacial (ver PLAN.md &gt; Método, passo 2).\nlibrary(dplyr)\nlibrary(readr)\nlibrary(stringr)\nlibrary(httr2)\n\nWarning: pacote 'httr2' foi compilado no R versão 4.5.3\n\nlibrary(arrow)\n\nWarning: pacote 'arrow' foi compilado no R versão 4.5.3\n\nano &lt;- params$ano\n\nBRUTO_DIR &lt;- file.path(\"dados/01_bruto\", ano)\nPROCESSADO_DIR &lt;- \"dados/02_processado\"\ndir.create(BRUTO_DIR, showWarnings = FALSE, recursive = TRUE)\ndir.create(PROCESSADO_DIR, showWarnings = FALSE, recursive = TRUE)\n\nCRESCE_ZONA &lt;- 4  # dígitos de zero-padding de NR_ZONA nas chaves\nCRESCE_NUM &lt;- 4   # dígitos de zero-padding de NR_LOCAL/NR_SECAO"
+  },
+  {
+    "objectID": "01_locais_votacao.html#download",
+    "href": "01_locais_votacao.html#download",
+    "title": "01 · Locais de votação",
+    "section": "1. Download",
+    "text": "1. Download\n\nurl_locais &lt;- sprintf(\n  \"https://cdn.tse.jus.br/estatistica/sead/odsele/eleitorado_locais_votacao/eleitorado_local_votacao_%d.zip\",\n  ano\n)\ncaminho_zip &lt;- file.path(BRUTO_DIR, sprintf(\"eleitorado_local_votacao_%d.zip\", ano))\n\nbaixar_com_retry &lt;- function(url, destino, tentativas = 3) {\n  if (file.exists(destino)) {\n    return(invisible(destino))\n  }\n  for (tentativa in seq_len(tentativas)) {\n    resultado &lt;- tryCatch(\n      {\n        resp &lt;- request(url) |&gt;\n          req_user_agent(\"dados_eleicoes (CEM/USP)\") |&gt;\n          req_perform()\n        writeBin(resp_body_raw(resp), destino)\n        TRUE\n      },\n      error = function(e) {\n        message(sprintf(\"Tentativa %d/%d falhou: %s\", tentativa, tentativas, conditionMessage(e)))\n        FALSE\n      }\n    )\n    if (isTRUE(resultado)) break\n    if (tentativa &lt; tentativas) Sys.sleep(2^tentativa)\n  }\n  if (!file.exists(destino)) stop(\"Não foi possível baixar \", url)\n  invisible(destino)\n}\n\nbaixar_com_retry(url_locais, caminho_zip)"
+  },
+  {
+    "objectID": "01_locais_votacao.html#leitura",
+    "href": "01_locais_votacao.html#leitura",
+    "title": "01 · Locais de votação",
+    "section": "2. Leitura",
+    "text": "2. Leitura\nArquivos do TSE são ;-separados, em latin-1, com todas as colunas lidas como texto (evita perder zeros à esquerda em códigos de município/zona/seção).\n\narquivo_interno &lt;- grep(\n  \"\\\\.csv$\", utils::unzip(caminho_zip, list = TRUE)$Name,\n  ignore.case = TRUE, value = TRUE\n)[1]\n\nlocais_bruto &lt;- read_delim(\n  unz(caminho_zip, arquivo_interno),\n  delim = \";\",\n  locale = locale(encoding = \"latin1\", decimal_mark = \",\"),\n  col_types = cols(.default = col_character())\n) |&gt;\n  janitor::clean_names()\n\nnrow(locais_bruto)\n\n[1] 993712"
+  },
+  {
+    "objectID": "01_locais_votacao.html#chaves-e-crosswalk",
+    "href": "01_locais_votacao.html#chaves-e-crosswalk",
+    "title": "01 · Locais de votação",
+    "section": "3. Chaves e crosswalk",
+    "text": "3. Chaves e crosswalk\nO arquivo real (confirmado em 28/09/2026, ver CLAUDE.md) traz uma linha por seção por turno (NR_TURNO), não uma linha por seção — então id_secao sozinho não é único; a chave completa da linha é (id_secao, nr_turno). O CD_MUNICIPIO já vem com 5 dígitos e zero à esquerda (\"01120\"), no mesmo formato do cd_mun_tse do crosswalk depois do str_pad() da etapa 00.\n\ncrosswalk &lt;- read_parquet(\"dados/02_processado/aux/crosswalk_mun_tse_ibge.parquet\")\n\nlocais_com_chave &lt;- locais_bruto |&gt;\n  mutate(\n    nr_turno = as.integer(nr_turno),\n    id_local_proprio = str_c(\n      cd_municipio,\n      str_pad(nr_zona, CRESCE_ZONA, pad = \"0\"),\n      str_pad(nr_local_votacao, CRESCE_NUM, pad = \"0\")\n    ),\n    id_secao = str_c(\n      cd_municipio,\n      str_pad(nr_zona, CRESCE_ZONA, pad = \"0\"),\n      str_pad(nr_secao, CRESCE_NUM, pad = \"0\")\n    )\n  ) |&gt;\n  left_join(crosswalk, by = c(\"cd_municipio\" = \"cd_mun_tse\"))\n\nn_sem_crosswalk &lt;- sum(is.na(locais_com_chave$cd_mun) & locais_com_chave$sg_uf.x != \"ZZ\")\nif (n_sem_crosswalk &gt; 0) {\n  warning(n_sem_crosswalk, \" locais sem crosswalk para município IBGE (fora do exterior).\")\n}\n\n\nSeções agregadas: resolver o local pela seção principal\nDS_TIPO_SECAO_AGREGADA tem três valores (contados no arquivo real de 2022): Principal (944.150 linhas), Agregada (48.326) e Distribuída de ofício (1.236). Só a Agregada tem NR_SECAO_PRINCIPAL de verdade (as outras trazem -1, sentinela de “não se aplica”). Em 952 das 48.326 (~2%) o NR_LOCAL_VOTACAO da própria linha “Agregada” diverge do local da seção principal — resolver pelo NR_SECAO_PRINCIPAL é obrigatório, não um detalhe cosmético. A resolução é feita dentro do mesmo nr_turno, porque a seção principal referenciada é a do mesmo turno.\n\nlocais_com_chave &lt;- locais_com_chave |&gt;\n  mutate(\n    id_secao_principal = if_else(\n      nr_secao_principal != \"-1\",\n      str_c(\n        cd_municipio,\n        str_pad(nr_zona, CRESCE_ZONA, pad = \"0\"),\n        str_pad(nr_secao_principal, CRESCE_NUM, pad = \"0\")\n      ),\n      NA_character_\n    )\n  )\n\nlocal_por_secao &lt;- locais_com_chave |&gt;\n  distinct(id_secao, nr_turno, .keep_all = TRUE) |&gt;\n  select(id_secao, nr_turno, id_local_da_secao = id_local_proprio)\n\nlocais_com_chave &lt;- locais_com_chave |&gt;\n  left_join(\n    local_por_secao,\n    by = c(\"id_secao_principal\" = \"id_secao\", \"nr_turno\" = \"nr_turno\")\n  ) |&gt;\n  mutate(id_local = coalesce(id_local_da_secao, id_local_proprio))\n\nn_resolvidas_por_principal &lt;- sum(\n  locais_com_chave$id_local != locais_com_chave$id_local_proprio\n)\nn_resolvidas_por_principal\n\n[1] 1049"
+  },
+  {
+    "objectID": "01_locais_votacao.html#seções-especiais",
+    "href": "01_locais_votacao.html#seções-especiais",
+    "title": "01 · Locais de votação",
+    "section": "4. Seções especiais",
+    "text": "4. Seções especiais\nDS_TIPO_LOCAL tem quatro valores reais (não é um campo de texto livre a adivinhar): Convencional, Temporário, Preso provisório e Voto em trânsito. Só as duas últimas quebram o pressuposto “vota perto de casa” (ver PLAN.md &gt; Pesquisa) e ficam de fora da distribuição espacial — Temporário é mantido (o prédio é temporário, não necessariamente o eleitorado).\n\nlocais_flag &lt;- locais_com_chave |&gt;\n  mutate(\n    flag_transito = ds_tipo_local == \"Voto em trânsito\",\n    flag_presidio = ds_tipo_local == \"Preso provisório\",\n    flag_especial = flag_transito | flag_presidio\n  )\n\nlocais_flag |&gt; count(ds_tipo_local, flag_especial)"
+  },
+  {
+    "objectID": "01_locais_votacao.html#locais-e-seções-uma-linha-por-local-por-seção-turno",
+    "href": "01_locais_votacao.html#locais-e-seções-uma-linha-por-local-por-seção-turno",
+    "title": "01 · Locais de votação",
+    "section": "5. Locais e seções (uma linha por local / por (seção, turno))",
+    "text": "5. Locais e seções (uma linha por local / por (seção, turno))\n\n# Prioriza linhas Principal/Distribuída de ofício para os metadados do local\n# (endereço, coordenadas, tipo) — uma linha Agregada aponta para o mesmo\n# prédio, mas prefere-se a fonte \"canônica\" quando ambas existem.\nlocais &lt;- locais_flag |&gt;\n  arrange(id_local, ds_tipo_secao_agregada != \"Principal\") |&gt;\n  distinct(id_local, .keep_all = TRUE) |&gt;\n  transmute(\n    id_local,\n    cd_mun,\n    sg_uf = sg_uf.y,\n    nr_zona = as.integer(nr_zona),\n    nm_local_votacao,\n    ds_endereco = coalesce(ds_endereco, \"\"),\n    nr_cep = coalesce(nr_cep, \"\"),\n    latitude = suppressWarnings(as.numeric(nr_latitude)),\n    longitude = suppressWarnings(as.numeric(nr_longitude)),\n    ds_tipo_local,\n    flag_especial\n  )\n\nsecao_local &lt;- locais_flag |&gt;\n  transmute(id_secao, nr_turno, id_local) |&gt;\n  distinct(id_secao, nr_turno, .keep_all = TRUE)\n\nstopifnot(\n  \"toda seção deveria apontar para um local existente\" =\n    all(secao_local$id_local %in% locais$id_local)\n)\n\nwrite_parquet(locais, file.path(PROCESSADO_DIR, sprintf(\"locais_%d.parquet\", ano)))\nwrite_parquet(secao_local, file.path(PROCESSADO_DIR, sprintf(\"secao_local_%d.parquet\", ano)))\n\nlist(n_locais = nrow(locais), n_secoes_x_turno = nrow(secao_local))\n\n$n_locais\n[1] 92393\n\n$n_secoes_x_turno\n[1] 993712"
+  },
+  {
+    "objectID": "01_locais_votacao.html#municípios-com-mais-de-uma-zona",
+    "href": "01_locais_votacao.html#municípios-com-mais-de-uma-zona",
+    "title": "01 · Locais de votação",
+    "section": "6. Municípios com mais de uma zona",
+    "text": "6. Municípios com mais de uma zona\nInsumo para a camada id_zona_mun (PLAN.md &gt; Pesquisa &gt; Zonas eleitorais): só nesses municípios a geometria da zona precisa ser estimada.\n\nn_zonas_mun &lt;- locais |&gt;\n  distinct(cd_mun, nr_zona) |&gt;\n  count(cd_mun, name = \"n_zonas_mun\") |&gt;\n  arrange(desc(n_zonas_mun))\n\nwrite_parquet(n_zonas_mun, file.path(PROCESSADO_DIR, sprintf(\"n_zonas_mun_%d.parquet\", ano)))\nhead(n_zonas_mun, 10)"
+  }
+]

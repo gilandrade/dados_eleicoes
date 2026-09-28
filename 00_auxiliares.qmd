@@ -58,7 +58,11 @@ crosswalk_bruto <- read_csv(
 
 crosswalk <- crosswalk_bruto |>
   transmute(
-    cd_mun_tse = cd_mun_tse,
+    # o CD_MUNICIPIO dos arquivos do TSE vem com 5 dígitos e zero à esquerda
+    # (ex.: "01120"), mas o CSV de origem do crosswalk guarda cd_mun_tse sem
+    # padding ("1120") — confirmado contra o arquivo real de locais em
+    # 28/09/2026 (ver CLAUDE.md).
+    cd_mun_tse = str_pad(cd_mun_tse, 5, pad = "0"),
     cd_mun = str_pad(cd_mun_ibge, 7, pad = "0"),
     sg_uf = SG_UF,
     nm_mun_ibge = nm_mun_ibge,

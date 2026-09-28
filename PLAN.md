@@ -266,6 +266,18 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
 - **Confirmado (25/09/2026):** `geobr::read_municipality(..., showProgress = FALSE)`
   devolve `NULL` em silêncio ao renderizar via `quarto render`. Corrigido em
   `00_auxiliares.qmd` (deixar `showProgress` no padrão) — ver CLAUDE.md.
+- **Resolvido (28/09/2026):** as etapas 00 e 01 rodaram de ponta a ponta com
+  dados reais de 2022. Três bugs corrigidos no caminho — detalhes em
+  CLAUDE.md: (1) crosswalk sem zero à esquerda em `cd_mun_tse` (join falhava
+  para ~15% dos locais); (2) `01_locais_votacao.qmd` usava nomes de coluna
+  adivinhados (`ds_situacao_local_votacao`) em vez dos reais (`ds_tipo_local`,
+  com as categorias `Convencional`/`Temporário`/`Preso provisório`/`Voto em
+  trânsito`); (3) o arquivo tem uma linha por seção **por turno**, e seções
+  "Agregada" precisam ser resolvidas pela seção principal (não pelo próprio
+  `NR_LOCAL_VOTACAO`, que diverge em ~2% dos casos). Resultado real: 92.393
+  locais, 993.712 seções×turno, 262 flags especiais, 0 coordenadas nulas.
+  `pop18` também usava nomes de variável do IBGE em vez dos indicadores já
+  nomeados do `cn22-pop` — corrigido do mesmo jeito.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.

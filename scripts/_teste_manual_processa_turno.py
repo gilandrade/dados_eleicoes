@@ -34,6 +34,7 @@ CD_MUN = "999999"
 secao_local = pd.DataFrame(
     {
         "id_secao": [f"{CD_MUN}00010001", f"{CD_MUN}00010002", f"{CD_MUN}00020003"],
+        "nr_turno": [TURNO, TURNO, TURNO],
         "id_local": ["L1", "L1", "L2"],
     }
 )

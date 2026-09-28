@@ -30,10 +30,13 @@ def secao_para_id_local(
 
     Args:
         resultados_secao: esquema longo de `fontes.py`, com `cd_mun_tse`,
-            `nr_zona`, `nr_secao`.
+            `nr_zona`, `nr_secao`, `turno`.
         secao_local: saída da etapa 01 (`secao_local_{ano}.parquet`), com
-            `id_secao` e `id_local` (seções agregadas já resolvidas para o
-            local da seção principal).
+            `id_secao`, `nr_turno` e `id_local` (seções agregadas já
+            resolvidas para o local da seção principal — **do mesmo turno**:
+            o local de uma seção pode mudar de um turno para o outro; 0,28%
+            mudou em 2022, ver `01_locais_votacao.qmd`). O join é por
+            `(id_secao, turno)`, não só por `id_secao`.
 
     Returns:
         `resultados_secao` com as colunas `id_secao` e `id_local` adicionadas.
@@ -46,7 +49,12 @@ def secao_para_id_local(
         + df["nr_zona"].astype(int).astype(str).str.zfill(4)
         + df["nr_secao"].astype(int).astype(str).str.zfill(4)
     )
-    return df.merge(secao_local[["id_secao", "id_local"]], on="id_secao", how="left")
+    return df.merge(
+        secao_local[["id_secao", "nr_turno", "id_local"]],
+        left_on=["id_secao", "turno"],
+        right_on=["id_secao", "nr_turno"],
+        how="left",
+    ).drop(columns="nr_turno")
 
 
 def agrega_por_local(resultados_secao_com_id: pd.DataFrame) -> pd.DataFrame:

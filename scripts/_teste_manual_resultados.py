@@ -25,6 +25,7 @@ secao_local = pd.DataFrame(
     {
         "id_secao": [f"{CD_MUN}00010001", f"{CD_MUN}00010002", f"{CD_MUN}00010003",
                      f"{CD_MUN}00020004", f"{CD_MUN}00020005", f"{CD_MUN}00020006"],
+        "nr_turno": [1, 1, 1, 1, 1, 1],
         "id_local": ["L1", "L1", "L1", "L2", "L2", "L2"],
     }
 )
