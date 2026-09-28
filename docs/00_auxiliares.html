@@ -147,6 +147,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <a class="nav-link" href="./02_geocodificacao_locais.html"> 
 <span class="menu-text">02 · Geocodificação</span></a>
   </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./mapas/2022_t1/index.html"> 
+<span class="menu-text">Mapas · 2022 T1</span></a>
+  </li>  
 </ul>
           </div> <!-- /navcollapse -->
             <div class="quarto-navbar-tools">
@@ -289,20 +293,28 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    stringr<span class="sc">::</span><span class="fu">str_squish</span>()</span>
 <span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>divergencias <span class="ot">&lt;-</span> crosswalk <span class="sc">|&gt;</span></span>
-<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">dist_nome =</span> stringdist<span class="sc">::</span><span class="fu">stringdist</span>(</span>
-<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>      <span class="fu">normaliza_texto</span>(nm_mun_ibge), <span class="fu">normaliza_texto</span>(nm_mun_tse), <span class="at">method =</span> <span class="st">"jw"</span></span>
-<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(dist_nome <span class="sc">&gt;</span> <span class="fl">0.15</span>) <span class="sc">|&gt;</span></span>
-<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(dist_nome))</span>
-<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>divergencias</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Checados à mão e confirmados corretos (25/09/2026) — nome antigo/local no</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a><span class="co"># IBGE, nome oficial atual no TSE (ou vice-versa), mesmo município:</span></span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a><span class="co">#   2405306 Boa Saúde / Januário Cicco (RN)</span></span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a><span class="co">#   1708254 Fortaleza do Tabocão / Tabocão (TO)</span></span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a><span class="co">#   2400208 Assú / Açu (RN)</span></span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Excluídos daqui pra baixo para a lista só mostrar divergências novas.</span></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>CD_MUN_DIVERGENCIA_CONFIRMADA <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"2405306"</span>, <span class="st">"1708254"</span>, <span class="st">"2400208"</span>)</span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>divergencias <span class="ot">&lt;-</span> crosswalk <span class="sc">|&gt;</span></span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">dist_nome =</span> stringdist<span class="sc">::</span><span class="fu">stringdist</span>(</span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>      <span class="fu">normaliza_texto</span>(nm_mun_ibge), <span class="fu">normaliza_texto</span>(nm_mun_tse), <span class="at">method =</span> <span class="st">"jw"</span></span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(dist_nome <span class="sc">&gt;</span> <span class="fl">0.15</span>, <span class="sc">!</span>cd_mun <span class="sc">%in%</span> CD_MUN_DIVERGENCIA_CONFIRMADA) <span class="sc">|&gt;</span></span>
+<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(dist_nome))</span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a>divergencias</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div data-pagedtable="false">
   <script data-pagedtable-source="" type="application/json">
-{"columns":[{"label":["cd_mun_tse"],"name":[1],"type":["chr"],"align":["left"]},{"label":["cd_mun"],"name":[2],"type":["chr"],"align":["left"]},{"label":["sg_uf"],"name":[3],"type":["chr"],"align":["left"]},{"label":["nm_mun_ibge"],"name":[4],"type":["chr"],"align":["left"]},{"label":["nm_mun_tse"],"name":[5],"type":["chr"],"align":["left"]},{"label":["dist_nome"],"name":[6],"type":["dbl"],"align":["right"]}],"data":[{"1":"17035","2":"2405306","3":"RN","4":"BOA SAÚDE","5":"Januário Cicco","6":"0.5291005"},{"1":"73199","2":"1708254","3":"TO","4":"FORTALEZA DO TABOCÃO","5":"Tabocão","6":"0.4452381"},{"1":"16039","2":"2400208","3":"RN","4":"ASSÚ","5":"Açu","6":"0.2777778"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+{"columns":[{"label":["cd_mun_tse"],"name":[1],"type":["chr"],"align":["left"]},{"label":["cd_mun"],"name":[2],"type":["chr"],"align":["left"]},{"label":["sg_uf"],"name":[3],"type":["chr"],"align":["left"]},{"label":["nm_mun_ibge"],"name":[4],"type":["chr"],"align":["left"]},{"label":["nm_mun_tse"],"name":[5],"type":["chr"],"align":["left"]},{"label":["dist_nome"],"name":[6],"type":["dbl"],"align":["right"]}],"data":[],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
   </script>
 </div>
 </div>

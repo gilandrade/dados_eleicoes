@@ -5,11 +5,18 @@ Ver PLAN.md para o contexto completo e o modelo de dados.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # ==== Caminhos ==============================================================
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# .env é git-ignorado (ver .gitignore) — segredos/chaves de API nunca ficam
+# hardcoded no código-fonte. Ver .env.example para o que precisa preencher.
+load_dotenv(REPO_ROOT / ".env")
 
 DADOS_DIR = REPO_ROOT / "dados"
 BRUTO_DIR = DADOS_DIR / "01_bruto"
@@ -91,3 +98,34 @@ BUFFER_MUNICIPIO_M = 500
 
 # Espécies do CNEFE tratadas como domicílio (ver cnefe-etl: COD_ESPECIE)
 CNEFE_ESPECIES_DOMICILIO = (1, 2)  # 1 = particular, 2 = coletivo
+
+# ==== Mapas (etapa 05) ========================================================
+
+# CARTO Basemaps agora exige API key mesmo para o preset "CartoDB positron"
+# do folium (confirmado em 29/09/2026 — a chamada sem key dá warning e os
+# tiles não carregam). A chave vem de .env (git-ignorado), nunca hardcoded
+# aqui — ver .env.example. Fica None se .env não tiver CARTO_API_KEY;
+# src/eleicoes/mapas.py é quem falha com uma mensagem clara ao tentar gerar
+# um mapa sem ela (as outras etapas não dependem disso).
+CARTO_API_KEY = os.environ.get("CARTO_API_KEY")
+TILES_CARTO_POSITRON = (
+    "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+    f"?api_key={CARTO_API_KEY}"
+)
+TILES_CARTO_ATTR = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
+    'contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+)
+
+# `SETORES_2022_GPKG` não tem sigla de 2 letras — só `CD_UF` (código IBGE) e
+# `NM_UF` (achado tentando filtrar por "SG_UF", que não existe nesse
+# arquivo). Código oficial do IBGE, usado para filtrar a malha por UF em
+# `mapas.py`.
+CD_UF_POR_SG_UF = {
+    "RO": 11, "AC": 12, "AM": 13, "RR": 14, "PA": 15, "AP": 16, "TO": 17,
+    "MA": 21, "PI": 22, "CE": 23, "RN": 24, "PB": 25, "PE": 26, "AL": 27,
+    "SE": 28, "BA": 29,
+    "MG": 31, "ES": 32, "RJ": 33, "SP": 35,
+    "PR": 41, "SC": 42, "RS": 43,
+    "MS": 50, "MT": 51, "GO": 52, "DF": 53,
+}

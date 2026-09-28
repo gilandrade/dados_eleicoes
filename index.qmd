@@ -12,3 +12,46 @@ para o contexto completo.
 
 As etapas 03–05 (distribuição espacial, resultados e exportação) são em Python,
 em `src/eleicoes/` e `scripts/` — ver o README do repositório.
+
+## Mapas · Presidente 2022, 1º turno
+
+Coroplético: margem entre Lula e Bolsonaro (vermelho/azul, mais escuro quanto
+maior a margem, cinza = empate ou sem resultado). Três camadas, da mais
+"real" para a mais detalhada (ver [PLAN.md](https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md)
+para o porquê de cada uma):
+
+- **[Nacional · zona × município](mapas/2022_t1/zona_mun.html)** — **observado**,
+  bate exatamente com o que o TSE publica por município e zona. Só a
+  fronteira interna das cidades com mais de uma zona é estimada.
+- **[Nacional · município](mapas/2022_t1/index.html)** — **observado**, visão
+  geral rápida (menos polígonos, carrega mais rápido).
+- **Por UF · setor censitário** — **estimado** por distribuição dasimétrica
+  via CNEFE (não é o voto real do setor, ver PLAN.md > "Pesquisa: como
+  distribuir os resultados no território"):
+  [AC](mapas/2022_t1/AC.html) ·
+  [AL](mapas/2022_t1/AL.html) ·
+  [AP](mapas/2022_t1/AP.html) ·
+  [AM](mapas/2022_t1/AM.html) ·
+  [BA](mapas/2022_t1/BA.html) ·
+  [CE](mapas/2022_t1/CE.html) ·
+  [DF](mapas/2022_t1/DF.html) ·
+  [ES](mapas/2022_t1/ES.html) ·
+  [GO](mapas/2022_t1/GO.html) ·
+  [MA](mapas/2022_t1/MA.html) ·
+  [MT](mapas/2022_t1/MT.html) ·
+  [MS](mapas/2022_t1/MS.html) ·
+  [MG](mapas/2022_t1/MG.html) ·
+  [PA](mapas/2022_t1/PA.html) ·
+  [PB](mapas/2022_t1/PB.html) ·
+  [PR](mapas/2022_t1/PR.html) ·
+  [PE](mapas/2022_t1/PE.html) ·
+  [PI](mapas/2022_t1/PI.html) ·
+  [RJ](mapas/2022_t1/RJ.html) ·
+  [RN](mapas/2022_t1/RN.html) ·
+  [RS](mapas/2022_t1/RS.html) ·
+  [RO](mapas/2022_t1/RO.html) ·
+  [RR](mapas/2022_t1/RR.html) ·
+  [SC](mapas/2022_t1/SC.html) ·
+  [SP](mapas/2022_t1/SP.html) ·
+  [SE](mapas/2022_t1/SE.html) ·
+  [TO](mapas/2022_t1/TO.html)

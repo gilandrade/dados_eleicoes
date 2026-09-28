@@ -40,12 +40,20 @@ quarto render 02_geocodificacao_locais.qmd
 python -m venv venv
 venv\Scripts\activate.bat        # PowerShell: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+cp .env.example .env             # preencher CARTO_API_KEY antes de gerar mapas
 python scripts/03_pesos_alocacao.py --ano 2022
 python scripts/processa_turno.py --ano 2022 --turno 1 --fonte votacao_secao
+python scripts/05_gera_mapas.py --ano 2022 --turno 1
 ```
 
 `dados/`, `venv/` e `renv/library/` são git-ignorados — ver `PLAN.md` para as fontes
-e como baixá-los.
+e como baixá-los. `.env` (a chave do CARTO) também é git-ignorado — ver `.env.example`.
+
+**Atenção ao rodar `quarto render` do projeto inteiro (sem apontar um `.qmd`
+específico):** por padrão ele limpa `docs/` antes de renderizar, e isso apaga
+`docs/mapas/` (gerado por `scripts/05_gera_mapas.py`, fora do motor do Quarto).
+Ou passa `--no-clean`, ou roda `scripts/05_gera_mapas.py` de novo depois do
+render.
 
 ## Agradecimentos
 

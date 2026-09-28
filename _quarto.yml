@@ -1,6 +1,11 @@
 project:
   type: website
   output-dir: docs
+  # docs/mapas/ é gerado por scripts/05_gera_mapas.py (Folium, fora do motor
+  # de render do Quarto) — listar como resource evita que um `quarto render`
+  # limpe a pasta antes de renderizar o resto do site.
+  resources:
+    - mapas
 
 website:
   title: "dados_eleicoes"
@@ -14,6 +19,8 @@ website:
         text: 01 · Locais de votação
       - href: 02_geocodificacao_locais.qmd
         text: 02 · Geocodificação
+      - href: mapas/2022_t1/index.html
+        text: Mapas · 2022 T1
 
 format:
   html:

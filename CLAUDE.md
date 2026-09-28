@@ -27,18 +27,20 @@ quarto render 02_geocodificacao_locais.qmd
 
 `.Rprofile` sources `renv/activate.R`.
 
-Python (resultados, alocação, exportação):
+Python (resultados, alocação, exportação, mapas):
 
 ```bash
 venv\Scripts\activate.bat        # PowerShell: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+cp .env.example .env             # preencher CARTO_API_KEY (ver Conventions abaixo)
 python scripts/03_pesos_alocacao.py --ano 2022
 python scripts/processa_turno.py --ano 2022 --turno 1 --fonte votacao_secao
+python scripts/05_gera_mapas.py --ano 2022 --turno 1
 ```
 
 ## Architecture
 
-Four stages, two languages, parquet/gpkg as the handoff format. See `PLAN.md` for
+Five stages, two languages, parquet/gpkg as the handoff format. See `PLAN.md` for
 the full data model (geometry files vs. result files joined by a shared id).
 
 - **00–02 (R)**: crosswalk TSE↔IBGE, malhas, `pop18` por setor; download e chaves
@@ -51,7 +53,10 @@ the full data model (geometry files vs. result files joined by a shared id).
   ou `votacao_secao`), agrega por local, por zona × município e, multiplicando
   pela matriz de pesos, por setor.
 - **05 (Python)**: exporta os arquivos no modelo GeoReDUS, os artefatos de carga
-  (`table.sh`/`schema.sql`/`down.sql`), a linha de cadastro e os mapas de prévia.
+  (`table.sh`/`schema.sql`/`down.sql`), a linha de cadastro (ainda não implementado)
+  e os mapas Folium coropléticos (`src/eleicoes/mapas.py`,
+  `scripts/05_gera_mapas.py` — 27 mapas por UF em setor + 1 nacional por
+  município, em `docs/mapas/{ano}_t{turno}/`, publicados no GitHub Pages).
 
 ## Conventions and gotchas
 
@@ -256,3 +261,64 @@ the full data model (geometry files vs. result files joined by a shared id).
   nulos ficam de fora do setor (122.682.541 vs. 123.682.372 no zona_mun) —
   ordem de grandeza esperada, dado que ~262 locais são especiais e ~2.062
   ficaram sem nenhum domicílio alocado (de 91.923).
+- **Etapa 05, mapas (`src/eleicoes/mapas.py`, `scripts/05_gera_mapas.py`),
+  rodou pela primeira vez em 29/09/2026** — 27 mapas por UF (setor,
+  `monta_setor_uf`), 1 nacional por município (`monta_municipios`) e 1
+  nacional por zona×município (`monta_zona_mun`, a camada mais fiel — ver
+  PLAN.md). ~352 MB no total, maior arquivo SP com 53,5 MB; zona×município
+  (33,4 MB) e município (29,2 MB) cabem num arquivo nacional único porque
+  têm muito menos polígonos que setor (6.102 e 5.570, contra 472.780).
+  `geom_zona_mun_{ano}.gpkg` (saída da etapa 03) não vem simplificada — 136,5
+  MB de GeoJSON bruto — mesma receita de `simplifica_geometria` resolve.
+  Conferência de conservação: o mapa de zona×município tem 304.032 votos a
+  menos que o arquivo de resultados — exatamente o total do `EXTERIOR0001`
+  (o exterior, sem geometria mapeável, mesmo tratamento já dado em
+  `monta_municipios`), não uma perda real. Achados reais no caminho:
+  - **Um mapa nacional único em setor não cabe**: testado de verdade —
+    Brasil inteiro simplificado (~20 m) dá **378,7 MB só de geometria**
+    (GPKG binário; GeoJSON, o que o Folium usa, seria maior ainda). Por isso
+    a divisão por UF (setor) + nacional por município (camada bem menor,
+    5.570 polígonos).
+  - **A malha de setores (`SETORES_2022_GPKG`) não tem sigla de 2 letras** —
+    só `CD_UF` (código IBGE numérico) e `NM_UF`. Tentar filtrar por
+    `SG_UF = 'SP'` dá `no such column: SG_UF`. Crosswalk sigla→código em
+    `config.CD_UF_POR_SG_UF`.
+  - **`gpd.read_file(..., where=..., columns=[...])` do pyogrio/GDAL ignora
+    uma coluna do `where` se ela não estiver em `columns`, mesmo que pareça
+    estar** — testado com `columns=["CD_SETOR", "SG_UF"]` (o nome errado,
+    ver acima) e o SQL gerado só tinha `CD_SETOR`; o campo referenciado pelo
+    `where` **tem** que estar em `columns` com o nome exato do schema, senão
+    "no such column" mesmo constando na lista.
+  - **Nunca usar um `folium.GeoJson`/`Popup` por feição num loop** — para
+    dezenas de milhares de setores por UF, incha o HTML e trava o
+    navegador. Uma única camada `folium.GeoJson(gdf_inteiro, style_function=...,
+    tooltip=folium.GeoJsonTooltip(fields=[...]), popup=folium.GeoJsonPopup(fields=[...]))`
+    é o padrão certo — `style_function` lê a propriedade de cada feição do
+    próprio GeoJSON; os campos do tooltip/popup são colunas **já formatadas
+    como texto** no GeoDataFrame antes de gerar o GeoJSON (Folium não
+    formata valor por valor).
+  - **CartoDB Basemaps agora exige API key** mesmo para o preset `"CartoDB
+    positron"` do folium — sem ela, os tiles de fundo não carregam (só um
+    warning, sem erro). Chave em `.env` (git-ignorado, ver `.env.example`),
+    lida em `config.CARTO_API_KEY` via `python-dotenv`; `mapas.gera_mapa()`
+    falha com mensagem clara se estiver ausente. **Nunca hardcodar a chave
+    no código-fonte**, mesmo sendo de uso client-side (não é segredo de
+    servidor, mas não deve ficar commitada).
+  - **Tamanho do GeoJSON: o arredondamento de precisão pesa mais que a
+    simplificação de forma.** Testado em SP (103.620 setores, o pior caso):
+    só `shapely.simplify()` (tolerância 0,0002°) já dava 91 MB; simplificar
+    + `shapely.set_precision(grid_size=0,0001°)` (arredonda coordenadas pra
+    grade de ~10 m, os setores do IBGE vêm em float64 com ~15 dígitos
+    significativos, muito além do que qualquer mapa mostra) caiu pra ~30 MB
+    de geometria / 53,5 MB de HTML final. Uma fração pequena dos setores
+    (0,24% em SP, tipicamente <0,2% nas outras UFs) vira polígono vazio
+    nesse processo — `mapas.monta_setor_uf`/`monta_municipios` descartam
+    essas linhas e logam quantas foram, não silenciam.
+  - **`quarto render` do projeto inteiro (sem apontar um `.qmd`) limpa
+    `docs/` por padrão antes de renderizar** — isso **apagou os 318 MB de
+    mapas** na primeira tentativa, apesar de `project: resources: [mapas]`
+    no `_quarto.yml` (isso só copia arquivos do projeto para o output-dir;
+    não impede a limpeza de conteúdo que já está lá). O fix é `--no-clean`
+    no `quarto render` do projeto inteiro, ou simplesmente rodar
+    `scripts/05_gera_mapas.py` **depois** do render, nunca antes — ver
+    README.md.
