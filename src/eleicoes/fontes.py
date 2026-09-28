@@ -3,11 +3,19 @@
 Esquema comum (uma linha por seção × votável):
 
     ano, turno, sg_uf, cd_mun_tse, nr_zona, nr_secao, cd_cargo,
-    nr_votavel, nm_votavel, qt_votos, qt_aptos, qt_comparecimento
+    nr_votavel, nm_votavel, qt_votos, qt_comparecimento
 
-`qt_aptos`/`qt_comparecimento` só vêm preenchidos quando a fonte os traz por
-seção (`votacao_secao` + `detalhe_votacao_secao`); ficam NA em `ler_bweb` e são
-completados depois, se necessário, por `detalhe_votacao_secao` isolado.
+`qt_comparecimento` (por seção): o voto para Presidente é único e obrigatório
+para quem comparece, então `Σ qt_votos` de uma seção (válidos + brancos [95] +
+nulos [96]) **é** o comparecimento daquela seção — não precisa de um arquivo à
+parte. `qt_aptos` não vem daqui: usar `qt_eleitores` de `locais_{ano}.parquet`
+(etapa 01), que já soma `QT_ELEITOR_SECAO` por local — ver
+`resultados.agrega_por_local`.
+
+Esta função dependia de um `detalhe_votacao_secao_{ano}_BR.zip` que, ao
+tentar baixar de verdade (29/09/2026), devolveu 403/404 em todos os nomes
+testados — pode nem existir mais como arquivo próprio; o comparecimento por
+seção não parece publicado separadamente no portal de dados abertos.
 
 Ambos os leitores filtram o cargo Presidente na própria leitura (mais barato
 que filtrar depois de ler o Brasil inteiro).
@@ -33,7 +41,6 @@ ESQUEMA_COLUNAS = [
     "nr_votavel",
     "nm_votavel",
     "qt_votos",
-    "qt_aptos",
     "qt_comparecimento",
 ]
 
@@ -52,22 +59,17 @@ def _sql_read_csv(caminho: Path) -> str:
     )
 
 
-def ler_votacao_secao(
-    caminho_votacao_secao: Path,
-    caminho_detalhe_votacao_secao: Path,
-    ano: int,
-    turno: int,
-) -> pd.DataFrame:
-    """Lê `votacao_secao_{ano}_BR.csv` + `detalhe_votacao_secao_{ano}_BR.csv`.
+def ler_votacao_secao(caminho_votacao_secao: Path, ano: int, turno: int) -> pd.DataFrame:
+    """Lê `votacao_secao_{ano}_BR.csv`.
 
     Caminho "oficial", consolidado pelo TSE após a apuração. Filtra o cargo
-    Presidente e o turno pedido.
+    Presidente e o turno pedido. `qt_comparecimento` é a soma de `qt_votos`
+    de todas as linhas da mesma seção (ver módulo) — não depende de nenhum
+    outro arquivo.
 
     Args:
         caminho_votacao_secao: CSV de `votacao_secao_{ano}_BR.zip` (votos por
             candidato/seção).
-        caminho_detalhe_votacao_secao: CSV de `detalhe_votacao_secao_{ano}_BR.zip`
-            (aptos, comparecimento, brancos e nulos por seção).
         ano: ano da eleição.
         turno: 1 ou 2.
 
@@ -76,31 +78,33 @@ def ler_votacao_secao(
     """
     con = duckdb.connect()
     sql_votos = _sql_read_csv(caminho_votacao_secao)
-    sql_detalhe = _sql_read_csv(caminho_detalhe_votacao_secao)
 
     query = f"""
-        with votos as (select * from {sql_votos}),
-             detalhe as (select * from {sql_detalhe})
+        with votos as (
+            select
+                {ano} as ano,
+                {turno} as turno,
+                sg_uf,
+                -- CD_MUNICIPIO aqui não tem zero à esquerda (varia de 2 a 5
+                -- dígitos: "1120", não "01120" como em eleitorado_local_votacao)
+                -- — confirmado contra o arquivo real de 2022 em 29/09/2026.
+                -- Sem o lpad, id_secao não bate com secao_local para ~10% das
+                -- linhas (todo município cujo código tem 1+ zeros à esquerda).
+                lpad(cd_municipio, 5, '0') as cd_mun_tse,
+                cast(nr_zona as integer) as nr_zona,
+                cast(nr_secao as integer) as nr_secao,
+                cast(cd_cargo as integer) as cd_cargo,
+                cast(nr_votavel as integer) as nr_votavel,
+                nm_votavel,
+                cast(qt_votos as integer) as qt_votos
+            from {sql_votos}
+            where cast(cd_cargo as integer) = {CARGO_PRESIDENTE}
+                and cast(nr_turno as integer) = {turno}
+        )
         select
-            {ano} as ano,
-            {turno} as turno,
-            v.sg_uf,
-            v.cd_municipio as cd_mun_tse,
-            cast(v.nr_zona as integer) as nr_zona,
-            cast(v.nr_secao as integer) as nr_secao,
-            cast(v.cd_cargo as integer) as cd_cargo,
-            cast(v.nr_votavel as integer) as nr_votavel,
-            v.nm_votavel,
-            cast(v.qt_votos as integer) as qt_votos,
-            cast(d.qt_aptos as integer) as qt_aptos,
-            cast(d.qt_comparecimento as integer) as qt_comparecimento
-        from votos v
-        left join detalhe d
-            on d.cd_municipio = v.cd_municipio
-            and d.nr_zona = v.nr_zona
-            and d.nr_secao = v.nr_secao
-        where cast(v.cd_cargo as integer) = {CARGO_PRESIDENTE}
-            and cast(v.nr_turno as integer) = {turno}
+            *,
+            sum(qt_votos) over (partition by cd_mun_tse, nr_zona, nr_secao) as qt_comparecimento
+        from votos
     """
     return con.execute(query).df()
 
@@ -109,10 +113,8 @@ def ler_bweb(caminho_bweb_uf: Path, ano: int, turno: int, sg_uf: str) -> pd.Data
     """Lê um arquivo de boletim de urna simplificado (`bweb`) de uma UF.
 
     Caminho rápido para a noite da eleição — em 2022 saiu ~D+3 antes do
-    `votacao_secao` consolidado. Não traz `qt_aptos`/`qt_comparecimento`
-    diretamente no mesmo nível de granularidade em todas as publicações; essas
-    colunas ficam NA aqui e podem ser completadas por `detalhe_votacao_secao`
-    quando ele sair.
+    `votacao_secao` consolidado. `qt_comparecimento` é somado do mesmo jeito
+    que em `ler_votacao_secao` (ver módulo): soma de `qt_votos` por seção.
 
     ATENÇÃO: o layout exato do JSON de boletim de urna publicado em
     `resultados.tse.jus.br` deve ser confirmado contra um arquivo real de 2022
@@ -139,7 +141,9 @@ def ler_bweb(caminho_bweb_uf: Path, ano: int, turno: int, sg_uf: str) -> pd.Data
 
     linhas = []
     for secao in dados.get("secoes", dados if isinstance(dados, list) else []):
-        cd_mun = str(secao.get("cdmun", secao.get("cd_municipio", "")))
+        # zero à esquerda até 5 dígitos, como em eleitorado_local_votacao —
+        # confirmar contra um bweb real antes da eleição (ver docstring).
+        cd_mun = str(secao.get("cdmun", secao.get("cd_municipio", ""))).zfill(5)
         nr_zona = int(secao.get("nrzona", secao.get("nr_zona", 0)))
         nr_secao = int(secao.get("nrsecao", secao.get("nr_secao", 0)))
         for cand in secao.get("cand", []):
@@ -155,9 +159,11 @@ def ler_bweb(caminho_bweb_uf: Path, ano: int, turno: int, sg_uf: str) -> pd.Data
                     "nr_votavel": int(cand.get("n", cand.get("nr_votavel", 0))),
                     "nm_votavel": cand.get("nm", cand.get("nm_votavel", "")),
                     "qt_votos": int(cand.get("vap", cand.get("qt_votos", 0))),
-                    "qt_aptos": pd.NA,
-                    "qt_comparecimento": pd.NA,
                 }
             )
 
-    return pd.DataFrame(linhas, columns=ESQUEMA_COLUNAS)
+    df = pd.DataFrame(linhas, columns=[c for c in ESQUEMA_COLUNAS if c != "qt_comparecimento"])
+    df["qt_comparecimento"] = df.groupby(["cd_mun_tse", "nr_zona", "nr_secao"])[
+        "qt_votos"
+    ].transform("sum")
+    return df

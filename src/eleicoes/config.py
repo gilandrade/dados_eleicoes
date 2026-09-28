@@ -27,8 +27,14 @@ CNEFE_POINTS_PARQUET = CNEFE_ETL_DIR / "output" / "points" / "cnefe_points_all_m
 
 # pop18 por setor: calculado em R na etapa 00 (00_auxiliares.qmd), a partir dos
 # indicadores já nomeados do cn22-pop (não das variáveis brutas do IBGE) — ver
-# CLAUDE.md > Conventions and gotchas. Python só lê o resultado.
+# CLAUDE.md > Conventions e gotchas. Python só lê o resultado.
 POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
+
+# Malha de setores censitários 2022 (Brasil inteiro, ~472 mil polígonos,
+# ~1,5 GB), já processada em repos irmãos — usar direto em vez de baixar de
+# novo. `CD_SETOR` ali tem 15 dígitos, sem sufixo (diferente do `COD_SETOR`
+# do CNEFE, que tem um "P" no final — ver `03_pesos_alocacao.carrega_domicilios_cnefe`).
+SETORES_2022_GPKG = REPO_ROOT.parent / "process_gtfs" / "Dados" / "BR_setores_CD2022.gpkg"
 
 # ==== CRS ====================================================================
 
@@ -51,9 +57,11 @@ URL_LOCAIS_VOTACAO = (
     f"{TSE_CDN_BASE}/eleitorado_locais_votacao/eleitorado_local_votacao_{{ano}}.zip"
 )
 URL_VOTACAO_SECAO = f"{TSE_CDN_BASE}/votacao_secao/votacao_secao_{{ano}}_BR.zip"
-URL_DETALHE_VOTACAO_SECAO = (
-    f"{TSE_CDN_BASE}/detalhe_votacao_secao/detalhe_votacao_secao_{{ano}}_BR.zip"
-)
+# Não existe (ou não está mais publicado): nenhum nome plausível de
+# "detalhe_votacao_secao"/"comparecimento_abstencao"/"detalhe_votacao_munzona"
+# respondeu 200 ao tentar de verdade em 29/09/2026 — ver `fontes.py`, que
+# calcula qt_comparecimento a partir da própria soma de qt_votos por seção
+# em vez de depender de um arquivo à parte.
 URL_CONSULTA_CAND = f"{TSE_CDN_BASE}/consulta_cand/consulta_cand_{{ano}}.zip"
 URL_VOTACAO_CANDIDATO_MUNZONA = (
     f"{TSE_CDN_BASE}/votacao_candidato_munzona/votacao_candidato_munzona_{{ano}}.zip"

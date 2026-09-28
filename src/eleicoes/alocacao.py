@@ -32,8 +32,14 @@ def decodifica_wkb(df: pd.DataFrame, coluna_geom: str = "geometry") -> gpd.GeoDa
 
     `cnefe-etl` grava a geometria com `sf::st_as_binary()` + `arrow::write_parquet()`,
     sem metadados GeoParquet — `gpd.read_parquet()` não funciona nesse arquivo.
+
+    `shapely.from_wkb` só aceita `bytes`/`str`, mas o duckdb (usado para
+    filtrar por município antes de ler) devolve a coluna binária como
+    `bytearray` — daí o `bytes(x)` explícito, que não muda nada quando já
+    vem como `bytes` (leitura direta via `pd.read_parquet`).
     """
-    geom = shapely.from_wkb(df[coluna_geom].to_numpy())
+    valores = df[coluna_geom].map(bytes).to_numpy()
+    geom = shapely.from_wkb(valores)
     return gpd.GeoDataFrame(
         df.drop(columns=[coluna_geom]), geometry=geom, crs=CRS_SIRGAS2000
     )
@@ -317,7 +323,13 @@ def constroi_zona_mun(
         .drop_duplicates(col_setor)
     )
     dissolvidos = (
-        setores.merge(setor_zona, on=col_setor, how="inner")
+        # setores[[col_setor, "geometry"]]: `setores` também tem seu próprio
+        # `col_mun` (CD_MUN da malha do IBGE), que colidiria em silêncio com
+        # o de `setor_zona` no merge (pandas sufixa cd_mun_x/cd_mun_y e o
+        # `col_mun` puro some — achado rodando de verdade). `setor_zona` já
+        # é a fonte de verdade do município aqui.
+        setores[[col_setor, "geometry"]]
+        .merge(setor_zona, on=col_setor, how="inner")
         .dissolve(by=[col_mun, col_zona])
         .reset_index()
         .merge(n_zonas_mun, on=col_mun, how="left")
@@ -333,6 +345,42 @@ def constroi_zona_mun(
         saida[col_mun].astype(str) + saida[col_zona].astype(int).astype(str).str.zfill(4)
     )
     return saida.to_crs(CRS_SIRGAS2000)
+
+
+def mede_cobertura_setor(
+    domicilios: pd.DataFrame,
+    pop18_setor: pd.DataFrame,
+    *,
+    col_setor: str = "cd_setor",
+) -> pd.DataFrame:
+    """% de domicílios cujo `cd_setor` não existe na malha oficial (`pop18_setor`).
+
+    Achado real (29/09/2026, ver CLAUDE.md): o `COD_SETOR` do CNEFE, mesmo
+    depois de tirar o sufixo `"P"`, não bate com a malha 2022 do IBGE em
+    ~20% dos casos — cadastro de endereços numa safra diferente da malha de
+    resultados. Esses domicílios contam para `n_dom` (denominador), mas têm
+    `pop18` implícito de 0, então **não** puxam peso para o setor fantasma —
+    a menos que TODOS os domicílios da célula (local × setor) sejam
+    fantasma, caso em que o peso cai no fallback de distribuição igual (ver
+    `constroi_pesos_local_setor`) e o setor fantasma acaba aparecendo na
+    matriz de pesos mesmo assim, sem geometria correspondente. Rodar isto
+    por município antes de publicar, para saber onde o problema é grande.
+
+    Returns:
+        DataFrame com `cd_mun`, `n_dom`, `n_dom_setor_valido`,
+        `pc_dom_setor_invalido`.
+    """
+    setores_validos = set(pop18_setor[col_setor])
+    df = domicilios.copy()
+    df["setor_valido"] = df[col_setor].isin(setores_validos)
+
+    resumo = (
+        df.groupby("cd_mun")
+        .agg(n_dom=("setor_valido", "size"), n_dom_setor_valido=("setor_valido", "sum"))
+        .reset_index()
+    )
+    resumo["pc_dom_setor_invalido"] = 1 - resumo["n_dom_setor_valido"] / resumo["n_dom"]
+    return resumo
 
 
 def diagnostico_razao_eleitores(

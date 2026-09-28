@@ -210,6 +210,17 @@ locais <- locais_flag |>
     flag_especial
   )
 
+# Eleitores por local: soma QT_ELEITOR_SECAO de todas as seções já resolvidas
+# para esse id_local (turno 1 como referência — o efetivo quase não muda de
+# um turno para o outro, mesmo quando o local muda, ver seção 3). Usado no
+# diagnóstico de alocação da etapa 03 (razão eleitores / adultos estimados).
+eleitores_por_local <- locais_flag |>
+  filter(nr_turno == 1) |>
+  group_by(id_local) |>
+  summarise(qt_eleitores = sum(as.integer(qt_eleitor_secao), na.rm = TRUE), .groups = "drop")
+
+locais <- locais |> left_join(eleitores_por_local, by = "id_local")
+
 secao_local <- locais_flag |>
   transmute(id_secao, nr_turno, id_local) |>
   distinct(id_secao, nr_turno, .keep_all = TRUE)

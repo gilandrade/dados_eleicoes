@@ -145,10 +145,21 @@ variáveis brutas do IBGE (`V0001`, `V01031`, ...) — a chave de setor ali é
 
 ```{r pop18}
 #| message: false
-pop01 <- read_csv(file.path(CN22_POP_DIR, "cn22_pop01_abs.csv"), show_col_types = FALSE) |>
+# cod_setor precisa ser lido como texto (col_character): sem isso, o readr
+# adivinha "número" para um código de 15 dígitos e ele vira double — que
+# tanto perde precisão (15 dígitos está no limite do double) quanto quebra
+# o join com o cd_setor (texto) do resto do pipeline em silêncio (nenhum
+# erro, só 0% de correspondência). Achado rodando a etapa 03 de verdade.
+pop01 <- read_csv(
+  file.path(CN22_POP_DIR, "cn22_pop01_abs.csv"),
+  col_types = cols(cod_setor = col_character(), .default = col_guess())
+) |>
   transmute(cd_setor = cod_setor, total = cn22_pop01_res_tot_0)
 
-pop03 <- read_csv(file.path(CN22_POP_DIR, "cn22_pop03_abs.csv"), show_col_types = FALSE) |>
+pop03 <- read_csv(
+  file.path(CN22_POP_DIR, "cn22_pop03_abs.csv"),
+  col_types = cols(cod_setor = col_character(), .default = col_guess())
+) |>
   transmute(
     cd_setor = cod_setor,
     fx_0a4 = cn22_pop03_0a4_tot_0,

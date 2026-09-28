@@ -19,6 +19,11 @@ import pandas as pd
 
 from .config import CODIGO_BRANCO, CODIGO_NULO
 
+# Prefixo de id_zona_mun para locais sem cd_mun (o exterior, sem crosswalk —
+# ver 00_auxiliares.qmd). 8 caracteres, não colide com nenhum cd_mun real
+# (7 dígitos).
+SENTINELA_EXTERIOR = "EXTERIOR"
+
 
 def secao_para_id_local(
     resultados_secao: pd.DataFrame,
@@ -57,9 +62,24 @@ def secao_para_id_local(
     ).drop(columns="nr_turno")
 
 
-def agrega_por_local(resultados_secao_com_id: pd.DataFrame) -> pd.DataFrame:
-    """Soma `qt_votos` por `id_local` × `nr_votavel`, e `qt_aptos`/`qt_comparecimento`
+def agrega_por_local(
+    resultados_secao_com_id: pd.DataFrame,
+    locais: pd.DataFrame,
+    *,
+    col_id_local: str = "id_local",
+    col_qt_eleitores: str = "qt_eleitores",
+) -> pd.DataFrame:
+    """Soma `qt_votos` por `id_local` × `nr_votavel`, e `qt_comparecimento`
     por `id_local` (contando cada seção uma única vez).
+
+    `qt_aptos` não vem do stream de resultados (`fontes.py` não traz mais
+    essa coluna, ver o módulo) — vem de `locais.qt_eleitores`, já somado na
+    etapa 01 a partir de `QT_ELEITOR_SECAO` do arquivo de locais.
+
+    Args:
+        resultados_secao_com_id: saída de `secao_para_id_local`.
+        locais: tabela de locais (etapa 01), com `col_id_local` e
+            `col_qt_eleitores`.
 
     Returns:
         DataFrame largo: uma linha por `id_local`, uma coluna por
@@ -79,16 +99,19 @@ def agrega_por_local(resultados_secao_com_id: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
 
-    # qt_aptos/qt_comparecimento são por seção, não por (seção, votável) —
-    # contar uma vez por (id_secao) para não somar em duplicidade.
-    aptos = (
-        base.drop_duplicates("id_secao")
-        .groupby("id_local")[["qt_aptos", "qt_comparecimento"]]
-        .sum()
-        .reset_index()
+    # qt_comparecimento é por seção, não por (seção, votável) — contar uma
+    # vez por (id_secao) para não somar em duplicidade.
+    comparecimento = (
+        base.drop_duplicates("id_secao").groupby("id_local")["qt_comparecimento"].sum()
+    ).reset_index()
+
+    aptos = locais[[col_id_local, col_qt_eleitores]].rename(
+        columns={col_id_local: "id_local", col_qt_eleitores: "qt_aptos"}
     )
 
-    return votos_largo.merge(aptos, on="id_local", how="left")
+    return votos_largo.merge(comparecimento, on="id_local", how="left").merge(
+        aptos, on="id_local", how="left"
+    )
 
 
 def agrega_por_zona_mun(
@@ -97,6 +120,7 @@ def agrega_por_zona_mun(
     *,
     col_id_local: str = "id_local",
     col_cd_mun: str = "cd_mun",
+    col_qt_eleitores: str = "qt_eleitores",
 ) -> pd.DataFrame:
     """Agrega direto da seção, por `id_zona_mun` (inclui os locais especiais).
 
@@ -104,17 +128,28 @@ def agrega_por_zona_mun(
     `votacao_candidato_munzona` do TSE (ver PLAN.md > Verificação). Diferente
     de `agrega_por_local`, aqui não se filtra `flag_especial`.
 
+    `qt_aptos` vem de `locais.qt_eleitores` somado por `id_zona_mun` (mesma
+    lógica de `agrega_por_local` — ver o módulo).
+
     Args:
         resultados_secao_com_id: saída de `secao_para_id_local`. Já traz
             `nr_zona` (a zona da própria seção) — só falta o `cd_mun` (código
             IBGE), que vem de `locais` via `id_local`.
-        locais: tabela de locais (etapa 01), com `id_local`, `cd_mun`.
+        locais: tabela de locais (etapa 01), com `id_local`, `cd_mun`,
+            `qt_eleitores`.
     """
     base = resultados_secao_com_id.dropna(subset=["id_local"]).merge(
         locais[[col_id_local, col_cd_mun]], on=col_id_local, how="left"
     )
+    # cd_mun nulo = exterior (locais sem crosswalk, ver 00_auxiliares.qmd).
+    # `.astype(str)` numa coluna de texto nula do pandas devolve NaN de
+    # verdade (não a string "nan"), e a concatenação propaga isso — sem o
+    # fillna, pivot_table() descarta esses grupos por padrão (dropna=True) e
+    # o exterior some do total, não só do mapa. Achado rodando de verdade:
+    # ~294 mil votos perdidos silenciosamente em 2022.
+    cd_mun_ou_exterior = base[col_cd_mun].fillna(SENTINELA_EXTERIOR)
     base["id_zona_mun"] = (
-        base[col_cd_mun].astype(str) + base["nr_zona"].astype(int).astype(str).str.zfill(4)
+        cd_mun_ou_exterior.astype(str) + base["nr_zona"].astype(int).astype(str).str.zfill(4)
     )
 
     votos_largo = (
@@ -129,14 +164,28 @@ def agrega_por_zona_mun(
         .reset_index()
     )
 
+    comparecimento = (
+        base.drop_duplicates("id_secao").groupby("id_zona_mun")["qt_comparecimento"].sum()
+    ).reset_index()
+
+    # id_zona_mun de cada local: mesma conta de `base`, mas a partir de
+    # `locais` (nr_zona do próprio local, não da seção — coincide, mas evita
+    # depender do merge de resultados para montar a chave).
+    aptos_por_local = locais[[col_id_local, col_cd_mun, "nr_zona", col_qt_eleitores]].copy()
+    aptos_por_local["id_zona_mun"] = (
+        aptos_por_local[col_cd_mun].fillna(SENTINELA_EXTERIOR).astype(str)
+        + aptos_por_local["nr_zona"].astype(int).astype(str).str.zfill(4)
+    )
     aptos = (
-        base.drop_duplicates("id_secao")
-        .groupby("id_zona_mun")[["qt_aptos", "qt_comparecimento"]]
+        aptos_por_local.groupby("id_zona_mun")[col_qt_eleitores]
         .sum()
+        .rename("qt_aptos")
         .reset_index()
     )
 
-    return votos_largo.merge(aptos, on="id_zona_mun", how="left")
+    return votos_largo.merge(comparecimento, on="id_zona_mun", how="left").merge(
+        aptos, on="id_zona_mun", how="left"
+    )
 
 
 def agrega_por_setor(

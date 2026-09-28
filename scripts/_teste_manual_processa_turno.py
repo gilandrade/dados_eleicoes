@@ -29,7 +29,9 @@ for d in (cfg.BRUTO_DIR, cfg.PROCESSADO_DIR, cfg.RESULTADOS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 ANO, TURNO = 2022, 1
-CD_MUN = "999999"
+CD_MUN = "99999"  # 5 dígitos, como o TSE usa de verdade — fontes.ler_votacao_secao
+# faz lpad(cd_municipio, 5, '0'), que TRUNCA strings mais longas (achado real:
+# "999999" virava "99999" e não batia mais com secao_local, quebrando o teste).
 
 secao_local = pd.DataFrame(
     {
@@ -46,6 +48,7 @@ locais = pd.DataFrame(
         "cd_mun": [CD_MUN, CD_MUN],
         "nr_zona": [1, 2],
         "flag_especial": [False, False],
+        "qt_eleitores": [250 + 240, 260],  # soma de QT_ELEITOR_SECAO das seções do local
     }
 )
 locais.to_parquet(cfg.PROCESSADO_DIR / f"locais_{ANO}.parquet", index=False)
@@ -80,16 +83,9 @@ with open(votacao_secao_csv, "w", encoding="latin-1", newline="") as f:
     for l in linhas:
         f.write(";".join(str(x) for x in l) + "\n")
 
-detalhe_csv = tmp / "detalhe.csv"
-with open(detalhe_csv, "w", encoding="latin-1", newline="") as f:
-    f.write("CD_MUNICIPIO;NR_ZONA;NR_SECAO;QT_APTOS;QT_COMPARECIMENTO\n")
-    for nr_zona, nr_secao, aptos, comp in [(1, 1, 250, 190), (1, 2, 240, 170), (2, 3, 260, 200)]:
-        f.write(f"{CD_MUN};{nr_zona};{nr_secao};{aptos};{comp}\n")
-
 destino = cfg.BRUTO_DIR / str(ANO)
 destino.mkdir(parents=True, exist_ok=True)
 (destino / f"votacao_secao_{ANO}_BR.csv").write_bytes(votacao_secao_csv.read_bytes())
-(destino / f"detalhe_votacao_secao_{ANO}_BR.csv").write_bytes(detalhe_csv.read_bytes())
 
 import processa_turno  # noqa: E402  (importado depois de ajustar cfg)
 

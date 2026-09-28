@@ -273,7 +273,11 @@ geom_locais <- locais_final |>
   # `select(fonte_coord, precisao = fonte_coord)` manteria só a última
   # referência (dplyr descarta a primeira quando a mesma coluna de origem é
   # citada duas vezes) — por isso o mutate() acima, em vez de renomear aqui.
-  select(id_local, cd_mun, fonte_coord, precisao, flag_especial, flag_sem_coord)
+  # nr_zona e qt_eleitores passam adiante porque a etapa 03 precisa delas
+  # (nr_zona para geom_zona_mun, qt_eleitores para o diagnóstico de alocação)
+  # — não são "sobre geocodificação", mas este é o único lugar em que
+  # geom_locais_votacao é escrito.
+  select(id_local, cd_mun, nr_zona, fonte_coord, precisao, flag_especial, flag_sem_coord, qt_eleitores)
 
 st_write(geom_locais, file.path(GEOMETRIAS_DIR, sprintf("geom_locais_votacao_%d.gpkg", ano)), delete_dsn = TRUE)
 

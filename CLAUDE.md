@@ -160,3 +160,79 @@ the full data model (geometry files vs. result files joined by a shared id).
     menos os 208 do exterior, fora do mapa por design). 91,5% mantém a
     coordenada do TSE, 7,8% usa o Hidalgo, 0,56% cai no centróide do
     município, 0,12% é TSE reprovado mas confirmado a <800 m da referência.
+- **Etapas 03 (Python) e 04 (`processa_turno.py`) rodaram para o Brasil
+  inteiro com 2022** em 29/09/2026 — o resultado por candidato bate
+  **exatamente** com os números oficiais reais (Lula 57.259.504, Bolsonaro
+  51.072.345, comparecimento 123.682.372, aptos 156.451.515), depois de
+  cinco correções:
+  - **Malha de setores 2022:** não gerar cópia própria — usar direto
+    `SETORES_2022_GPKG` (`../process_gtfs/Dados/BR_setores_CD2022.gpkg`,
+    ~1,5 GB, já processado num repo irmão). `CD_SETOR` ali tem 15 dígitos.
+  - **`COD_SETOR` do CNEFE tem um sufixo `"P"` fixo** (`"...5000002P"`, 16
+    caracteres) que a malha oficial não tem — remover com `.str[:-1]`. Mesmo
+    removendo, **~8–10% dos domicílios do CNEFE têm `cd_setor` que não
+    existe na malha 2022** em nenhum lugar (varia de 0% a 96% por
+    município, mediana ~5,5% — ver `alocacao.mede_cobertura_setor` e
+    `cobertura_setor_cnefe_{ano}.parquet`), cadastro de endereços numa
+    safra diferente da malha de resultados. Não tratado além de medir: esses
+    domicílios não puxam peso (`pop18` implícito 0), a menos que **todos**
+    os domicílios da célula sejam assim, caso em que o fallback de
+    distribuição igual bota peso num setor sem geometria correspondente.
+  - **`shapely.from_wkb` não aceita `bytearray`**, só `bytes`/`str` — o
+    duckdb devolve colunas binárias como `bytearray` (a leitura direta via
+    `pd.read_parquet` dá `bytes`, então isso só aparece ao filtrar por
+    município com duckdb antes de decodificar). `decodifica_wkb` agora faz
+    `.map(bytes)` antes de `shapely.from_wkb`.
+  - **`constroi_zona_mun` colidia em `cd_mun`** no merge `setores.merge(setor_zona, ...)`
+    (as duas tabelas têm a coluna, pandas sufixa `cd_mun_x`/`cd_mun_y` e o
+    `dissolve(by=[col_mun, ...])` quebra com `KeyError: 'cd_mun'`) — não
+    apareceu antes porque o `setores` sintético do teste manual não tinha
+    `cd_mun` (só `cd_setor`), diferente da malha real. Corrigido selecionando
+    só `[col_setor, "geometry"]` de `setores` antes do merge.
+  - **`cod_setor` do `cn22-pop` precisa ser lido como texto** (mesma classe
+    do bug do crosswalk): sem `col_types`, o `readr` adivinha "número" para
+    um código de 15 dígitos, ele vira `double` (perde precisão E quebra o
+    join com `cd_setor` em silêncio — 0% de correspondência, sem erro).
+  - **`qt_eleitores` nunca tinha sido extraído em `01_locais_votacao.qmd`** —
+    soma de `QT_ELEITOR_SECAO` por `id_local` (turno 1), usado pelo
+    diagnóstico de alocação e, depois, como `qt_aptos` em `processa_turno.py`
+    (ver abaixo). Precisa passar pela etapa 02 também (`select()` da saída).
+- **`detalhe_votacao_secao` não existe** (ou não está mais publicado) — nenhum
+  nome plausível (`detalhe_votacao_secao`, `comparecimento_abstencao`,
+  `perfil_comparecimento_abstencao`, `detalhe_votacao_munzona`) respondeu 200
+  ao tentar de verdade em 29/09/2026. Como o voto para Presidente é único e
+  obrigatório para quem comparece, **`qt_comparecimento` de uma seção é a
+  soma de `qt_votos` de todas as linhas daquela seção** (válidos + brancos +
+  nulos) — não precisa de arquivo à parte. `qt_aptos` não vem do stream de
+  resultados: vem de `locais.qt_eleitores` (soma de `QT_ELEITOR_SECAO` da
+  etapa 01). `fontes.ler_votacao_secao()` não recebe mais
+  `caminho_detalhe_votacao_secao`, e `resultados.agrega_por_local()`/
+  `agrega_por_zona_mun()` recebem `locais` para buscar `qt_aptos`.
+- **`CD_MUNICIPIO` não tem o mesmo padding em todos os arquivos do TSE.**
+  Confirmado real: `eleitorado_local_votacao` sempre tem 5 dígitos
+  (`"01120"`); `votacao_secao` **não** — varia de 2 a 5 dígitos (`"1120"`).
+  Sem `lpad(cd_municipio, 5, '0')` em `fontes.ler_votacao_secao()`, ~10% das
+  linhas não encontravam `id_local` (todo município com zero à esquerda no
+  código). Mesma cautela em `ler_bweb` (especulativo, nunca testado contra
+  um arquivo real — `.zfill(5)` defensivo).
+- **`pandas.Series.astype(str)` numa coluna de texto nula (`pd.NA`) devolve
+  `NaN` de verdade, não a string `"nan"`**, e a concatenação (`+`) propaga
+  isso. `agrega_por_zona_mun()` construía `id_zona_mun` a partir de `cd_mun`
+  (nulo para o exterior, ~208 locais) sem tratar isso — o `id_zona_mun`
+  virava `NaN` para essas linhas, e `pivot_table()` **descarta grupos com
+  índice `NaN` por padrão** (`dropna=True`). Resultado: ~294 mil votos do
+  exterior sumiam do `res_..._zona_mun`, silenciosamente, sem erro — só
+  visível comparando o total com `res_..._local` (que não tem esse problema,
+  porque agrega por `id_local`, nunca nulo). Corrigido com
+  `resultados.SENTINELA_EXTERIOR = "EXTERIOR"` (`.fillna()` antes da
+  concatenação). **Sempre que uma chave de agregação for montada por
+  concatenação de string, checar se alguma coluna de entrada pode ser nula
+  — o pivot não avisa, só encolhe o total.**
+- **`res_..._setor` tem menos votos que `res_..._local`/`res_..._zona_mun` por
+  desenho, não por bug**: locais especiais (voto em trânsito, preso
+  provisório) e locais sem nenhum domicílio do CNEFE alocado não entram na
+  matriz de pesos, então seus votos não aparecem no setor (ver
+  `resultados.agrega_por_setor`). Em 2022: 0,81% dos votos válidos+brancos+
+  nulos ficam de fora do setor (122.682.541 vs. 123.682.372 no zona_mun) —
+  ordem de grandeza esperada, dado que ~262 locais são especiais e ~2.062
+  ficaram sem nenhum domicílio alocado (de 91.923).

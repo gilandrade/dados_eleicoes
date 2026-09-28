@@ -31,7 +31,6 @@ from eleicoes.config import (
     PROCESSADO_DIR,
     RESULTADOS_DIR,
     URL_BWEB,
-    URL_DETALHE_VOTACAO_SECAO,
     URL_VOTACAO_SECAO,
 )
 from eleicoes.download import baixar
@@ -94,19 +93,25 @@ def obtem_resultados_secao(
         return pd.concat(partes, ignore_index=True)
 
     if fonte == "votacao_secao":
+        caminho_zip = destino / f"votacao_secao_{ano}_BR.zip"
         caminho_votos = destino / f"votacao_secao_{ano}_BR.csv"
-        caminho_detalhe = destino / f"detalhe_votacao_secao_{ano}_BR.csv"
         if deve_baixar:
-            baixar(URL_VOTACAO_SECAO.format(ano=ano), destino / f"votacao_secao_{ano}_BR.zip")
-            baixar(
-                URL_DETALHE_VOTACAO_SECAO.format(ano=ano),
-                destino / f"detalhe_votacao_secao_{ano}_BR.zip",
-            )
-            raise SystemExit(
-                "Zips baixados — extraia os CSVs manualmente (ou implemente a "
-                "extração) antes de rodar sem --baixar."
-            )
-        return fontes.ler_votacao_secao(caminho_votos, caminho_detalhe, ano, turno)
+            baixar(URL_VOTACAO_SECAO.format(ano=ano), caminho_zip)
+        if not caminho_votos.exists():
+            if not caminho_zip.exists():
+                raise FileNotFoundError(
+                    f"Nem {caminho_zip} nem {caminho_votos} existem — rode com --baixar "
+                    "ou baixe manualmente (ver PLAN.md > Fontes de dados: o CDN do TSE "
+                    "só respondeu via R/httr2 daqui, não via curl direto)."
+                )
+            logger.info("Extraindo %s...", caminho_zip)
+            import zipfile
+
+            with zipfile.ZipFile(caminho_zip) as z:
+                nome_interno = next(n for n in z.namelist() if n.lower().endswith(".csv"))
+                with z.open(nome_interno) as origem, open(caminho_votos, "wb") as saida:
+                    saida.write(origem.read())
+        return fontes.ler_votacao_secao(caminho_votos, ano, turno)
 
     raise ValueError(f"Fonte desconhecida: {fonte!r} (use 'bweb' ou 'votacao_secao')")
 
@@ -135,7 +140,7 @@ def main(ano: int, turno: int, fonte: str, deve_baixar: bool) -> None:
     cols_votos_validos = [f"qt_votos_{c}" for c in candidatos]
 
     logger.info("Agregando por local...")
-    res_local = resultados.agrega_por_local(com_id)
+    res_local = resultados.agrega_por_local(com_id, locais)
     res_local = resultados.calcula_indicadores(res_local, cols_votos_validos=cols_votos_validos)
 
     logger.info("Agregando por zona x município...")

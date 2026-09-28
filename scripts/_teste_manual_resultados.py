@@ -30,15 +30,22 @@ secao_local = pd.DataFrame(
     }
 )
 locais = pd.DataFrame(
-    {"id_local": ["L1", "L2"], "cd_mun": [CD_MUN, CD_MUN], "nr_zona": [1, 2]}
+    {
+        "id_local": ["L1", "L2"],
+        "cd_mun": [CD_MUN, CD_MUN],
+        "nr_zona": [1, 2],
+        "qt_eleitores": [3 * 300, 3 * 300],  # ~3 seções de ~300 eleitores cada
+    }
 )
 
+# qt_aptos não entra mais no esquema de fontes.py — vem de locais.qt_eleitores
+# (ver resultados.py). qt_comparecimento é calculado como soma de qt_votos por
+# seção, então nem entra aqui: fica implícito nos próprios votos.
 rng = np.random.default_rng(1)
 linhas = []
 for _, row in secao_local.iterrows():
     cd_mun_tse, nr_zona, nr_secao = row["id_secao"][:6], int(row["id_secao"][6:10]), int(row["id_secao"][10:14])
-    aptos = int(rng.integers(200, 400))
-    comparecimento = int(aptos * rng.uniform(0.7, 0.9))
+    comparecimento = int(rng.integers(150, 350))
     votos_13 = int(comparecimento * rng.uniform(0.3, 0.6))
     votos_22 = int(comparecimento * rng.uniform(0.2, 0.4))
     brancos = int(comparecimento * 0.02)
@@ -49,17 +56,19 @@ for _, row in secao_local.iterrows():
                 "ano": 2022, "turno": 1, "sg_uf": "SP", "cd_mun_tse": cd_mun_tse,
                 "nr_zona": nr_zona, "nr_secao": nr_secao, "cd_cargo": 1,
                 "nr_votavel": nr, "nm_votavel": str(nr), "qt_votos": qt,
-                "qt_aptos": aptos, "qt_comparecimento": comparecimento,
             }
         )
 resultados_secao = pd.DataFrame(linhas)
+resultados_secao["qt_comparecimento"] = resultados_secao.groupby(
+    ["cd_mun_tse", "nr_zona", "nr_secao"]
+)["qt_votos"].transform("sum")
 
 # ---- 1. seção -> local -------------------------------------------------------
 
 com_id = resultados.secao_para_id_local(resultados_secao, secao_local)
 assert com_id["id_local"].notna().all()
 
-res_local = resultados.agrega_por_local(com_id)
+res_local = resultados.agrega_por_local(com_id, locais)
 print("res_local:\n", res_local)
 
 # ---- 2. seção -> zona x município -------------------------------------------

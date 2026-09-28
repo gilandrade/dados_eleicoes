@@ -290,6 +290,34 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   assumido do painel Hidalgo contra o real. Resultado: 92.185 pontos (92.393
   locais menos o exterior, fora do mapa por design); 91,5% TSE original,
   7,8% Hidalgo, 0,56% centróide do município, 0,12% TSE confirmado a <800m.
+- **Resolvido (29/09/2026): o pipeline inteiro (00→05) rodou para o Brasil
+  todo com 2022, e o resultado por candidato bate exatamente com o oficial**
+  (Lula 57.259.504, Bolsonaro 51.072.345, comparecimento 123.682.372, aptos
+  156.451.515). Seis correções no caminho — detalhes em CLAUDE.md:
+  - malha de setores usada direto de um repo irmão (`process_gtfs`), sem
+    gerar cópia própria;
+  - `COD_SETOR` do CNEFE tem um sufixo `"P"` que a malha oficial não tem, e
+    mesmo removendo, ~8–10% dos domicílios do CNEFE caem num setor que não
+    existe na malha 2022 (medido, não resolvido — ver
+    `alocacao.mede_cobertura_setor`);
+  - `cod_setor` do `cn22-pop` também precisava ser lido como texto (mesma
+    classe do bug do crosswalk: virava `double`, perdia precisão e quebrava
+    o join em silêncio);
+  - `CD_MUNICIPIO` **não tem o mesmo padding em todos os arquivos do TSE**
+    (`eleitorado_local_votacao` sempre 5 dígitos, `votacao_secao` não) — sem
+    corrigir, ~10% das linhas de resultado não achavam `id_local`;
+  - `detalhe_votacao_secao` não existe (nenhum nome tentado respondeu 200) —
+    como o voto é único e obrigatório, `qt_comparecimento` agora é somado
+    direto de `qt_votos` por seção, e `qt_aptos` vem de `locais.qt_eleitores`;
+  - **bug de conservação real:** `pandas.astype(str)` numa coluna nula
+    devolve `NaN` de verdade, e a concatenação propaga — o `id_zona_mun` do
+    exterior (`cd_mun` nulo) virava `NaN`, e `pivot_table()` descarta grupos
+    `NaN` por padrão. ~294 mil votos do exterior sumiam do `zona_mun` sem
+    nenhum erro, só visível comparando o total com `local`. Corrigido com
+    um valor-sentinela (`"EXTERIOR"`) antes de montar a chave.
+
+  `res_..._setor` fica ~0,8% abaixo do total por desenho (locais especiais e
+  sem domicílio alocado ficam fora da matriz de pesos) — não é bug.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.

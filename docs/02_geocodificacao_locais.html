@@ -453,14 +453,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>  <span class="co"># `select(fonte_coord, precisao = fonte_coord)` manteria só a última</span></span>
 <span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>  <span class="co"># referência (dplyr descarta a primeira quando a mesma coluna de origem é</span></span>
 <span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>  <span class="co"># citada duas vezes) — por isso o mutate() acima, em vez de renomear aqui.</span></span>
-<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(id_local, cd_mun, fonte_coord, precisao, flag_especial, flag_sem_coord)</span>
-<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a><span class="fu">st_write</span>(geom_locais, <span class="fu">file.path</span>(GEOMETRIAS_DIR, <span class="fu">sprintf</span>(<span class="st">"geom_locais_votacao_%d.gpkg"</span>, ano)), <span class="at">delete_dsn =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>  <span class="co"># nr_zona e qt_eleitores passam adiante porque a etapa 03 precisa delas</span></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>  <span class="co"># (nr_zona para geom_zona_mun, qt_eleitores para o diagnóstico de alocação)</span></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>  <span class="co"># — não são "sobre geocodificação", mas este é o único lugar em que</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="co"># geom_locais_votacao é escrito.</span></span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(id_local, cd_mun, nr_zona, fonte_coord, precisao, flag_especial, flag_sem_coord, qt_eleitores)</span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a><span class="fu">st_write</span>(geom_locais, <span class="fu">file.path</span>(GEOMETRIAS_DIR, <span class="fu">sprintf</span>(<span class="st">"geom_locais_votacao_%d.gpkg"</span>, ano)), <span class="at">delete_dsn =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>Deleting source `dados/03_georedus/geometrias/geom_locais_votacao_2022.gpkg' using driver `GPKG'
 Writing layer `geom_locais_votacao_2022' to data source 
   `dados/03_georedus/geometrias/geom_locais_votacao_2022.gpkg' using driver `GPKG'
-Writing 92185 features with 6 fields and geometry type Point.</code></pre>
+Writing 92185 features with 8 fields and geometry type Point.</code></pre>
 </div>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(geom_locais)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
