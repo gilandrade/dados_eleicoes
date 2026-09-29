@@ -43,6 +43,10 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
 
 - **Locais de votação** e **zona × município** mostram valores *observados*,
   exatamente como o TSE publica.
+- Nos locais de votação, a **cor** é o percentual e o **tamanho** da bolinha é
+  a base desse percentual: votos válidos (Presidente), total de votos (brancos
+  e nulos) ou inscritos (abstenção). A área é proporcional à quantidade, na
+  mesma escala em 2018 e 2022.
 - Nas cidades com mais de uma zona eleitoral, a fronteira *entre* as zonas é
   estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando
   for o caso.

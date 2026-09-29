@@ -7,10 +7,19 @@
 
   const BASE = "mapas/dados/";
 
+  // `tamanho`: coluna que define a área da bolinha — votos válidos (Presidente),
+  // votos totais (brancos e nulos) e inscritos (abstenção), o denominador de cada %.
   const MAPAS = {
-    pontos_presidente: { tipo: "pontos", classe: "c_pres", cores: "div", legendaPorAno: true },
-    pontos_branco_nulo: { tipo: "pontos", classe: "c_bn", cores: "seq" },
-    pontos_abstencao: { tipo: "pontos", classe: "c_abst", cores: "seq" },
+    pontos_presidente: {
+      tipo: "pontos", classe: "c_pres", cores: "div", legendaPorAno: true,
+      tamanho: "val", rotuloTamanho: "votos válidos",
+    },
+    pontos_branco_nulo: {
+      tipo: "pontos", classe: "c_bn", cores: "seq", tamanho: "comp", rotuloTamanho: "votos (total)",
+    },
+    pontos_abstencao: {
+      tipo: "pontos", classe: "c_abst", cores: "seq", tamanho: "aptos", rotuloTamanho: "inscritos",
+    },
     zona_mun_presidente: { tipo: "zona_mun", cores: "div", legendaPorAno: true },
     mudanca: { tipo: "mudanca", cores: "div" },
   };
@@ -99,13 +108,29 @@
     return MAPAS[chave].legendaPorAno ? spec[String(estado.ano)] : spec;
   }
 
-  function desenhaLegenda(spec) {
+  function desenhaLegenda(spec, estado) {
     const itens = spec.itens
       .map((i) => `<div class="leg-item"><span class="leg-cor" style="background:${i.cor}"></span>${escapa(i.rotulo)}</div>`)
       .join("");
     const semDado = `<div class="leg-item"><span class="leg-cor" style="background:${spec.sem_dado}"></span>Sem dado</div>`;
     const nota = spec.nota ? `<div class="leg-nota">${escapa(spec.nota)}</div>` : "";
-    legenda.getContainer().innerHTML = `<div class="leg-titulo">${escapa(spec.titulo)}</div>${itens}${semDado}${nota}`;
+    const tamanho = MAPAS[estado.mapa].tamanho ? legendaTamanho(MAPAS[estado.mapa]) : "";
+    legenda.getContainer().innerHTML =
+      `<div class="leg-titulo">${escapa(spec.titulo)}</div>${itens}${semDado}${nota}${tamanho}`;
+  }
+
+  // Círculos de referência desenhados com o mesmo raio do mapa no zoom atual.
+  function legendaTamanho(spec) {
+    const raios = VALORES_LEGENDA_TAMANHO.map(raioPorValor);
+    const lado = 2 * Math.ceil(Math.max(...raios)) + 2;
+    const itens = VALORES_LEGENDA_TAMANHO.map((v, k) => {
+      const r = raios[k];
+      return `<div class="leg-item leg-tamanho">
+        <svg width="${lado}" height="${lado}" aria-hidden="true">
+          <circle cx="${lado / 2}" cy="${lado / 2}" r="${r}" fill="#898781" fill-opacity="0.55" stroke="#52514e" stroke-width="0.8"/>
+        </svg>${fmtNum(v)}</div>`;
+    }).join("");
+    return `<div class="leg-titulo leg-titulo-tamanho">Tamanho: ${escapa(spec.rotuloTamanho)}</div>${itens}`;
   }
 
   // ==== Camadas ===============================================================
@@ -115,7 +140,27 @@
     return classe >= 0 ? cores[classe] : config.cor_sem_dado;
   }
 
-  const raioPonto = () => Math.max(1.5, Math.min(7, (mapa.getZoom() - 3) * 0.9));
+  // Raio (px) de um local com REF_TAMANHO votos: cresce ~25% por nível de zoom.
+  // Mais rápido que isso, as cidades densas viram uma massa só ao aproximar.
+  const raioPonto = () => Math.min(10, 0.9 * Math.pow(1.25, mapa.getZoom() - 4));
+  const RAIO_MINIMO_PX = 1;
+  const RAIO_MINIMO_CONTORNO_PX = 3;
+
+  // Símbolo proporcional: a área é proporcional ao valor (raio ∝ √valor), com
+  // referência fixa — um local com REF_TAMANHO votos tem o raio base do zoom —
+  // para o mesmo tamanho valer o mesmo nos dois anos e turnos. Piso e teto
+  // mantêm os locais minúsculos visíveis e os gigantes (~20 mil votos) sem
+  // cobrir o bairro inteiro.
+  const REF_TAMANHO = 1000;
+  const VALORES_LEGENDA_TAMANHO = [250, 1000, 5000];
+  function raioPorValor(valor) {
+    const base = raioPonto();
+    const escala = valor > 0 ? Math.min(3.5, Math.max(0.35, Math.sqrt(valor / REF_TAMANHO))) : 0.35;
+    return Math.max(RAIO_MINIMO_PX, base * escala);
+  }
+
+  // Contorno branco só nas bolinhas maiores: nas pequenas ele engole a cor.
+  const estiloTamanho = (raio) => ({ radius: raio, weight: raio >= RAIO_MINIMO_CONTORNO_PX ? 0.6 : 0 });
 
   function mostraTooltip(latlng, html) {
     tooltip.setLatLng(latlng).setContent(html);
@@ -139,16 +184,19 @@
     const [geo, res] = await Promise.all([carrega(`locais_${ano}.json`), carrega(`locais_${ano}_t${turno}.json`)]);
     const renderer = L.canvas({ padding: 0.5, tolerance: 3 });
     const grupo = L.featureGroup();
-    const raio = raioPonto();
     const classes = res[spec.classe];
+    const valores = res[spec.tamanho];
 
-    for (let i = 0; i < geo.id.length; i++) {
+    // Maiores primeiro: os pequenos ficam por cima e continuam clicáveis.
+    const ordem = geo.id.map((_, i) => i).sort((a, b) => (valores[b] ?? 0) - (valores[a] ?? 0));
+    for (const i of ordem) {
       const marcador = L.circleMarker([geo.lat[i], geo.lon[i]], {
         renderer,
-        radius: raio,
-        stroke: false,
+        ...estiloTamanho(raioPorValor(valores[i])),
+        color: "#ffffff",
+        opacity: 0.8,
         fillColor: corDaClasse(classes[i], spec.cores),
-        fillOpacity: 0.85,
+        fillOpacity: 0.8,
       });
       marcador._i = i;
       grupo.addLayer(marcador);
@@ -160,13 +208,14 @@
         return cabecalho + `Brancos e nulos: <b>${fmtPct(res.bn[i])}</b><br>Comparecimento: ${fmtNum(res.comp[i])} votos`;
       if (estado.mapa === "pontos_abstencao")
         return cabecalho + `Abstenção: <b>${fmtPct(res.abst[i])}</b><br>Inscritos: ${fmtNum(res.aptos[i])}`;
-      return cabecalho + linhaPresidente(res.pt[i], res.bo[i], ano) + maisVotado(res.venc[i], res.candidatos, ano);
+      return cabecalho + linhaPresidente(res.pt[i], res.bo[i], ano) + maisVotado(res.venc[i], res.candidatos, ano) +
+        `<br>Votos válidos: ${fmtNum(res.val[i])}`;
     };
     grupo.on("mouseover", (e) => mostraTooltip(e.layer.getLatLng(), texto(e.layer._i)));
     grupo.on("mouseout", escondeTooltip);
     grupo._ajustaRaio = () => {
-      const r = raioPonto();
-      grupo.eachLayer((l) => l.setRadius(r));
+      grupo.eachLayer((l) => l.setStyle(estiloTamanho(raioPorValor(valores[l._i]))));
+      desenhaLegenda(specLegenda(estado), estado);
     };
     return grupo;
   }
@@ -236,7 +285,7 @@
       escondeTooltip();
       if (camada) mapa.removeLayer(camada);
       camada = nova.addTo(mapa);
-      desenhaLegenda(specLegenda(estado));
+      desenhaLegenda(specLegenda(estado), estado);
     } catch (erro) {
       console.error(erro);
       el("mapa-erro").textContent = "Não foi possível carregar este mapa: " + erro.message;

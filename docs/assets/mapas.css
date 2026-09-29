@@ -89,6 +89,14 @@
   flex: none;
 }
 
+.leg-titulo-tamanho {
+  margin-top: 0.5rem;
+}
+
+.leg-tamanho svg {
+  flex: none;
+}
+
 .leg-nota {
   margin-top: 0.35rem;
   color: #52514e;

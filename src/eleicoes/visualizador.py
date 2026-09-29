@@ -147,6 +147,12 @@ def exporta_locais_turno(ano: int, turno: int, ids: list[str]) -> Path:
     res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet")
     res = res.set_index("id_local").reindex(ids)
     margem = _margem_pt_bolsonaro(res, ano)
+    cols_candidatos = [
+        c for c in res.columns
+        if c.startswith("qt_votos_") and int(c.removeprefix("qt_votos_")) not in CODIGOS_NAO_CANDIDATO
+    ]
+    # min_count=1: local sem resultado fica sem dado (null), não com 0 votos.
+    qt_validos = res[cols_candidatos].sum(axis=1, min_count=1)
 
     return _escreve_json(
         {
@@ -159,6 +165,7 @@ def exporta_locais_turno(ano: int, turno: int, ids: list[str]) -> Path:
             "abst": _por_mil(res["pc_abstencao"]),
             "aptos": _inteiro(res["qt_aptos"]),
             "comp": _inteiro(res["qt_comparecimento"]),
+            "val": _inteiro(qt_validos),
             "venc": _inteiro(res["nr_vencedor"]),
             "candidatos": nomes_candidatos(ano, turno),
         },
