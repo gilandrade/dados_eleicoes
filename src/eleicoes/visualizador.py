@@ -7,7 +7,7 @@ passaria do limite de 1 GB do GitHub Pages).
 - Percentuais viram inteiros **por mil** (452 = 45,2%), `null` = sem dado.
 - A classe de cor já vem calculada (`cores.py`): o JS só pinta.
 - A geometria é separada dos resultados: `locais_{ano}.json` e
-  `zona_mun_{ano}.geojson` valem para os dois turnos do ano.
+  `zona_mun_{ano}_geo.json` valem para os dois turnos do ano.
 """
 
 from __future__ import annotations
@@ -45,11 +45,13 @@ logger = logging.getLogger(__name__)
 
 DADOS_VISUALIZADOR_DIR = REPO_ROOT / "docs" / "mapas" / "dados"
 
-# Medido em 29/09/2026 na malha de 2022 (3,4 milhões de vértices): 0,002° dá
-# ~23 MB de GeoJSON, 0,005° (~500 m) dá ~13 MB, sem polígono vazio nem
-# inválido. A simplificação é de cobertura: vizinhos continuam colados, sem
-# frestas, ao contrário do `simplify` por feição.
-TOLERANCIA_SIMPLIFICACAO = 0.005
+# Medido em 29/09/2026 na malha de 2022, nos 20% menores polígonos (< 138 km²):
+# com 0,005° (~500 m) a borda se deslocava até 18% do tamanho do polígono
+# (p90) e as zonas urbanas ficavam deformadas; com 0,0005° (~50 m), 3%. O
+# arquivo vai de 13 para 32 MB, mas comprimido (o que o navegador baixa) só
+# de 3,6 para 8,3 MB. A simplificação é de cobertura: vizinhos continuam
+# colados, sem frestas, ao contrário do `simplify` por feição.
+TOLERANCIA_SIMPLIFICACAO = 0.0005
 GRADE_COORDENADA = 0.0001
 CASAS_COORDENADA = 4
 
@@ -92,8 +94,10 @@ def nomes_candidatos(ano: int, turno: int) -> dict[str, str]:
             where cast(cd_cargo as integer) = {CARGO_PRESIDENTE}
               and cast(nr_turno as integer) = {turno}"""
     ).fetchall()
+    # Ordenado: o `distinct` do duckdb não tem ordem fixa, e o JSON mudaria a
+    # cada exportação sem nada ter mudado.
     return {
-        str(nr): nome.title() for nr, nome in linhas if nr not in CODIGOS_NAO_CANDIDATO
+        str(nr): nome.title() for nr, nome in sorted(linhas) if nr not in CODIGOS_NAO_CANDIDATO
     }
 
 
@@ -166,7 +170,7 @@ def exporta_locais_turno(ano: int, turno: int, ids: list[str]) -> Path:
 
 
 def exporta_zona_mun_geom(ano: int) -> Path:
-    """`zona_mun_{ano}.geojson`, simplificado como cobertura (sem frestas)."""
+    """`zona_mun_{ano}_geo.json`, simplificado como cobertura (sem frestas)."""
     gdf = gpd.read_file(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg").to_crs(CRS_SIRGAS2000)
     gdf = gdf.loc[~gdf["id_zona_mun"].str.startswith(SENTINELA_EXTERIOR)].reset_index(drop=True)
 
@@ -192,7 +196,7 @@ def exporta_zona_mun_geom(ano: int) -> Path:
     ]
     return _escreve_json(
         {"type": "FeatureCollection", "features": features},
-        DADOS_VISUALIZADOR_DIR / f"zona_mun_{ano}.geojson",
+        DADOS_VISUALIZADOR_DIR / f"zona_mun_{ano}_geo.json",
     )
 
 
@@ -231,7 +235,7 @@ def exporta_zona_mun_turno(ano: int, turno: int) -> Path:
 
 def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
     """`mudanca_{a}_{b}_t2.json`: `{id: [classe, pt_antes, pt_depois, delta, virou]}`,
-    sobre a geometria de `zona_mun_{ano_depois}.geojson`."""
+    sobre a geometria de `zona_mun_{ano_depois}_geo.json`."""
     mud = pd.read_parquet(
         RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet"
     )

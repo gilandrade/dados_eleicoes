@@ -349,6 +349,12 @@ the full data model (geometry files vs. result files joined by a shared id).
   já somavam ~573 MB só com 2022, e cada mapa novo custava ~30 MB. O site passou
   a usar um visualizador único com JSON compactos (~60 MB para 2018 + 2022).
   Mapas novos entram como dados do visualizador, não como HTML Folium.
+- **Zona × município estimada tem de cobrir o município inteiro.** Setores
+  sem adulto alocado (parques, represas, área rural) não aparecem na matriz de
+  pesos; sem a regra do local mais próximo em `constroi_zona_mun`, ~24% da
+  área dos municípios com várias zonas virava buraco (corrigido em
+  29/09/2026). Ao mexer nessa função, conferir a área descoberta por
+  município, não só a contagem de polígonos.
 - **`.gitignore`: `/dados/` ancorado na raiz.** Sem a barra inicial, a regra
   também pegava `docs/mapas/dados/` e o visualizador ia ao ar sem dados.
 - **A chave do CARTO não tem efeito** (testado em 29/09/2026): o tile volta

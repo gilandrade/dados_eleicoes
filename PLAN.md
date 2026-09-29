@@ -416,6 +416,19 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   - O "outro ano" passou a usar só coordenada do TSE: antes, 2018 herdava
     pontos do Hidalgo de 2022 com o rótulo `ano_2022` (18,2% dos pontos); agora
     são 10.359, e o Hidalgo de 2018 cobre o resto.
+- **Resolvido (29/09/2026): buracos e deformação na camada zona × município.**
+  - A regra "setores sem domicílio vão à zona do local mais próximo" nunca
+    tinha sido implementada em `alocacao.constroi_zona_mun`: só entravam os
+    setores com adultos na matriz de pesos. Nos 189 municípios com várias
+    zonas, a mediana de 24% da área ficava sem zona nenhuma (31,5% em São
+    Paulo, 71% em Belém), aparecendo como buracos no mapa. Agora esses setores
+    vão à zona do local elegível mais próximo do seu ponto interior, no mesmo
+    município.
+  - A simplificação do visualizador (cobertura, sem frestas) desceu de 0,005°
+    para 0,0005°: nos 20% menores polígonos, o deslocamento da borda caiu de
+    18% para 3% do tamanho do polígono (p90). O download comprimido vai de 3,6
+    para 8,3 MB por ano. A geometria passou a `zona_mun_{ano}_geo.json`
+    (`.json`, que o GitHub Pages comprime).
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.
 - A camada por setor é uma **estimativa**. A nota metodológica e a legenda devem deixar isso explícito, e a camada de locais (valores observados) deve ficar sempre disponível ao lado.

@@ -270,6 +270,40 @@ def poligonos_voronoi_por_municipio(
     return gdf.dissolve(by=[col_id_local, col_mun]).reset_index().to_crs(CRS_SIRGAS2000)
 
 
+def _zona_do_local_mais_proximo(
+    setores: gpd.GeoDataFrame,
+    locais: gpd.GeoDataFrame,
+    col_setor: str,
+    col_mun: str,
+    col_zona: str,
+) -> pd.DataFrame:
+    """`[col_setor, col_mun, col_zona, adultos=0]`: a zona do local mais
+    próximo do ponto interior de cada setor, procurando só no mesmo município.
+
+    Locais no centróide do município (`flag_sem_coord`) ficam fora da busca:
+    não estão na posição real do local.
+    """
+    candidatos = locais
+    if "flag_sem_coord" in locais.columns:
+        candidatos = locais.loc[~locais["flag_sem_coord"].astype(bool)]
+    candidatos = candidatos[[col_mun, col_zona, "geometry"]].to_crs(CRS_METRICO_BR)
+    pontos = setores.to_crs(CRS_METRICO_BR)
+    pontos["geometry"] = pontos.geometry.representative_point()
+
+    partes = []
+    for cd_mun, pontos_mun in pontos.groupby(col_mun):
+        locais_mun = candidatos.loc[candidatos[col_mun] == cd_mun, [col_zona, "geometry"]]
+        if locais_mun.empty:
+            continue
+        mais_proximo = gpd.sjoin_nearest(pontos_mun, locais_mun, how="left")
+        partes.append(
+            mais_proximo.drop_duplicates(col_setor)[[col_setor, col_mun, col_zona]]
+        )
+    if not partes:
+        return pd.DataFrame(columns=[col_setor, col_mun, col_zona, "adultos"])
+    return pd.concat(partes, ignore_index=True).assign(adultos=0.0)
+
+
 def constroi_zona_mun(
     setores: gpd.GeoDataFrame,
     locais: pd.DataFrame,
@@ -322,6 +356,23 @@ def constroi_zona_mun(
         .sort_values("adultos", ascending=False)
         .drop_duplicates(col_setor)
     )
+
+    # Setores sem adultos alocados (parques, represas, áreas industriais ou
+    # rurais sem domicílio no CNEFE) vão à zona do local mais próximo, no
+    # mesmo município (regra do PLAN.md). Sem isso, a mediana de 24% da área
+    # desses municípios (31,5% em São Paulo) ficava sem zona nenhuma — medido
+    # em 29/09/2026 na malha de 2022.
+    multi = n_zonas_mun[n_zonas_mun > 1].index
+    sem_zona = setores.loc[
+        setores[col_mun].isin(multi) & ~setores[col_setor].isin(setor_zona[col_setor]),
+        [col_setor, col_mun, "geometry"],
+    ]
+    if len(sem_zona):
+        setor_zona = pd.concat(
+            [setor_zona, _zona_do_local_mais_proximo(sem_zona, locais, col_setor, col_mun, col_zona)],
+            ignore_index=True,
+        )
+
     dissolvidos = (
         # setores[[col_setor, "geometry"]]: `setores` também tem seu próprio
         # `col_mun` (CD_MUN da malha do IBGE), que colidiria em silêncio com

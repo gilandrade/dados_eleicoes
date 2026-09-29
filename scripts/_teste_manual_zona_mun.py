@@ -48,4 +48,27 @@ assert set(zm["id_zona_mun"]) == {"A0001", "B0001", "B0002"}
 assert zm.loc[zm.cd_mun == "A", "geom_estimada"].iloc[0] == False  # noqa: E712
 assert zm.loc[zm.cd_mun == "B", "geom_estimada"].all()
 
+# Setor sem adulto alocado (B05, ex.: um parque) em município de várias zonas:
+# vai à zona do local mais próximo (LB2, zona 2), sem deixar buraco na malha.
+from shapely.geometry import Point  # noqa: E402
+
+setores_b5 = pd.concat(
+    [setores, gpd.GeoDataFrame({"cd_setor": ["B05"], "cd_mun": ["B"]}, geometry=[box(12, 1, 13, 2)], crs=CRS_SIRGAS2000)],
+    ignore_index=True,
+)
+municipios_b5 = gpd.GeoDataFrame(
+    {"cd_mun": ["A", "B"]},
+    geometry=[box(0, 0, 2, 1), box(10, 0, 12, 2).union(box(12, 1, 13, 2))],
+    crs=CRS_SIRGAS2000,
+)
+locais_geo = gpd.GeoDataFrame(
+    locais, geometry=[Point(0.5, 0.5), Point(10.5, 0.5), Point(11.5, 1.5)], crs=CRS_SIRGAS2000
+)
+zm_b5 = alocacao.constroi_zona_mun(setores_b5, locais_geo, pesos, municipios_b5)
+zona2 = zm_b5.loc[zm_b5.id_zona_mun == "B0002"].geometry.iloc[0]
+assert zona2.contains(Point(12.5, 1.5)), "B05 deveria ir para a zona 2 (local LB2, o mais próximo)"
+uniao_b = zm_b5.loc[zm_b5.cd_mun == "B"].geometry.union_all()
+assert abs(uniao_b.area - municipios_b5.geometry.iloc[1].area) < 1e-9, "a malha de B deveria cobrir o município todo"
+print("Setor sem adulto alocado vai à zona do local mais próximo, sem buraco: OK")
+
 print("\nOK — constroi_zona_mun com setores contendo cd_mun (esquema real).")

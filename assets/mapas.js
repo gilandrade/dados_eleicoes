@@ -37,15 +37,25 @@
 
   function lerHash() {
     const p = new URLSearchParams(location.hash.slice(1));
-    return { mapa: p.get("mapa"), ano: Number(p.get("ano")) || null, turno: Number(p.get("turno")) || null };
+    const v = (p.get("v") || "").split(",").map(Number);
+    return {
+      mapa: p.get("mapa"),
+      ano: Number(p.get("ano")) || null,
+      turno: Number(p.get("turno")) || null,
+      vista: v.length === 3 && v.every(Number.isFinite) ? v : null,
+    };
   }
 
+  // O link guarda também a vista (centro e zoom), para compartilhar um recorte.
   function gravarHash(estado) {
+    estado = estado || estadoAtual();
     const p = new URLSearchParams({ mapa: estado.mapa });
     if (estado.mapa !== "mudanca") {
       p.set("ano", estado.ano);
       p.set("turno", estado.turno);
     }
+    const c = mapa.getCenter();
+    p.set("v", `${c.lat.toFixed(4)},${c.lng.toFixed(4)},${mapa.getZoom()}`);
     history.replaceState(null, "", "#" + p.toString());
   }
 
@@ -167,7 +177,7 @@
     const arquivoDados = ehMudanca
       ? `mudanca_${anoAntes}_${anoDepois}_t2.json`
       : `zona_mun_${estado.ano}_t${estado.turno}.json`;
-    const [geo, res] = await Promise.all([carrega(`zona_mun_${anoDepois}.geojson`), carrega(arquivoDados)]);
+    const [geo, res] = await Promise.all([carrega(`zona_mun_${anoDepois}_geo.json`), carrega(arquivoDados)]);
     const dados = res.dados;
 
     const estilo = (f) => {
@@ -251,6 +261,8 @@
     mapa.on("zoomend", () => camada && camada._ajustaRaio && camada._ajustaRaio());
 
     const inicial = lerHash();
+    if (inicial.vista) mapa.setView([inicial.vista[0], inicial.vista[1]], inicial.vista[2]);
+    mapa.on("moveend", () => gravarHash());
     if (inicial.mapa && MAPAS[inicial.mapa]) el("sel-mapa").value = inicial.mapa;
     preencheSeletores({ mapa: el("sel-mapa").value, ano: inicial.ano, turno: inicial.turno });
 
