@@ -203,6 +203,7 @@ locais <- locais_flag |>
     nr_zona = as.integer(nr_zona),
     nm_local_votacao,
     ds_endereco = coalesce(ds_endereco, ""),
+    nm_bairro = coalesce(nm_bairro, ""),  # `localidade` do geocodebr (etapa 02)
     nr_cep = coalesce(nr_cep, ""),
     latitude = suppressWarnings(as.numeric(nr_latitude)),
     longitude = suppressWarnings(as.numeric(nr_longitude)),

@@ -148,8 +148,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span class="menu-text">02 · Geocodificação</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./mapas/2022_t1/index.html"> 
-<span class="menu-text">Mapas · 2022 T1</span></a>
+    <a class="nav-link" href="./mapas.html"> 
+<span class="menu-text">Mapas</span></a>
   </li>  
 </ul>
           </div> <!-- /navcollapse -->
@@ -386,37 +386,38 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">nr_zona =</span> <span class="fu">as.integer</span>(nr_zona),</span>
 <span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>    nm_local_votacao,</span>
 <span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">ds_endereco =</span> <span class="fu">coalesce</span>(ds_endereco, <span class="st">""</span>),</span>
-<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">nr_cep =</span> <span class="fu">coalesce</span>(nr_cep, <span class="st">""</span>),</span>
-<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">latitude =</span> <span class="fu">suppressWarnings</span>(<span class="fu">as.numeric</span>(nr_latitude)),</span>
-<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">longitude =</span> <span class="fu">suppressWarnings</span>(<span class="fu">as.numeric</span>(nr_longitude)),</span>
-<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>    ds_tipo_local,</span>
-<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>    flag_especial</span>
-<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a><span class="co"># Eleitores por local: soma QT_ELEITOR_SECAO de todas as seções já resolvidas</span></span>
-<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a><span class="co"># para esse id_local (turno 1 como referência — o efetivo quase não muda de</span></span>
-<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a><span class="co"># um turno para o outro, mesmo quando o local muda, ver seção 3). Usado no</span></span>
-<span id="cb13-24"><a href="#cb13-24" aria-hidden="true" tabindex="-1"></a><span class="co"># diagnóstico de alocação da etapa 03 (razão eleitores / adultos estimados).</span></span>
-<span id="cb13-25"><a href="#cb13-25" aria-hidden="true" tabindex="-1"></a>eleitores_por_local <span class="ot">&lt;-</span> locais_flag <span class="sc">|&gt;</span></span>
-<span id="cb13-26"><a href="#cb13-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(nr_turno <span class="sc">==</span> <span class="dv">1</span>) <span class="sc">|&gt;</span></span>
-<span id="cb13-27"><a href="#cb13-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(id_local) <span class="sc">|&gt;</span></span>
-<span id="cb13-28"><a href="#cb13-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">qt_eleitores =</span> <span class="fu">sum</span>(<span class="fu">as.integer</span>(qt_eleitor_secao), <span class="at">na.rm =</span> <span class="cn">TRUE</span>), <span class="at">.groups =</span> <span class="st">"drop"</span>)</span>
-<span id="cb13-29"><a href="#cb13-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb13-30"><a href="#cb13-30" aria-hidden="true" tabindex="-1"></a>locais <span class="ot">&lt;-</span> locais <span class="sc">|&gt;</span> <span class="fu">left_join</span>(eleitores_por_local, <span class="at">by =</span> <span class="st">"id_local"</span>)</span>
-<span id="cb13-31"><a href="#cb13-31" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb13-32"><a href="#cb13-32" aria-hidden="true" tabindex="-1"></a>secao_local <span class="ot">&lt;-</span> locais_flag <span class="sc">|&gt;</span></span>
-<span id="cb13-33"><a href="#cb13-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(id_secao, nr_turno, id_local) <span class="sc">|&gt;</span></span>
-<span id="cb13-34"><a href="#cb13-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(id_secao, nr_turno, <span class="at">.keep_all =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb13-35"><a href="#cb13-35" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb13-36"><a href="#cb13-36" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
-<span id="cb13-37"><a href="#cb13-37" aria-hidden="true" tabindex="-1"></a>  <span class="st">"toda seção deveria apontar para um local existente"</span> <span class="ot">=</span></span>
-<span id="cb13-38"><a href="#cb13-38" aria-hidden="true" tabindex="-1"></a>    <span class="fu">all</span>(secao_local<span class="sc">$</span>id_local <span class="sc">%in%</span> locais<span class="sc">$</span>id_local)</span>
-<span id="cb13-39"><a href="#cb13-39" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb13-40"><a href="#cb13-40" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb13-41"><a href="#cb13-41" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(locais, <span class="fu">file.path</span>(PROCESSADO_DIR, <span class="fu">sprintf</span>(<span class="st">"locais_%d.parquet"</span>, ano)))</span>
-<span id="cb13-42"><a href="#cb13-42" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(secao_local, <span class="fu">file.path</span>(PROCESSADO_DIR, <span class="fu">sprintf</span>(<span class="st">"secao_local_%d.parquet"</span>, ano)))</span>
-<span id="cb13-43"><a href="#cb13-43" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb13-44"><a href="#cb13-44" aria-hidden="true" tabindex="-1"></a><span class="fu">list</span>(<span class="at">n_locais =</span> <span class="fu">nrow</span>(locais), <span class="at">n_secoes_x_turno =</span> <span class="fu">nrow</span>(secao_local))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">nm_bairro =</span> <span class="fu">coalesce</span>(nm_bairro, <span class="st">""</span>),  <span class="co"># `localidade` do geocodebr (etapa 02)</span></span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">nr_cep =</span> <span class="fu">coalesce</span>(nr_cep, <span class="st">""</span>),</span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">latitude =</span> <span class="fu">suppressWarnings</span>(<span class="fu">as.numeric</span>(nr_latitude)),</span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">longitude =</span> <span class="fu">suppressWarnings</span>(<span class="fu">as.numeric</span>(nr_longitude)),</span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>    ds_tipo_local,</span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>    flag_especial</span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Eleitores por local: soma QT_ELEITOR_SECAO de todas as seções já resolvidas</span></span>
+<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a><span class="co"># para esse id_local (turno 1 como referência — o efetivo quase não muda de</span></span>
+<span id="cb13-24"><a href="#cb13-24" aria-hidden="true" tabindex="-1"></a><span class="co"># um turno para o outro, mesmo quando o local muda, ver seção 3). Usado no</span></span>
+<span id="cb13-25"><a href="#cb13-25" aria-hidden="true" tabindex="-1"></a><span class="co"># diagnóstico de alocação da etapa 03 (razão eleitores / adultos estimados).</span></span>
+<span id="cb13-26"><a href="#cb13-26" aria-hidden="true" tabindex="-1"></a>eleitores_por_local <span class="ot">&lt;-</span> locais_flag <span class="sc">|&gt;</span></span>
+<span id="cb13-27"><a href="#cb13-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(nr_turno <span class="sc">==</span> <span class="dv">1</span>) <span class="sc">|&gt;</span></span>
+<span id="cb13-28"><a href="#cb13-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(id_local) <span class="sc">|&gt;</span></span>
+<span id="cb13-29"><a href="#cb13-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">qt_eleitores =</span> <span class="fu">sum</span>(<span class="fu">as.integer</span>(qt_eleitor_secao), <span class="at">na.rm =</span> <span class="cn">TRUE</span>), <span class="at">.groups =</span> <span class="st">"drop"</span>)</span>
+<span id="cb13-30"><a href="#cb13-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-31"><a href="#cb13-31" aria-hidden="true" tabindex="-1"></a>locais <span class="ot">&lt;-</span> locais <span class="sc">|&gt;</span> <span class="fu">left_join</span>(eleitores_por_local, <span class="at">by =</span> <span class="st">"id_local"</span>)</span>
+<span id="cb13-32"><a href="#cb13-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-33"><a href="#cb13-33" aria-hidden="true" tabindex="-1"></a>secao_local <span class="ot">&lt;-</span> locais_flag <span class="sc">|&gt;</span></span>
+<span id="cb13-34"><a href="#cb13-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(id_secao, nr_turno, id_local) <span class="sc">|&gt;</span></span>
+<span id="cb13-35"><a href="#cb13-35" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(id_secao, nr_turno, <span class="at">.keep_all =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb13-36"><a href="#cb13-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-37"><a href="#cb13-37" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
+<span id="cb13-38"><a href="#cb13-38" aria-hidden="true" tabindex="-1"></a>  <span class="st">"toda seção deveria apontar para um local existente"</span> <span class="ot">=</span></span>
+<span id="cb13-39"><a href="#cb13-39" aria-hidden="true" tabindex="-1"></a>    <span class="fu">all</span>(secao_local<span class="sc">$</span>id_local <span class="sc">%in%</span> locais<span class="sc">$</span>id_local)</span>
+<span id="cb13-40"><a href="#cb13-40" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb13-41"><a href="#cb13-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-42"><a href="#cb13-42" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(locais, <span class="fu">file.path</span>(PROCESSADO_DIR, <span class="fu">sprintf</span>(<span class="st">"locais_%d.parquet"</span>, ano)))</span>
+<span id="cb13-43"><a href="#cb13-43" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(secao_local, <span class="fu">file.path</span>(PROCESSADO_DIR, <span class="fu">sprintf</span>(<span class="st">"secao_local_%d.parquet"</span>, ano)))</span>
+<span id="cb13-44"><a href="#cb13-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-45"><a href="#cb13-45" aria-hidden="true" tabindex="-1"></a><span class="fu">list</span>(<span class="at">n_locais =</span> <span class="fu">nrow</span>(locais), <span class="at">n_secoes_x_turno =</span> <span class="fu">nrow</span>(secao_local))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>$n_locais
 [1] 92393

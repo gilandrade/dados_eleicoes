@@ -208,13 +208,12 @@ dados_eleicoes/
   - tem de cair dentro do município (buffer de 500 m), no padrão de `datasus-estabelecimentos-saude/index.qmd` ~L1012–1050;
   - não pode ser repetida em ≥ 3 locais do município.
 - Fallback, nesta ordem:
-  1. outro ano;
+  1. outro ano — só a coordenada **do TSE** validada naquele ano (`tse`/`tse_confirmado`), nunca uma estimativa;
   2. Hidalgo;
-  3. escola (Jaro-Winkler ≥ 0,9);
-  4. `geocodebr` (`definir_campos` + `geocode(resolver_empates=TRUE, cache=TRUE)`, como em `locais-nova-rfb-geocoding/index.qmd` L1520–1690), aceitando precisão até `logradouro`;
-  5. centróide do município com flag.
+  3. escola (Jaro-Winkler ≥ 0,9) — **ainda não implementado**;
+  4. `geocodebr` (`definir_campos` + `geocode(resolver_empates=TRUE, cache=TRUE)`, como em `locais-nova-rfb-geocoding/index.qmd` L1520–1690), aceitando precisão até `logradouro` e desvio ≤ 1 km;
+  5. centróide do município com flag (`flag_sem_coord`: fora do mapa de pontos, dentro dos totais).
 - Mantém a coordenada do TSE se estiver a menos de 800 m da referência (regra do `geobr::read_polling_places`).
-- **MVP antes de 04/10:** validação + outro ano + Hidalgo. Escola e `geocodebr` entram depois.
 
 **03 — Pesos de alocação (Python, 1× por ano).**
 - `alocacao.py` implementa o método descrito acima (passos 1–7): CNEFE lido com DuckDB (`ST_GeomFromWKB` → x/y) ou `shapely.from_wkb`, e `scipy.spatial.cKDTree` por município.
@@ -401,6 +400,22 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
     nome, 99,84% ficaram na mesma zona (99,81% dos eleitores de 2022). Só 36
     municípios de zona única trocaram o número da zona —
     `resultados.alinha_zona_mun` casa esses pelo município.
+- **Resolvido (29/09/2026): passo `geocodebr` na etapa 02.** Os locais que
+  caíam no centróide do município eram, na maioria, **temporários** (prédios
+  que mudam a cada eleição: não estão no Hidalgo nem batem com outro ano pelo
+  `id_local`), mas todos têm endereço e CEP. O `DS_ENDERECO` do TSE é texto
+  livre: `logradouro` é o trecho até a primeira vírgula e o número, o que vem
+  logo depois dela; `NM_BAIRRO` (agora levado pela etapa 01) entra como
+  `localidade`. Aceita `numero`, `numero_aproximado` e `logradouro` com
+  desvio ≤ 1 km; `cep`/`municipio` (desvio mediano ~15 km) são descartados.
+  Resultado: locais sem ponto caíram de 516 para 208 em 2022 e de 255 para
+  129 em 2018; os 308 + 160 pontos do `geocodebr` caem todos dentro do
+  próprio município. O que sobra é, em boa parte, endereço rural sem
+  logradouro ("POVOADO …", "DISTRITO DE …", aldeias indígenas) ou ruas
+  genéricas ("RUA 09") que o CNEFE não desambigua.
+  - O "outro ano" passou a usar só coordenada do TSE: antes, 2018 herdava
+    pontos do Hidalgo de 2022 com o rótulo `ano_2022` (18,2% dos pontos); agora
+    são 10.359, e o Hidalgo de 2018 cobre o resto.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.
 - A camada por setor é uma **estimativa**. A nota metodológica e a legenda devem deixar isso explícito, e a camada de locais (valores observados) deve ficar sempre disponível ao lado.

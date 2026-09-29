@@ -173,8 +173,10 @@ the full data model (geometry files vs. result files joined by a shared id).
     só a contagem por `fonte_coord`.
   - Resultado real (2022): 92.185 pontos na camada espacial (92.393 locais
     menos os 208 do exterior, fora do mapa por design). 91,5% mantém a
-    coordenada do TSE, 7,8% usa o Hidalgo, 0,56% cai no centróide do
-    município, 0,12% é TSE reprovado mas confirmado a <800 m da referência.
+    coordenada do TSE, 7,7% usa o Hidalgo, 0,33% o `geocodebr`, 0,12% é TSE
+    reprovado mas confirmado a <800 m da referência, e 0,23% (208) ainda cai
+    no centróide do município — fora do mapa de pontos (`flag_sem_coord`).
+    Antes do passo `geocodebr` (29/09/2026) eram 0,56% no centróide.
 - **Etapas 03 (Python) e 04 (`processa_turno.py`) rodaram para o Brasil
   inteiro com 2022** em 29/09/2026 — o resultado por candidato bate
   **exatamente** com os números oficiais reais (Lula 57.259.504, Bolsonaro
@@ -332,6 +334,17 @@ the full data model (geometry files vs. result files joined by a shared id).
     no `quarto render` do projeto inteiro, ou simplesmente rodar
     `scripts/05_gera_mapas.py` **depois** do render, nunca antes — ver
     README.md.
+- **`geocodebr` na etapa 02** (0.6.1, mesmo pin do `locais-nova-rfb-geocoding`).
+  Instalar pelo renv: o `duckdb` mais recente do CRAN tenta compilar do fonte
+  e falha no Windows — usar a versão que já está no cache do renv
+  (`renv::install("duckdb@1.5.4.3")`, binário linkado). Os dados do CNEFE
+  padronizado ficam em `geocodebr::listar_pasta_cache()` (já baixados nesta
+  máquina). Para registrar pacotes novos no `renv.lock` sem mexer no resto,
+  `renv::record("pkg@versao")` — um `renv::snapshot()` completo tropeça no
+  `shiny` (usado, não instalado).
+- **`Rscript -e` com várias linhas falha em silêncio** no Git Bash desta
+  máquina (nenhuma saída, exit 0). Escrever o R num arquivo e rodar
+  `Rscript arquivo.R`.
 - **Limite de 1 GB do GitHub Pages** (29/09/2026): os HTML Folium publicados
   já somavam ~573 MB só com 2022, e cada mapa novo custava ~30 MB. O site passou
   a usar um visualizador único com JSON compactos (~60 MB para 2018 + 2022).

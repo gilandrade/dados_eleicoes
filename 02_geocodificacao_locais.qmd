@@ -114,8 +114,8 @@ locais_validados |> count(coord_valida)
 
 ## 3. Cadeia de fallback
 
-MVP (antes de 04/10): outro ano + Hidalgo. Escola e `geocodebr` entram depois
-(ver PLAN.md > Etapa 02 > MVP).
+Ordem: outro ano → Hidalgo → `geocodebr` → centróide do município. O passo
+"escola" (PLAN.md > Etapa 02) ainda não entrou.
 
 Cada passo só age nos locais ainda sem `fonte_coord` resolvida. Para cada um,
 calcula a distância entre a coordenada do TSE (mantida à parte em
@@ -156,9 +156,11 @@ referencia_outro_ano <- function(ano_referencia) {
   caminho <- file.path(GEOMETRIAS_DIR, sprintf("geom_locais_votacao_%d.gpkg", ano_referencia))
   if (!file.exists(caminho)) return(NULL)
   # A camada de pontos não guarda latitude/longitude como coluna, só a
-  # geometria. Centróide de município (flag_sem_coord) não serve de
-  # referência: não é a posição do local.
-  ref <- st_read(caminho, quiet = TRUE) |> filter(!flag_sem_coord)
+  # geometria. Só serve de referência a coordenada que o próprio TSE publicou
+  # e que passou na validação: com Hidalgo/geocodebr/centróide, 2018 e 2022
+  # passariam a se alimentar das estimativas um do outro, com o rótulo
+  # "ano_XXXX" escondendo a origem real.
+  ref <- st_read(caminho, quiet = TRUE) |> filter(fonte_coord %in% c("tse", "tse_confirmado"))
   coords <- st_coordinates(ref)
   ref |>
     st_drop_geometry() |>
@@ -210,6 +212,127 @@ ref_hidalgo <- referencia_hidalgo()
 if (!is.null(ref_hidalgo)) {
   locais_final <- aplica_fallback(locais_final, ref_hidalgo, "hidalgo")
 }
+```
+
+### `geocodebr`
+
+Geocodifica pelo endereço (CNEFE, via `geocodebr`) os locais que continuam
+sem coordenada — na maioria locais **temporários**, prédios que mudam a cada
+eleição e por isso não estão no Hidalgo nem batem com outro ano pelo
+`id_local`. Mesmo padrão de `locais-nova-rfb-geocoding/index.qmd`.
+
+- O `DS_ENDERECO` do TSE é texto livre (`RUA X, N 57 - ZONA URBANA`,
+  `AV. Y, 181, AO LADO DO DETRAN`): `logradouro` é o trecho até a primeira
+  vírgula, e o número, o que vem logo depois dela. `NM_BAIRRO` entra como
+  `localidade`.
+- Só se aceita precisão até `logradouro` (PLAN.md > Etapa 02), com desvio de
+  até 1 km. `cep`, `localidade` e `municipio` são descartados: o ponto cairia
+  num centróide de área (no teste com 2022, desvio mediano de ~15 km), que é
+  exatamente o que este passo tenta evitar. O limite de desvio corta os
+  `logradouro` muito longos (rodovias, avenidas extensas): no mesmo teste, a
+  mediana foi 255 m e o p90, 1,1 km.
+
+```{r geocodebr}
+#| message: false
+PRECISOES_ACEITAS <- c("numero", "numero_aproximado", "logradouro")
+LIMITE_DESVIO_GEOCODEBR_M <- 1000
+
+separa_endereco <- function(endereco) {
+  trecho <- endereco |>
+    str_to_upper() |>
+    str_remove("\\s+-\\s+.*$") |>
+    str_squish()
+  # Logradouro = até a primeira vírgula; número = o que vem logo depois dela
+  # ("RUA X, N. 181, AO LADO DE ..."). Sem vírgula, só um número no fim
+  # ("PRACA DA MATRIZ 143"), e só se sobrarem 2+ palavras — senão "RUA 09"
+  # viraria logradouro "RUA", número 9.
+  antes <- str_extract(trecho, "^[^,]+") |> str_squish()
+  depois <- str_match(trecho, "^[^,]+,\\s*(.*)$")[, 2]
+  numero_depois <- str_match(depois, "^(?:N[º°O]?\\.?\\s*)?(\\d+)\\b")[, 2]
+  m_fim <- str_match(antes, "^(.+?)\\s+(?:N[º°O]?\\.?\\s*)?(\\d+)$")
+  usa_fim <- is.na(numero_depois) & !is.na(m_fim[, 3]) & str_count(m_fim[, 2], "\\S+") >= 2
+  tibble(
+    numero = coalesce(numero_depois, if_else(usa_fim, m_fim[, 3], NA_character_)),
+    logradouro = if_else(usa_fim, m_fim[, 2], antes) |>
+      str_remove_all("\\bS\\.?/?N\\.?\\b") |>
+      str_squish() |>
+      na_if("")
+  )
+}
+
+referencia_geocodebr <- function(pendentes) {
+  if (nrow(pendentes) == 0) return(NULL)
+  enderecos <- pendentes |>
+    select(id_local, cd_mun, sg_uf, ds_endereco, nm_bairro, nr_cep) |>
+    bind_cols(separa_endereco(pendentes$ds_endereco)) |>
+    mutate(across(c(nm_bairro, nr_cep), \(x) na_if(str_squish(x), "")))
+
+  campos <- geocodebr::definir_campos(
+    estado = "sg_uf",
+    municipio = "cd_mun",
+    logradouro = "logradouro",
+    numero = "numero",
+    cep = "nr_cep",
+    localidade = "nm_bairro"
+  )
+  geocodebr::geocode(
+    enderecos,
+    campos_endereco = campos,
+    resolver_empates = TRUE,
+    verboso = FALSE,
+    cache = TRUE
+  ) |>
+    as_tibble() |>
+    transmute(
+      id_local,
+      latitude_ref = lat,
+      longitude_ref = lon,
+      precisao_geocodebr = precisao,
+      desvio_geocodebr_m = desvio_metros
+    )
+}
+
+resultado_geocodebr <- referencia_geocodebr(
+  locais_final |> filter(is.na(fonte_coord), !is.na(cd_mun))
+)
+
+if (!is.null(resultado_geocodebr)) {
+  print(resultado_geocodebr |> count(precisao_geocodebr))
+
+  ref_geocodebr <- resultado_geocodebr |>
+    filter(
+      precisao_geocodebr %in% PRECISOES_ACEITAS,
+      desvio_geocodebr_m <= LIMITE_DESVIO_GEOCODEBR_M
+    )
+  locais_final <- aplica_fallback(
+    locais_final, ref_geocodebr |> select(id_local, latitude_ref, longitude_ref), "geocodebr"
+  ) |>
+    left_join(
+      ref_geocodebr |> select(id_local, precisao_geocodebr, desvio_geocodebr_m),
+      by = "id_local"
+    ) |>
+    mutate(
+      # a precisão do geocodebr só vale onde ele foi de fato usado (não onde o
+      # TSE foi confirmado a < 800 m da referência)
+      across(c(precisao_geocodebr, desvio_geocodebr_m), \(x) if_else(fonte_coord == "geocodebr", x, NA))
+    )
+} else {
+  locais_final <- locais_final |>
+    mutate(precisao_geocodebr = NA_character_, desvio_geocodebr_m = NA_real_)
+}
+
+locais_final |>
+  filter(fonte_coord == "geocodebr") |>
+  summarise(
+    n = n(),
+    desvio_mediano_m = median(desvio_geocodebr_m, na.rm = TRUE),
+    desvio_p90_m = quantile(desvio_geocodebr_m, 0.9, na.rm = TRUE),
+    .by = precisao_geocodebr
+  )
+```
+
+```{r centroide}
+#| message: false
 
 # Último degrau (PLAN.md > Etapa 02, passo 5): centróide do município, com
 # flag. Só sobra `sem_coord` de verdade para quem nem isso tem — o exterior
@@ -255,9 +378,9 @@ locais_final |> count(fonte_coord) |> mutate(pc = round(100 * n / sum(n), 2))
 
 ## 4. Saída
 
-`precisao` é um alias de `fonte_coord` por enquanto — só passa a carregar as
-categorias do `geocodebr` (`numero`/`numero_aproximado`/`logradouro`/...)
-quando esse passo do fallback entrar (ver PLAN.md > MVP).
+`precisao` repete `fonte_coord`, exceto nos locais geocodificados pelo
+`geocodebr`, onde traz a categoria dele (`numero`, `numero_aproximado` ou
+`logradouro`).
 
 `st_as_sf()` não aceita coordenada nula — os locais sem nenhuma coordenada
 (`fonte_coord == "sem_coord"`, na prática só o exterior, sem `cd_mun` e por
@@ -277,7 +400,7 @@ if (n_sem_coord > 0) {
 geom_locais <- locais_final |>
   filter(fonte_coord != "sem_coord") |>
   st_as_sf(coords = c("longitude", "latitude"), crs = 4674, remove = FALSE) |>
-  mutate(precisao = fonte_coord) |>
+  mutate(precisao = coalesce(precisao_geocodebr, fonte_coord)) |>
   # `select(fonte_coord, precisao = fonte_coord)` manteria só a última
   # referência (dplyr descarta a primeira quando a mesma coluna de origem é
   # citada duas vezes) — por isso o mutate() acima, em vez de renomear aqui.
