@@ -166,7 +166,39 @@ assert sentidos["1000000"] == "manteve_pt"
 assert sentidos["1000001"] == "manteve_bolsonaro"
 assert sentidos["1000002"] == "virou_bolsonaro"
 assert sentidos["1000003"] == "virou_pt"
+# Bolsonaro venceu nos dois anos com números diferentes (17 -> 22): não é virada.
+assert not mudanca.set_index("cd_mun").loc["1000001", "mudou_vencedor"]
+assert mudanca["mudou_vencedor"].sum() == 2
 assert np.isclose(mudanca.set_index("cd_mun").loc["1000000", "var_pc_validos_pt"], 0.05)
+
+# ---- 6b. mudança por zona x município (alinha_zona_mun) ---------------------
+# 1000000: zona única que trocou de número (0010 -> 0020) — tem de casar.
+# 2000000: duas zonas, mesmos números nos dois anos — id mantido.
+
+zm_2018 = pd.DataFrame(
+    {
+        "id_zona_mun": ["10000000010", "20000000001", "20000000002", f"{resultados.SENTINELA_EXTERIOR}0001"],
+        "pc_validos_13": [0.40, 0.60, 0.30, 0.50],
+        "nr_vencedor": [17, 13, 17, 13],
+    }
+)
+zm_2022 = pd.DataFrame(
+    {
+        "id_zona_mun": ["10000000020", "20000000001", "20000000002", f"{resultados.SENTINELA_EXTERIOR}0001"],
+        "pc_validos_13": [0.55, 0.62, 0.28, 0.60],
+        "nr_vencedor": [13, 13, 22, 13],
+    }
+)
+zm_2018_alinhado = resultados.alinha_zona_mun(zm_2018, zm_2022)
+assert "10000000020" in set(zm_2018_alinhado["id_zona_mun"])
+assert {"20000000001", "20000000002"} <= set(zm_2018_alinhado["id_zona_mun"])
+mudanca_zm = resultados.mudanca_votacao(
+    zm_2018_alinhado, zm_2022, ano_antes=2018, ano_depois=2022, nr_pt=13, chave="id_zona_mun"
+)
+print("\nmudança por zona x município:\n", mudanca_zm)
+assert len(mudanca_zm) == 3  # exterior fora, os três territórios casados
+assert mudanca_zm.set_index("id_zona_mun").loc["10000000020", "sentido_virada"] == "virou_pt"
+assert not mudanca_zm.set_index("id_zona_mun").loc["20000000002", "mudou_vencedor"]
 
 # ---- 7. município direto da seção (agrega_secao_por_municipio) -------------
 # Simula um ano sem locais processados (o caso de 2018): agrega direto de

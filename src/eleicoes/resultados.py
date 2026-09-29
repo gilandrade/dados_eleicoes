@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import CODIGO_BRANCO, CODIGO_NULO
+from .config import CODIGO_ANULADO_APURADO_SEPARADO, CODIGO_BRANCO, CODIGO_NULO
 
 # Prefixo de id_zona_mun para locais sem cd_mun (o exterior, sem crosswalk —
 # ver 00_auxiliares.qmd). 8 caracteres, não colide com nenhum cd_mun real
@@ -276,6 +276,34 @@ def agrega_secao_por_municipio(
     return votos_largo.merge(por_secao, on="cd_mun", how="left")
 
 
+def alinha_zona_mun(res_antes: pd.DataFrame, res_depois: pd.DataFrame) -> pd.DataFrame:
+    """Troca o `id_zona_mun` de `res_antes` pelo de `res_depois` nos municípios
+    com uma só zona nos dois anos.
+
+    Nesses municípios a unidade é o próprio município, mas o número da zona
+    pode mudar de uma eleição para outra (36 casos entre 2018 e 2022), e o id
+    deixaria de casar. Nos municípios com várias zonas o id é mantido: entre
+    2018 e 2022 o conjunto de zonas de cada um é idêntico (medido em
+    29/09/2026, ver PLAN.md).
+
+    Returns:
+        Cópia de `res_antes` com `id_zona_mun` alinhado a `res_depois`.
+    """
+    def zona_unica(df: pd.DataFrame) -> pd.Series:
+        base = df.loc[~df["id_zona_mun"].str.startswith(SENTINELA_EXTERIOR), "id_zona_mun"]
+        por_mun = base.groupby(base.str[:7])
+        return por_mun.first()[por_mun.size() == 1]
+
+    unica_antes = zona_unica(res_antes)
+    unica_depois = zona_unica(res_depois)
+    comuns = unica_antes.index.intersection(unica_depois.index)
+    troca = dict(zip(unica_antes.loc[comuns], unica_depois.loc[comuns]))
+
+    saida = res_antes.copy()
+    saida["id_zona_mun"] = saida["id_zona_mun"].replace(troca)
+    return saida
+
+
 def mudanca_votacao(
     res_antes: pd.DataFrame,
     res_depois: pd.DataFrame,
@@ -283,52 +311,47 @@ def mudanca_votacao(
     ano_antes: int,
     ano_depois: int,
     nr_pt: int,
+    chave: str = "cd_mun",
 ) -> pd.DataFrame:
-    """Compara dois `res_..._municipio` (já com `calcula_indicadores`) por `cd_mun`.
+    """Compara dois resultados (já com `calcula_indicadores`) pela coluna `chave`.
 
     Pensado para o 2º turno, com só dois candidatos — o Δ do PT é o espelho
     exato do Δ de Bolsonaro nesse caso. `nr_vencedor` (já calculado por
     `calcula_indicadores`) é o que decide a virada, então o número do
     Bolsonaro (que muda de partido a cada eleição) não entra aqui.
 
-    O exterior (`SENTINELA_EXTERIOR`) é descartado: não é um "município" para
-    efeito de mudança territorial, e é o mesmo tratamento dado aos mapas.
+    Com `chave="id_zona_mun"`, passar `res_antes` por `alinha_zona_mun`
+    antes. O exterior (`SENTINELA_EXTERIOR`) é descartado: não é território,
+    e é o mesmo tratamento dado aos mapas.
 
     Returns:
-        Uma linha por `cd_mun`, com `pc_validos_pt_{ano_antes}`,
-        `pc_validos_pt_{ano_depois}`, `var_pc_validos_pt` (fração, depois -
-        antes), `nr_vencedor_{ano_antes}`, `nr_vencedor_{ano_depois}`,
-        `mudou_vencedor` (bool) e `sentido_virada` (categórico).
+        Uma linha por `chave` presente nos dois anos, com
+        `pc_validos_pt_{ano_antes}`, `pc_validos_pt_{ano_depois}`,
+        `var_pc_validos_pt` (fração, depois - antes), `nr_vencedor_{ano_antes}`,
+        `nr_vencedor_{ano_depois}`, `mudou_vencedor` (bool) e `sentido_virada`.
     """
     col_pt = f"pc_validos_{nr_pt}"
 
-    a = res_antes[res_antes["cd_mun"] != SENTINELA_EXTERIOR][
-        ["cd_mun", col_pt, "nr_vencedor"]
-    ].rename(
-        columns={col_pt: f"pc_validos_pt_{ano_antes}", "nr_vencedor": f"nr_vencedor_{ano_antes}"}
-    )
-    d = res_depois[res_depois["cd_mun"] != SENTINELA_EXTERIOR][
-        ["cd_mun", col_pt, "nr_vencedor"]
-    ].rename(
-        columns={col_pt: f"pc_validos_pt_{ano_depois}", "nr_vencedor": f"nr_vencedor_{ano_depois}"}
-    )
+    def prepara(df: pd.DataFrame, ano: int) -> pd.DataFrame:
+        base = df[~df[chave].str.startswith(SENTINELA_EXTERIOR)]
+        return base[[chave, col_pt, "nr_vencedor"]].rename(
+            columns={col_pt: f"pc_validos_pt_{ano}", "nr_vencedor": f"nr_vencedor_{ano}"}
+        )
 
-    df = a.merge(d, on="cd_mun", how="inner")
+    df = prepara(res_antes, ano_antes).merge(prepara(res_depois, ano_depois), on=chave, how="inner")
     df["var_pc_validos_pt"] = df[f"pc_validos_pt_{ano_depois}"] - df[f"pc_validos_pt_{ano_antes}"]
-    df["mudou_vencedor"] = df[f"nr_vencedor_{ano_antes}"] != df[f"nr_vencedor_{ano_depois}"]
 
-    def _sentido(row) -> str:
-        venceu_antes_pt = row[f"nr_vencedor_{ano_antes}"] == nr_pt
-        venceu_depois_pt = row[f"nr_vencedor_{ano_depois}"] == nr_pt
-        if venceu_antes_pt and venceu_depois_pt:
-            return "manteve_pt"
-        if not venceu_antes_pt and not venceu_depois_pt:
-            return "manteve_bolsonaro"
-        if venceu_depois_pt:
-            return "virou_pt"
-        return "virou_bolsonaro"
-
-    df["sentido_virada"] = df.apply(_sentido, axis=1)
+    # A virada é decidida por "o PT venceu?" nos dois anos, nunca comparando
+    # os números dos vencedores: o do Bolsonaro muda (17 -> 22), e a
+    # comparação direta marcaria como virada todo lugar que ele venceu duas vezes.
+    pt_antes = df[f"nr_vencedor_{ano_antes}"] == nr_pt
+    pt_depois = df[f"nr_vencedor_{ano_depois}"] == nr_pt
+    df["sentido_virada"] = np.select(
+        [pt_antes & pt_depois, ~pt_antes & ~pt_depois, pt_depois],
+        ["manteve_pt", "manteve_bolsonaro", "virou_pt"],
+        default="virou_bolsonaro",
+    )
+    df["mudou_vencedor"] = pt_antes != pt_depois
     return df
 
 
@@ -386,15 +409,19 @@ def calcula_indicadores(
     col_brancos = f"qt_votos_{CODIGO_BRANCO}"
     col_nulos = f"qt_votos_{CODIGO_NULO}"
 
-    df["pc_comparecimento"] = df["qt_comparecimento"] / df["qt_aptos"]
+    # qt_aptos = 0 acontece no fallback por locais.qt_eleitores: seções de voto
+    # em trânsito têm QT_ELEITOR_SECAO = 0 no cadastro, mas recebem votos.
+    # Sem o NA, o comparecimento vira infinito e a abstenção, -infinito.
+    df["pc_comparecimento"] = df["qt_comparecimento"] / df["qt_aptos"].replace(0, np.nan)
     df["pc_abstencao"] = 1 - df["pc_comparecimento"]
 
     qt_validos = df[cols_votos_validos].sum(axis=1)
     df["pc_brancos"] = df.get(col_brancos, 0) / df["qt_comparecimento"]
     df["pc_nulos"] = df.get(col_nulos, 0) / df["qt_comparecimento"]
-    df["pc_brancos_nulos"] = (df.get(col_brancos, 0) + df.get(col_nulos, 0)) / df[
-        "qt_comparecimento"
-    ]
+    col_anulados = f"qt_votos_{CODIGO_ANULADO_APURADO_SEPARADO}"
+    df["pc_brancos_nulos"] = (
+        df.get(col_brancos, 0) + df.get(col_nulos, 0) + df.get(col_anulados, 0)
+    ) / df["qt_comparecimento"]
 
     for col in cols_votos_validos:
         df[col.replace("qt_votos_", "pc_validos_")] = df[col] / qt_validos.replace(

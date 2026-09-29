@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pandas as pd
 
 from eleicoes import exporta, resultados
-from eleicoes.config import CODIGO_BRANCO, CODIGO_NULO, PROCESSADO_DIR, RESULTADOS_DIR
+from eleicoes.config import CODIGOS_NAO_CANDIDATO, PROCESSADO_DIR, RESULTADOS_DIR
 
 # Reaproveita o adaptador de fonte (bweb/votacao_secao) de processa_turno.py —
 # mesma lógica de download/extração, sem duplicar.
@@ -50,7 +50,7 @@ def main(ano: int, turno: int, fonte: str, deve_baixar: bool) -> None:
     logger.info("%d linhas de resultado por seção lidas.", len(resultados_secao))
 
     candidatos = sorted(
-        c for c in resultados_secao["nr_votavel"].unique() if c not in (CODIGO_BRANCO, CODIGO_NULO)
+        c for c in resultados_secao["nr_votavel"].unique() if c not in CODIGOS_NAO_CANDIDATO
     )
     cols_votos_validos = [f"qt_votos_{c}" for c in candidatos]
 

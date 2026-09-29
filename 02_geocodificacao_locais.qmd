@@ -155,9 +155,14 @@ aplica_fallback <- function(df, referencia, nome_fonte) {
 referencia_outro_ano <- function(ano_referencia) {
   caminho <- file.path(GEOMETRIAS_DIR, sprintf("geom_locais_votacao_%d.gpkg", ano_referencia))
   if (!file.exists(caminho)) return(NULL)
-  st_read(caminho, quiet = TRUE) |>
+  # A camada de pontos não guarda latitude/longitude como coluna, só a
+  # geometria. Centróide de município (flag_sem_coord) não serve de
+  # referência: não é a posição do local.
+  ref <- st_read(caminho, quiet = TRUE) |> filter(!flag_sem_coord)
+  coords <- st_coordinates(ref)
+  ref |>
     st_drop_geometry() |>
-    transmute(id_local, latitude_ref = latitude, longitude_ref = longitude)
+    transmute(id_local, latitude_ref = coords[, 2], longitude_ref = coords[, 1])
 }
 
 referencia_hidalgo <- function() {
@@ -193,9 +198,12 @@ locais_final <- locais_validados |>
     fonte_coord = if_else(coord_valida, "tse", NA_character_)
   )
 
-ref_outro_ano <- referencia_outro_ano(if (ano == 2026) 2022 else 2018)
+# Ano de referência para o fallback "outro ano": nunca o próprio ano (antes,
+# 2018 apontava para si mesmo e o passo não fazia nada).
+ano_referencia <- c("2018" = 2022, "2022" = 2018, "2026" = 2022)[[as.character(ano)]]
+ref_outro_ano <- referencia_outro_ano(ano_referencia)
 if (!is.null(ref_outro_ano)) {
-  locais_final <- aplica_fallback(locais_final, ref_outro_ano, sprintf("ano_%d", if (ano == 2026) 2022 else 2018))
+  locais_final <- aplica_fallback(locais_final, ref_outro_ano, sprintf("ano_%d", ano_referencia))
 }
 
 ref_hidalgo <- referencia_hidalgo()

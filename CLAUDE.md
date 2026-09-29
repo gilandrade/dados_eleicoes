@@ -35,8 +35,14 @@ pip install -r requirements.txt
 cp .env.example .env             # preencher CARTO_API_KEY (ver Conventions abaixo)
 python scripts/03_pesos_alocacao.py --ano 2022
 python scripts/processa_turno.py --ano 2022 --turno 1 --fonte votacao_secao
-python scripts/05_gera_mapas.py --ano 2022 --turno 1
+python scripts/06_mudanca_votacao.py --de 2018 --para 2022
+python scripts/05_exporta_visualizador.py   # dados do site (docs/mapas/dados/)
+quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
 ```
+
+Outro ano nas etapas R: `quarto render 01_locais_votacao.qmd -P ano:2018 --output
+01_locais_votacao_2018.html` (idem para 02) — o `--output` evita sobrescrever a
+página de 2022 no site.
 
 ## Architecture
 
@@ -54,9 +60,13 @@ the full data model (geometry files vs. result files joined by a shared id).
   pela matriz de pesos, por setor.
 - **05 (Python)**: exporta os arquivos no modelo GeoReDUS, os artefatos de carga
   (`table.sh`/`schema.sql`/`down.sql`), a linha de cadastro (ainda não implementado)
-  e os mapas Folium coropléticos (`src/eleicoes/mapas.py`,
-  `scripts/05_gera_mapas.py` — 27 mapas por UF em setor + 1 nacional por
-  município, em `docs/mapas/{ano}_t{turno}/`, publicados no GitHub Pages).
+  e os dados do **visualizador de mapas do site** (`src/eleicoes/visualizador.py`,
+  `scripts/05_exporta_visualizador.py` → `docs/mapas/dados/*.json`, lidos por
+  `mapas.qmd` + `assets/mapas.js`). Cores e classes em `src/eleicoes/cores.py`.
+  Os mapas Folium (`mapas.py`, `scripts/05_gera_mapas.py`) são só para uso
+  local, em `dados/mapas_folium/` — não voltar a publicá-los (tamanho, ver abaixo).
+- **06 (Python, `scripts/06_mudanca_votacao.py`)**: mudança de votação entre
+  dois anos no 2º turno, por zona × município.
 
 ## Conventions and gotchas
 
@@ -322,3 +332,28 @@ the full data model (geometry files vs. result files joined by a shared id).
     no `quarto render` do projeto inteiro, ou simplesmente rodar
     `scripts/05_gera_mapas.py` **depois** do render, nunca antes — ver
     README.md.
+- **Limite de 1 GB do GitHub Pages** (29/09/2026): os HTML Folium publicados
+  já somavam ~573 MB só com 2022, e cada mapa novo custava ~30 MB. O site passou
+  a usar um visualizador único com JSON compactos (~60 MB para 2018 + 2022).
+  Mapas novos entram como dados do visualizador, não como HTML Folium.
+- **`.gitignore`: `/dados/` ancorado na raiz.** Sem a barra inicial, a regra
+  também pegava `docs/mapas/dados/` e o visualizador ia ao ar sem dados.
+- **A chave do CARTO não tem efeito** (testado em 29/09/2026): o tile volta
+  idêntico, com o aviso "API KEY REQUIRED", com ou sem `?api_key=`, de
+  qualquer referer. O visualizador usa o Esri World Light Gray
+  (`config.TILES_VISUALIZADOR`, sem chave). Os Folium locais continuam com
+  CARTO e mostram o aviso.
+- **2018 (29/09/2026):** `eleitorado_local_votacao_2018` tem o mesmo esquema
+  de 2022 nas colunas usadas pela etapa 01 (baixa via R/httr2; o Python toma
+  403 do CDN). O `votacao_secao_2018` tem o código **97 ("voto anulado e
+  apurado em separado")** no 1º turno: não é candidato. Todo filtro de
+  candidato usa `config.CODIGOS_NAO_CANDIDATO`, nunca `(95, 96)` escrito à mão —
+  sem isso os 746 votos entram como válidos.
+- **Bolsonaro muda de número entre eleições** (17 em 2018, 22 em 2022 —
+  `config.NR_BOLSONARO_POR_ANO`). Nunca comparar `nr_vencedor` entre anos
+  diretamente: o primeiro `mudou_vencedor` fazia isso e marcava como virada
+  todo lugar que ele venceu duas vezes.
+- **Zonas 2018 × 2022 quase idênticas** (medido em 29/09/2026): mesmo
+  conjunto de zonas nos 189 municípios com várias; 99,84% dos locais na mesma
+  zona. Só 36 municípios de zona única trocaram o número —
+  `resultados.alinha_zona_mun` casa esses antes de comparar anos.

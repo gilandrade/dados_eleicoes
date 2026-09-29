@@ -26,8 +26,7 @@ import pandas as pd
 from eleicoes import exporta, fontes, resultados
 from eleicoes.config import (
     BRUTO_DIR,
-    CODIGO_BRANCO,
-    CODIGO_NULO,
+    CODIGOS_NAO_CANDIDATO,
     PROCESSADO_DIR,
     RESULTADOS_DIR,
     URL_BWEB,
@@ -173,7 +172,7 @@ def main(ano: int, turno: int, fonte: str, deve_baixar: bool) -> None:
         )
 
     candidatos = sorted(
-        c for c in com_id["nr_votavel"].unique() if c not in (CODIGO_BRANCO, CODIGO_NULO)
+        c for c in com_id["nr_votavel"].unique() if c not in CODIGOS_NAO_CANDIDATO
     )
     cols_votos_validos = [f"qt_votos_{c}" for c in candidatos]
 

@@ -1,11 +1,12 @@
 project:
   type: website
   output-dir: docs
-  # docs/mapas/ é gerado por scripts/05_gera_mapas.py (Folium, fora do motor
-  # de render do Quarto) — listar como resource evita que um `quarto render`
-  # limpe a pasta antes de renderizar o resto do site.
+  # docs/mapas/dados/ é gerado por scripts/05_exporta_visualizador.py, fora do
+  # motor do Quarto. Isso NÃO impede que um `quarto render` do projeto inteiro
+  # limpe docs/ — renderizar só os .qmd alterados (ver CLAUDE.md).
   resources:
-    - mapas
+    - assets/mapas.js
+    - assets/mapas.css
 
 website:
   title: "dados_eleicoes"
@@ -19,8 +20,8 @@ website:
         text: 01 · Locais de votação
       - href: 02_geocodificacao_locais.qmd
         text: 02 · Geocodificação
-      - href: mapas/2022_t1/index.html
-        text: Mapas · 2022 T1
+      - href: mapas.qmd
+        text: Mapas
 
 format:
   html:

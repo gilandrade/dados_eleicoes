@@ -55,6 +55,15 @@ ANOS = (2018, 2022, 2026)
 CARGO_PRESIDENTE = 1  # código TSE do cargo Presidente (CD_CARGO / NR_CARGO = 1)
 CODIGO_BRANCO = 95
 CODIGO_NULO = 96
+# "Voto anulado e apurado em separado" — existe no 2018 (1º turno), não em
+# 2022. Não é candidato: sem excluí-lo, entra como "voto válido" e distorce
+# todos os percentuais. Conta como nulo em `pc_brancos_nulos`.
+CODIGO_ANULADO_APURADO_SEPARADO = 97
+CODIGOS_NAO_CANDIDATO = (CODIGO_BRANCO, CODIGO_NULO, CODIGO_ANULADO_APURADO_SEPARADO)
+
+# 2º turno: PT contra Bolsonaro, que troca de número (partido) a cada eleição.
+NR_BOLSONARO_POR_ANO = {2018: 17, 2022: 22}
+NOME_PT_POR_ANO = {2018: "Haddad", 2022: "Lula"}
 
 # Número do PT no 2º turno — usado em `resultados.mudanca_votacao` para achar
 # quem venceu (o do Bolsonaro muda de partido a cada eleição: 17 em 2018,
@@ -121,6 +130,16 @@ TILES_CARTO_ATTR = (
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
     'contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
 )
+
+# Fundo do visualizador do site. Testado em 29/09/2026: o CARTO devolve o
+# mesmo tile "API KEY REQUIRED" com ou sem `?api_key=` (de qualquer referer),
+# então a chave não está tendo efeito — e os HTML Folium publicados mostravam
+# esse aviso. O Esri Light Gray é claro como o Positron e não pede chave.
+TILES_VISUALIZADOR = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/"
+    "World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+)
+TILES_VISUALIZADOR_ATTR = "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors"
 
 # `SETORES_2022_GPKG` não tem sigla de 2 letras — só `CD_UF` (código IBGE) e
 # `NM_UF` (achado tentando filtrar por "SG_UF", que não existe nesse

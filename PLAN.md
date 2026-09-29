@@ -116,7 +116,7 @@ Combina os três achados. A unidade de alocação é o **endereço residencial d
 | `res_presidente_{ano}_t{t}_zona_mun.parquet` | `id_zona_mun` → zona × município (valores observados; soma dos locais, incluindo os especiais) |
 | `res_presidente_{ano}_t{t}_municipio.parquet` | `cd_mun` → município do IBGE (valores observados; soma de zona×município. Para anos sem locais processados — ex. 2018 — sai direto da seção via `resultados.agrega_secao_por_municipio`, sem depender de `secao_local`/`locais`) |
 | `res_presidente_{ano}_t{t}_setor.parquet` | `cd_setor` → malha de setores (valores estimados) |
-| `mudanca_presidente_{ano_antes}_{ano_depois}_t2_municipio.parquet` | `cd_mun` → só 2º turno (2 candidatos): `var_pc_validos_pt` (Δ p.p. do PT entre os dois anos) e `sentido_virada` |
+| `mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet` | `id_zona_mun` (ids do ano mais recente) → só 2º turno (2 candidatos): `var_pc_validos_pt` (Δ p.p. do PT entre os dois anos), `mudou_vencedor` e `sentido_virada` |
 | `pesos_local_setor_{ano}.parquet` | `id_local`, `cd_setor`, `n_dom`, `adultos`, `peso`; publicado por transparência/reuso |
 | `secao_local_{ano}.parquet` | `id_secao` → `id_local` |
 
@@ -127,11 +127,22 @@ Combina os três achados. A unidade de alocação é o **endereço residencial d
 - `nr_vencedor`, `margem`;
 - no setor, também `qualidade_alocacao`.
 
-**Mapas de pontos (locais de votação), além dos coropléticos por polígono** — três
-métricas por local, cada uma numa escala de cor diferente (ver `src/eleicoes/mapas.py`):
-`pc_validos_{nr}` (Presidente, divergente Lula×Bolsonaro), `pc_brancos_nulos`
-(sequencial, sobre o total de votos) e `pc_abstencao` (sequencial, sobre os
-inscritos). Pontos vêm de `geom_locais_votacao_{ano}.gpkg` + `res_..._local`.
+**Mapas do site (`mapas.qmd`).** Um visualizador Leaflet único (`assets/mapas.js`)
+lê JSON compactos de `docs/mapas/dados/` (`scripts/05_exporta_visualizador.py`),
+no lugar de um HTML Folium por mapa (~30 MB cada; com 2018, 2022 e 2026 o site
+estouraria o limite de 1 GB do GitHub Pages). Cinco mapas, 2018 e 2022, nos
+dois turnos:
+
+- locais de votação (pontos): Presidente (`pc_validos`, margem PT − Bolsonaro),
+  brancos e nulos (`pc_brancos_nulos`, sobre o total de votos) e abstenção
+  (`pc_abstencao`, sobre os inscritos);
+- zona × município: Presidente e a mudança 2018 → 2022 (2º turno).
+
+Cores em `src/eleicoes/cores.py`: classes **discretas** com cortes fixos iguais
+em todos os anos (margem: 5/15/30/50 p.p.; mudança: 2/5/10/15 p.p.; brancos e
+nulos: 3/5/7/10%; abstenção: 15/18/21/25% — quintis arredondados da distribuição
+conjunta de 2018 e 2022). A classe mais clara tem croma ≥ 0,12:
+com o croma da paleta original, margens de ~3 p.p. liam como cinza.
 
 **Ids:**
 - `id_local = {cd_mun_tse}{nr_zona:04}{nr_local:04}` (texto);
@@ -358,11 +369,39 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   `virou_bolsonaro`. Conferido à mão contra resultados conhecidos: São Paulo
   (capital) `virou_pt` (+13,9 p.p., bate com a virada real de 2022), Rio de
   Janeiro e Curitiba `manteve_bolsonaro`, Fortaleza `manteve_pt` — todos
-  batendo com o resultado público. Mapa em
-  `docs/mapas/2022_t2/mudanca_2018_municipio.html` (29 MB), com contorno mais
-  grosso nos municípios que viraram.
+  batendo com o resultado público. (Substituído em 29/09/2026 pela comparação
+  por zona × município, abaixo; a contagem de viradas acima estava inflada pelo
+  bug de `mudou_vencedor`.)
+- **Resolvido (29/09/2026): 2018 pelo pipeline completo (01→04) e visualizador
+  único no site.**
+  - `eleitorado_local_votacao_2018` (regerado pelo TSE em 2024) tem **o mesmo
+    esquema de 2022** nas colunas usadas: `NR_TURNO` (uma linha por seção ×
+    turno), `DS_TIPO_SECAO_AGREGADA` (só `Principal`/`Agregada`, sem
+    `Distribuída de ofício`), os mesmos quatro `DS_TIPO_LOCAL`, `CD_MUNICIPIO`
+    com 5 dígitos. 01 rodou sem mudança: 93.557 locais, aptos 147.306.275 (o
+    oficial). Diferença real: 18,6% das linhas sem coordenada do TSE.
+  - 02 para 2018: o "outro ano" apontava para o próprio 2018 e lia colunas
+    `latitude`/`longitude` que a camada de pontos não tem (só geometria) —
+    corrigidos. Resultado: 93.346 pontos; 79,0% TSE, 18,2% mesmo local em
+    2022, 2,4% Hidalgo, 0,27% centróide.
+  - **Código 97 ("voto anulado e apurado em separado")** aparece no 1º turno
+    de 2018 (746 votos) e era tratado como candidato — entrava nos votos
+    válidos. Agora `config.CODIGOS_NAO_CANDIDATO` o exclui, e ele conta em
+    `pc_brancos_nulos`. Totais de 2018 **exatos**: t1 Bolsonaro 49.277.010
+    (46,03%), Haddad 31.342.051 (29,28%), Ciro 13.344.371, válidos
+    107.050.749; t2 Bolsonaro 57.797.847, Haddad 47.040.906. O `_municipio` de
+    2018 t2 bate voto a voto com o caminho direto da seção.
+  - **Bug em `mudou_vencedor`:** comparava os números dos vencedores, e o do
+    Bolsonaro muda (17 → 22) — todo lugar que ele venceu duas vezes contava
+    como virada. Agora sai de "o PT venceu?" nos dois anos.
+  - **Mudança por zona × município**, a pedido do Gil (mesmo nível do mapa de
+    votação). Medido que as zonas quase não mudaram entre 2018 e 2022: 6.102
+    unidades nos dois anos; os 189 municípios com mais de uma zona têm o
+    mesmo conjunto de zonas; dos 20.059 locais desses municípios casados por
+    nome, 99,84% ficaram na mesma zona (99,81% dos eleitores de 2022). Só 36
+    municípios de zona única trocaram o número da zona —
+    `resultados.alinha_zona_mun` casa esses pelo município.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
-- 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.
 - A camada por setor é uma **estimativa**. A nota metodológica e a legenda devem deixar isso explícito, e a camada de locais (valores observados) deve ficar sempre disponível ao lado.
 - Sigilo: nenhum dado individual é usado. CNEFE e TSE são públicos e agregados.

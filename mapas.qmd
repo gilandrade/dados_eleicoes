@@ -1,0 +1,56 @@
+---
+title: "Mapas"
+page-layout: full
+toc: false
+---
+
+Resultados da eleição presidencial de 2018 e 2022 (TSE). Escolha o mapa, o
+ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
+
+```{=html}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="assets/mapas.css">
+
+<div class="mapas-controles">
+  <label>Mapa
+    <select id="sel-mapa">
+      <optgroup label="Locais de votação (pontos)">
+        <option value="pontos_presidente">Presidente — % dos votos válidos</option>
+        <option value="pontos_branco_nulo">Brancos e nulos — % do total de votos</option>
+        <option value="pontos_abstencao">Abstenção — % dos inscritos</option>
+      </optgroup>
+      <optgroup label="Zona eleitoral × município (áreas)">
+        <option value="zona_mun_presidente">Presidente — % dos votos válidos</option>
+        <option value="mudanca">Mudança de votação 2018 → 2022 (2º turno)</option>
+      </optgroup>
+    </select>
+  </label>
+  <label>Ano <select id="sel-ano"></select></label>
+  <label>Turno <select id="sel-turno"></select></label>
+</div>
+
+<div class="mapas-area">
+  <div id="mapa"></div>
+  <div id="mapa-carregando" class="mapas-aviso" hidden>Carregando…</div>
+  <div id="mapa-erro" class="mapas-aviso erro" hidden></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="assets/mapas.js"></script>
+```
+
+**Como ler.**
+
+- **Locais de votação** e **zona × município** mostram valores *observados*,
+  exatamente como o TSE publica.
+- Nas cidades com mais de uma zona eleitoral, a fronteira *entre* as zonas é
+  estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando
+  for o caso.
+- A **mudança de votação** compara o candidato do PT (Haddad em 2018, Lula em
+  2022) contra Bolsonaro no 2º turno, zona a zona. Entre as duas eleições as
+  zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona.
+- Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome
+  de rua) ficam fora do mapa de pontos, mas entram nos totais — nenhum ponto é
+  desenhado no centro do município.
+
+Metodologia e fontes: [PLAN.md](https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md).

@@ -1,5 +1,6 @@
-# Dados (git-ignorados, ver PLAN.md)
-dados/
+# Dados (git-ignorados, ver PLAN.md). Ancorado na raiz: sem a barra inicial,
+# também ignoraria docs/mapas/dados/ (os dados publicados do visualizador).
+/dados/
 input/
 output/
 

@@ -6,68 +6,21 @@ Pipeline ETL de dados eleitorais do TSE (locais de votação e resultados) para 
 [GeoReDUS](https://www.redus.org.br/georedus). Ver [PLAN.md](https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md)
 para o contexto completo.
 
+## [Mapas](mapas.qmd)
+
+Presidente em 2018 e 2022, nos dois turnos, num só visualizador:
+
+- **locais de votação:** Presidente, brancos e nulos, abstenção;
+- **zona × município:** Presidente e a mudança de votação 2018 → 2022 (2º turno).
+
+## Etapas
+
 - [00 · Auxiliares](00_auxiliares.qmd) — crosswalk TSE↔IBGE, malhas, população adulta por setor.
-- [01 · Locais de votação](01_locais_votacao.qmd) — download e chaves dos locais e seções.
-- [02 · Geocodificação](02_geocodificacao_locais.qmd) — validação e fallback de coordenada.
+- [01 · Locais de votação](01_locais_votacao.qmd) — download e chaves dos locais e seções (2022;
+  [2018](01_locais_votacao_2018.html)).
+- [02 · Geocodificação](02_geocodificacao_locais.qmd) — validação e fallback de coordenada (2022;
+  [2018](02_geocodificacao_locais_2018.html)).
 
-As etapas 03–05 (distribuição espacial, resultados e exportação) são em Python,
-em `src/eleicoes/` e `scripts/` — ver o README do repositório.
-
-## Mapas · Presidente 2022, 1º turno
-
-Coroplético: margem entre Lula e Bolsonaro (vermelho/azul, mais escuro quanto
-maior a margem, cinza = empate ou sem resultado). Três camadas, da mais
-"real" para a mais detalhada (ver [PLAN.md](https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md)
-para o porquê de cada uma):
-
-- **[Nacional · zona × município](mapas/2022_t1/zona_mun.html)** — **observado**,
-  bate exatamente com o que o TSE publica por município e zona. Só a
-  fronteira interna das cidades com mais de uma zona é estimada.
-- **[Nacional · município](mapas/2022_t1/index.html)** — **observado**, visão
-  geral rápida (menos polígonos, carrega mais rápido).
-- **Locais de votação (pontos)** — **observado**, um ponto por local:
-  [Presidente](mapas/2022_t1/pontos_presidente.html) (margem Lula×Bolsonaro) ·
-  [Branco/nulo](mapas/2022_t1/pontos_branco_nulo.html) (sobre o total de votos) ·
-  [Abstenção](mapas/2022_t1/pontos_abstencao.html) (sobre os inscritos).
-- **Por UF · setor censitário** — **estimado** por distribuição dasimétrica
-  via CNEFE (não é o voto real do setor, ver PLAN.md > "Pesquisa: como
-  distribuir os resultados no território"):
-  [AC](mapas/2022_t1/AC.html) ·
-  [AL](mapas/2022_t1/AL.html) ·
-  [AP](mapas/2022_t1/AP.html) ·
-  [AM](mapas/2022_t1/AM.html) ·
-  [BA](mapas/2022_t1/BA.html) ·
-  [CE](mapas/2022_t1/CE.html) ·
-  [DF](mapas/2022_t1/DF.html) ·
-  [ES](mapas/2022_t1/ES.html) ·
-  [GO](mapas/2022_t1/GO.html) ·
-  [MA](mapas/2022_t1/MA.html) ·
-  [MT](mapas/2022_t1/MT.html) ·
-  [MS](mapas/2022_t1/MS.html) ·
-  [MG](mapas/2022_t1/MG.html) ·
-  [PA](mapas/2022_t1/PA.html) ·
-  [PB](mapas/2022_t1/PB.html) ·
-  [PR](mapas/2022_t1/PR.html) ·
-  [PE](mapas/2022_t1/PE.html) ·
-  [PI](mapas/2022_t1/PI.html) ·
-  [RJ](mapas/2022_t1/RJ.html) ·
-  [RN](mapas/2022_t1/RN.html) ·
-  [RS](mapas/2022_t1/RS.html) ·
-  [RO](mapas/2022_t1/RO.html) ·
-  [RR](mapas/2022_t1/RR.html) ·
-  [SC](mapas/2022_t1/SC.html) ·
-  [SP](mapas/2022_t1/SP.html) ·
-  [SE](mapas/2022_t1/SE.html) ·
-  [TO](mapas/2022_t1/TO.html)
-
-## Mapas · Presidente 2022, 2º turno
-
-- **[Nacional · município](mapas/2022_t2/index.html)** — **observado**.
-- **[Mudança de votação 2018 → 2022](mapas/2022_t2/mudanca_2018_municipio.html)** —
-  Δ em pontos percentuais do candidato do PT (Haddad → Lula) por município,
-  escala divergente (vermelho = foi em direção ao PT, azul = em direção ao
-  Bolsonaro); municípios que trocaram de vencedor têm contorno mais grosso.
-- **Locais de votação (pontos)**:
-  [Presidente](mapas/2022_t2/pontos_presidente.html) ·
-  [Branco/nulo](mapas/2022_t2/pontos_branco_nulo.html) ·
-  [Abstenção](mapas/2022_t2/pontos_abstencao.html).
+As etapas 03–06 (distribuição espacial, resultados, mudança entre anos e
+exportação) são em Python, em `src/eleicoes/` e `scripts/` — ver o README do
+repositório.

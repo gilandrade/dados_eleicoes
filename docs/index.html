@@ -109,8 +109,8 @@ ul.task-list li input[type="checkbox"] {
 <span class="menu-text">02 · Geocodificação</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./mapas/2022_t1/index.html"> 
-<span class="menu-text">Mapas · 2022 T1</span></a>
+    <a class="nav-link" href="./mapas.html"> 
+<span class="menu-text">Mapas</span></a>
   </li>  
 </ul>
           </div> <!-- /navcollapse -->
@@ -128,8 +128,8 @@ ul.task-list li input[type="checkbox"] {
     <h2 id="toc-title">On this page</h2>
    
   <ul>
-  <li><a href="#mapas-presidente-2022-1º-turno" id="toc-mapas-presidente-2022-1º-turno" class="nav-link active" data-scroll-target="#mapas-presidente-2022-1º-turno">Mapas · Presidente 2022, 1º turno</a></li>
-  <li><a href="#mapas-presidente-2022-2º-turno" id="toc-mapas-presidente-2022-2º-turno" class="nav-link" data-scroll-target="#mapas-presidente-2022-2º-turno">Mapas · Presidente 2022, 2º turno</a></li>
+  <li><a href="#mapas" id="toc-mapas" class="nav-link active" data-scroll-target="#mapas">Mapas</a></li>
+  <li><a href="#etapas" id="toc-etapas" class="nav-link" data-scroll-target="#etapas">Etapas</a></li>
   </ul>
 </nav>
     </div>
@@ -156,29 +156,22 @@ ul.task-list li input[type="checkbox"] {
 
 
 <p>Pipeline ETL de dados eleitorais do TSE (locais de votação e resultados) para a <a href="https://www.redus.org.br/georedus">GeoReDUS</a>. Ver <a href="https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md">PLAN.md</a> para o contexto completo.</p>
+<section id="mapas" class="level2">
+<h2 class="anchored" data-anchor-id="mapas"><a href="./mapas.html">Mapas</a></h2>
+<p>Presidente em 2018 e 2022, nos dois turnos, num só visualizador:</p>
 <ul>
-<li><a href="./00_auxiliares.html">00 · Auxiliares</a> — crosswalk TSE↔︎IBGE, malhas, população adulta por setor.</li>
-<li><a href="./01_locais_votacao.html">01 · Locais de votação</a> — download e chaves dos locais e seções.</li>
-<li><a href="./02_geocodificacao_locais.html">02 · Geocodificação</a> — validação e fallback de coordenada.</li>
-</ul>
-<p>As etapas 03–05 (distribuição espacial, resultados e exportação) são em Python, em <code>src/eleicoes/</code> e <code>scripts/</code> — ver o README do repositório.</p>
-<section id="mapas-presidente-2022-1º-turno" class="level2">
-<h2 class="anchored" data-anchor-id="mapas-presidente-2022-1º-turno">Mapas · Presidente 2022, 1º turno</h2>
-<p>Coroplético: margem entre Lula e Bolsonaro (vermelho/azul, mais escuro quanto maior a margem, cinza = empate ou sem resultado). Três camadas, da mais “real” para a mais detalhada (ver <a href="https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md">PLAN.md</a> para o porquê de cada uma):</p>
-<ul>
-<li><strong><a href="mapas/2022_t1/zona_mun.html">Nacional · zona × município</a></strong> — <strong>observado</strong>, bate exatamente com o que o TSE publica por município e zona. Só a fronteira interna das cidades com mais de uma zona é estimada.</li>
-<li><strong><a href="mapas/2022_t1/index.html">Nacional · município</a></strong> — <strong>observado</strong>, visão geral rápida (menos polígonos, carrega mais rápido).</li>
-<li><strong>Locais de votação (pontos)</strong> — <strong>observado</strong>, um ponto por local: <a href="mapas/2022_t1/pontos_presidente.html">Presidente</a> (margem Lula×Bolsonaro) · <a href="mapas/2022_t1/pontos_branco_nulo.html">Branco/nulo</a> (sobre o total de votos) · <a href="mapas/2022_t1/pontos_abstencao.html">Abstenção</a> (sobre os inscritos).</li>
-<li><strong>Por UF · setor censitário</strong> — <strong>estimado</strong> por distribuição dasimétrica via CNEFE (não é o voto real do setor, ver PLAN.md &gt; “Pesquisa: como distribuir os resultados no território”): <a href="mapas/2022_t1/AC.html">AC</a> · <a href="mapas/2022_t1/AL.html">AL</a> · <a href="mapas/2022_t1/AP.html">AP</a> · <a href="mapas/2022_t1/AM.html">AM</a> · <a href="mapas/2022_t1/BA.html">BA</a> · <a href="mapas/2022_t1/CE.html">CE</a> · <a href="mapas/2022_t1/DF.html">DF</a> · <a href="mapas/2022_t1/ES.html">ES</a> · <a href="mapas/2022_t1/GO.html">GO</a> · <a href="mapas/2022_t1/MA.html">MA</a> · <a href="mapas/2022_t1/MT.html">MT</a> · <a href="mapas/2022_t1/MS.html">MS</a> · <a href="mapas/2022_t1/MG.html">MG</a> · <a href="mapas/2022_t1/PA.html">PA</a> · <a href="mapas/2022_t1/PB.html">PB</a> · <a href="mapas/2022_t1/PR.html">PR</a> · <a href="mapas/2022_t1/PE.html">PE</a> · <a href="mapas/2022_t1/PI.html">PI</a> · <a href="mapas/2022_t1/RJ.html">RJ</a> · <a href="mapas/2022_t1/RN.html">RN</a> · <a href="mapas/2022_t1/RS.html">RS</a> · <a href="mapas/2022_t1/RO.html">RO</a> · <a href="mapas/2022_t1/RR.html">RR</a> · <a href="mapas/2022_t1/SC.html">SC</a> · <a href="mapas/2022_t1/SP.html">SP</a> · <a href="mapas/2022_t1/SE.html">SE</a> · <a href="mapas/2022_t1/TO.html">TO</a></li>
+<li><strong>locais de votação:</strong> Presidente, brancos e nulos, abstenção;</li>
+<li><strong>zona × município:</strong> Presidente e a mudança de votação 2018 → 2022 (2º turno).</li>
 </ul>
 </section>
-<section id="mapas-presidente-2022-2º-turno" class="level2">
-<h2 class="anchored" data-anchor-id="mapas-presidente-2022-2º-turno">Mapas · Presidente 2022, 2º turno</h2>
+<section id="etapas" class="level2">
+<h2 class="anchored" data-anchor-id="etapas">Etapas</h2>
 <ul>
-<li><strong><a href="mapas/2022_t2/index.html">Nacional · município</a></strong> — <strong>observado</strong>.</li>
-<li><strong><a href="mapas/2022_t2/mudanca_2018_municipio.html">Mudança de votação 2018 → 2022</a></strong> — Δ em pontos percentuais do candidato do PT (Haddad → Lula) por município, escala divergente (vermelho = foi em direção ao PT, azul = em direção ao Bolsonaro); municípios que trocaram de vencedor têm contorno mais grosso.</li>
-<li><strong>Locais de votação (pontos)</strong>: <a href="mapas/2022_t2/pontos_presidente.html">Presidente</a> · <a href="mapas/2022_t2/pontos_branco_nulo.html">Branco/nulo</a> · <a href="mapas/2022_t2/pontos_abstencao.html">Abstenção</a>.</li>
+<li><a href="./00_auxiliares.html">00 · Auxiliares</a> — crosswalk TSE↔︎IBGE, malhas, população adulta por setor.</li>
+<li><a href="./01_locais_votacao.html">01 · Locais de votação</a> — download e chaves dos locais e seções (2022; <a href="01_locais_votacao_2018.html">2018</a>).</li>
+<li><a href="./02_geocodificacao_locais.html">02 · Geocodificação</a> — validação e fallback de coordenada (2022; <a href="02_geocodificacao_locais_2018.html">2018</a>).</li>
 </ul>
+<p>As etapas 03–06 (distribuição espacial, resultados, mudança entre anos e exportação) são em Python, em <code>src/eleicoes/</code> e <code>scripts/</code> — ver o README do repositório.</p>
 
 
 </section>
