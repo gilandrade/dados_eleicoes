@@ -40,80 +40,174 @@ def escreve_resultados(df: pd.DataFrame, caminho: Path) -> Path:
     return caminho
 
 
+def tipo_sql(dtype: object) -> str:
+    """Converte um dtype (pyarrow ou pyogrio) no tipo de coluna do Postgres.
+
+    Ids ficam como `text` (ver CLAUDE.md: nunca inteiro, para preservar zeros à
+    esquerda) porque já são texto nos arquivos de origem.
+    """
+    dtype = str(dtype)
+    if dtype in ("object", "string", "large_string") or dtype.startswith("str"):
+        return "text"
+    if dtype.startswith("int"):
+        return "integer"
+    if dtype in ("double", "float", "float32", "float64"):
+        return "double precision"
+    if dtype == "bool":
+        return "boolean"
+    raise ValueError(f"dtype sem tipo SQL mapeado: {dtype}")
+
+
+def _escreve_texto(caminho: Path, texto: str) -> Path:
+    """Escreve com LF: o `table.sh` roda em bash dentro do container Linux."""
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(texto, encoding="utf-8", newline="\n")
+    return caminho
+
+
 def gera_artefatos_carga(
     nome_tabela: str,
-    schema_sql_colunas: dict[str, str],
+    colunas_sql: dict[str, str],
     *,
-    schema_pg: str = "tse",
-    caminho_geometria_ou_dados: str,
+    caminho_fonte: str,
     diretorio_saida: Path,
+    requires: list[str],
+    chave: str,
+    indices: tuple[str, ...] = (),
+    tipo_geometria: str | None = None,
+    src_sql: str = "",
+    schema_pg: str = "tse",
     epsg: int = CRS_SIRGAS2000,
 ) -> dict[str, Path]:
     """Gera `table.sh`, `schema.sql` e `down.sql` no padrão do `db-manager`.
 
-    Ver `redus-geo-api/packages/db-manager/README.md`: cada tabela carregada
-    no banco da GeoReDUS tem esses três arquivos, mais uma view em
-    `public_read_api/<fonte>/<tabela>/`, que não é gerada aqui (depende do
-    join com a tabela de geometria já carregada — ver a nota metodológica).
+    Ver `redus-geo-api/packages/db-manager/README.md`: o `table.sh` só declara
+    variáveis (quem chama o `ogr2ogr` é o `ogr2pg`), e o `schema.sql` cria a
+    tabela já tipada, que o `ogr2pg` depois só alimenta.
 
     Args:
         nome_tabela: nome da tabela no schema `schema_pg` (ex.:
-            `locais_votacao_2026`, `res_presidente_2026_t1_setor`).
-        schema_sql_colunas: `{nome_coluna: tipo_sql}` (ex.: `{"id_local": "text"}`).
+            `malha_locais_votacao_2026`, `presidente_2026_t1_local`).
+        colunas_sql: `{nome_coluna: tipo_sql}`, sem `ogc_fid` e sem `geom`.
+        caminho_fonte: caminho do gpkg/parquet relativo à raiz `data-src`.
+        diretorio_saida: pasta da tabela dentro de `collections/`.
+        requires: caminhos (relativos a `diretorio_saida`) dos `schema.sql`
+            que precisam ser aplicados antes.
+        chave: coluna de id; recebe índice btree único.
+        indices: demais colunas com índice btree (ex.: `cd_mun`).
+        tipo_geometria: `Point`, `MultiPolygon`...; `None` para tabela sem
+            geometria.
+        src_sql: SQL do OGR para escolher colunas da fonte (opcional).
         schema_pg: schema do Postgres (`tse`, conforme convenção da GeoReDUS).
-        caminho_geometria_ou_dados: caminho (relativo ao S3 `data-src`) do
-            gpkg/parquet a ser carregado pelo `ogr2pg`.
-        diretorio_saida: onde escrever os três arquivos.
         epsg: SRID de destino, passado como `T_SRS` ao `ogr2pg`.
 
     Returns:
         `{"table.sh": caminho, "schema.sql": caminho, "down.sql": caminho}`.
     """
-    diretorio_saida = Path(diretorio_saida) / schema_pg / nome_tabela
-    diretorio_saida.mkdir(parents=True, exist_ok=True)
+    diretorio_saida = Path(diretorio_saida)
+    tabela = f"{schema_pg}.{nome_tabela}"
 
-    table_sh = diretorio_saida / "table.sh"
-    table_sh.write_text(
-        f"""#!/bin/bash
-set -euo pipefail
-SRC="{caminho_geometria_ou_dados}"
-PG_SCHEMA="{schema_pg}"
-PG_TABLE_NAME="{nome_tabela}"
+    table_sh = _escreve_texto(
+        diretorio_saida / "table.sh",
+        f"""# Source
+SRC="$S3_SRC_ROOT/{caminho_fonte}"
+
+SRC_LAYER=
+SRC_SQL="{src_sql}"
+
+# Target
+COLUMN_TYPES=
+INDEXES=
+SPATIAL_INDEX={"GIST" if tipo_geometria else "NONE"}
+
+# PostgreSQL
+PG_SCHEMA={schema_pg}
+PG_TABLE_NAME={nome_tabela}
+PG_OVERWRITE_BEHAVIOR=skip_non_empty_table
+
+# Other
 T_SRS={epsg}
-
-ogr2ogr -f PostgreSQL \\
-    PG:"$PG_CONN" "$SRC" \\
-    -nln "$PG_SCHEMA.$PG_TABLE_NAME" \\
-    -t_srs "EPSG:$T_SRS" \\
-    -lco GEOMETRY_NAME=geom \\
-    -overwrite
+SKIP_FAILURES=n
+GROUP_TRANSACTIONS=1000
+PRELUDE_STATEMENTS=""
 """,
-        encoding="utf-8",
-        newline="\n",
     )
 
-    colunas_sql = ",\n    ".join(f"{col} {tipo}" for col, tipo in schema_sql_colunas.items())
-    schema_sql = diretorio_saida / "schema.sql"
-    schema_sql.write_text(
-        f"""create schema if not exists {schema_pg};
+    linhas = ["ogc_fid INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY"]
+    linhas += [f"{col} {tipo}" for col, tipo in colunas_sql.items()]
+    if tipo_geometria:
+        linhas.append(f"geom geometry({tipo_geometria}, {epsg})")
 
-create table if not exists {schema_pg}.{nome_tabela} (
-    {colunas_sql}
-);
+    sql_indices = [
+        f"CREATE UNIQUE INDEX IF NOT EXISTS {nome_tabela}_{chave}\n"
+        f"  ON {tabela} USING BTREE ({chave});"
+    ]
+    sql_indices += [
+        f"CREATE INDEX IF NOT EXISTS {nome_tabela}_{col}\n  ON {tabela} USING BTREE ({col});"
+        for col in indices
+    ]
+    if tipo_geometria:
+        sql_indices.append(
+            f"CREATE INDEX IF NOT EXISTS {nome_tabela}_geom\n  ON {tabela} USING GIST (geom);"
+        )
 
-create index if not exists {nome_tabela}_geom_idx
-    on {schema_pg}.{nome_tabela} using gist (geom);
-""",
-        encoding="utf-8",
-        newline="\n",
+    schema_sql = _escreve_texto(
+        diretorio_saida / "schema.sql",
+        "".join(f"-- requires: {req}\n" for req in requires)
+        + f"\nCREATE TABLE IF NOT EXISTS {tabela} (\n  "
+        + ",\n  ".join(linhas)
+        + "\n);\n\n"
+        + "\n".join(sql_indices)
+        + "\n",
     )
 
-    down_sql = diretorio_saida / "down.sql"
-    down_sql.write_text(
-        f"drop table if exists {schema_pg}.{nome_tabela};\n", encoding="utf-8", newline="\n"
-    )
+    down_sql = _escreve_texto(diretorio_saida / "down.sql", f"DROP TABLE IF EXISTS {tabela};\n")
 
     return {"table.sh": table_sh, "schema.sql": schema_sql, "down.sql": down_sql}
+
+
+def gera_view_publica(
+    nome_view: str,
+    colunas_select: list[str],
+    *,
+    from_sql: str,
+    diretorio_saida: Path,
+    requires: list[str],
+    schema_pg: str = "public_read_api",
+) -> dict[str, Path]:
+    """Gera o `schema.sql` e o `down.sql` de uma view em `public_read_api`.
+
+    A view junta a malha com os resultados pelo id (join simples, no modelo de
+    `public_read_api/cem/malha_estabelecimentos_saude_2022/schema.sql`) e é o
+    que o Martin (tiles) e o PostgREST (API) enxergam.
+
+    Args:
+        nome_view: nome da view (ex.: `tse_malha_zona_mun_2022_t2`).
+        colunas_select: expressões do `SELECT`, já com o alias da tabela.
+        from_sql: cláusula `FROM ... LEFT JOIN ...`, sem o ponto e vírgula.
+        diretorio_saida: pasta da view dentro de `collections/public_read_api/`.
+        requires: caminhos (relativos a `diretorio_saida`) dos `schema.sql`
+            das tabelas usadas.
+        schema_pg: schema exposto pela API.
+
+    Returns:
+        `{"schema.sql": caminho, "down.sql": caminho}`.
+    """
+    diretorio_saida = Path(diretorio_saida)
+    view = f"{schema_pg}.{nome_view}"
+
+    schema_sql = _escreve_texto(
+        diretorio_saida / "schema.sql",
+        "".join(f"-- requires: {req}\n" for req in requires)
+        + f"\nDROP VIEW IF EXISTS {view};\n\n"
+        + f"CREATE OR REPLACE VIEW {view} AS\nSELECT\n  "
+        + ",\n  ".join(colunas_select)
+        + f"\n{from_sql};\n\n"
+        + f"GRANT SELECT ON\n  {view}\nTO\n  mvt_system_reader,\n  pgrst_public_anonymous;\n",
+    )
+    down_sql = _escreve_texto(diretorio_saida / "down.sql", f"DROP VIEW IF EXISTS {view};\n")
+
+    return {"schema.sql": schema_sql, "down.sql": down_sql}
 
 
 def linha_cadastro(
