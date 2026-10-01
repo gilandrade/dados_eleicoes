@@ -17,14 +17,28 @@ nunca na noite da apuração.
 
 from __future__ import annotations
 
+import logging
+
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components, dijkstra
 from scipy.spatial import cKDTree
 from shapely.geometry import MultiPoint
 
 from .config import CRS_METRICO_BR, CRS_SIRGAS2000
+
+logger = logging.getLogger(__name__)
+
+# Uma ponte (setores que ligam uma parte de 1 local ao corpo da zona) só é
+# aplicada se não mudar a soma estimada de inscritos de nenhuma zona envolvida
+# em mais que esta fração da soma real (inscritos dos locais da zona). Decisão
+# do Gil em 30/09/2026; na malha de 2022 nenhuma ponte passou de 3,3%.
+LIMITE_PONTE_INSCRITOS = 0.05
+FRONTEIRA_MINIMA_M = 1.0  # contato só num ponto não conta como vizinhança
+MAX_ITERACOES_CONTINUIDADE = 20
 
 
 def decodifica_wkb(df: pd.DataFrame, coluna_geom: str = "geometry") -> gpd.GeoDataFrame:
@@ -304,9 +318,221 @@ def _zona_do_local_mais_proximo(
     return pd.concat(partes, ignore_index=True).assign(adultos=0.0)
 
 
+def _torna_zonas_continuas(
+    setores: gpd.GeoDataFrame,
+    locais: gpd.GeoDataFrame,
+    inscritos_reais: pd.Series,
+    col_zona: str,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """Corrige a zona dos setores de **um** município para as zonas ficarem contínuas.
+
+    A regra "setor inteiro vai à zona com mais adultos" deixa, perto da
+    fronteira entre as áreas de atração de dois locais, setores isolados do
+    lado oposto ao dos vizinhos. Cada zona é quebrada nos seus pedaços
+    contínuos (grafo de vizinhança dos setores), e:
+
+    - pedaço **sem local da própria zona**: passa para a zona vizinha com mais
+      fronteira em comum. Se não encosta em nenhuma outra zona (ilha no mar),
+      fica como está;
+    - pedaço com **1 local** da própria zona: é ligado ao pedaço principal
+      pela ponte de setores de menos inscritos (Dijkstra), se nenhuma zona
+      envolvida mudar a soma estimada de inscritos em mais de
+      `LIMITE_PONTE_INSCRITOS` da soma real;
+    - pedaço com **2 ou mais locais**: fica (a zona cobre dois territórios).
+
+    Repete até estabilizar: uma ponte pode cortar outra zona e criar ilhas. O
+    caminho de cada ponte usa a zona já corrigida pelas pontes anteriores da
+    mesma passada. Uma ponte nunca atravessa setor com local de votação de
+    outra zona nem setor já movido por outra ponte — sem essas duas travas as
+    pontes oscilavam (391 "pontes" para 78 partes, na malha de 2022).
+
+    Args:
+        setores: setores do município, em CRS métrico, com `col_zona` e
+            `inscritos` (estimados pela matriz de pesos).
+        locais: locais do município com coordenada real, com `col_zona`.
+        inscritos_reais: soma de inscritos dos locais, por zona.
+        col_zona: coluna da zona.
+
+    Returns:
+        A zona corrigida de cada setor (na ordem de `setores`) e contagens.
+    """
+    setores = setores.reset_index(drop=True)
+    n = len(setores)
+    zona = setores[col_zona].to_numpy().copy()
+    inscritos = setores["inscritos"].to_numpy(dtype=float)
+    area = setores.area.to_numpy()
+    stats = {"ilhas_absorvidas": 0, "pontes": 0, "pontes_recusadas": 0, "pontes_cortariam_zona": 0}
+
+    par = gpd.sjoin(setores[["geometry"]], setores[["geometry"]], predicate="intersects")
+    par = par.loc[par.index < par["index_right"]]
+    a, b = par.index.to_numpy(), par["index_right"].to_numpy()
+    bordas = setores.geometry.boundary.to_numpy()
+    fronteira = shapely.length(shapely.intersection(bordas[a], bordas[b]))
+    ok = fronteira > FRONTEIRA_MINIMA_M
+    a, b, fronteira = a[ok], b[ok], fronteira[ok]
+    origens, destinos = np.r_[a, b], np.r_[b, a]
+
+    setor_do_local = gpd.sjoin(locais[[col_zona, "geometry"]], setores[["geometry"]], predicate="within")
+    locais_por_setor = setor_do_local.groupby("index_right")[col_zona].agg(list).to_dict()
+    zonas_com_local = {i: set(zs) for i, zs in locais_por_setor.items()}
+    inscritos_do_local = (
+        setor_do_local.assign(q=locais.loc[setor_do_local.index, "qt_eleitores"].fillna(0).to_numpy())
+        .groupby(["index_right", col_zona])["q"].sum().to_dict()
+    )
+    # Setor que já mudou de zona por uma ponte não muda de novo: sem isso as
+    # pontes oscilavam (uma corta a zona vizinha, que faz outra ponte de volta).
+    fixado = np.zeros(n, dtype=bool)
+    INTRANSPONIVEL = 1e12
+    locais_da_propria_zona = lambda z_arr, z: np.array(  # noqa: E731
+        [z in zonas_com_local.get(i, set()) for i in range(n)]
+    ) & (z_arr == z)
+
+    def pedacos_com_local(z_arr: np.ndarray, z) -> int:
+        """Quantos pedaços contínuos da zona `z` têm pelo menos um local dela."""
+        membros = z_arr == z
+        dentro = membros[a] & membros[b]
+        g = csr_matrix((np.ones(dentro.sum()), (a[dentro], b[dentro])), shape=(n, n))
+        _, rot = connected_components(g, directed=False)
+        return len(set(rot[locais_da_propria_zona(z_arr, z)]))
+
+    for _ in range(MAX_ITERACOES_CONTINUIDADE):
+        mesma = zona[a] == zona[b]
+        g = csr_matrix((np.ones(mesma.sum() * 2), (np.r_[a[mesma], b[mesma]], np.r_[b[mesma], a[mesma]])), shape=(n, n))
+        _, rotulo = connected_components(g, directed=False)
+        pedacos = pd.DataFrame({"rotulo": rotulo, "zona": zona, "inscritos": inscritos, "area": area})
+        pedacos["locais"] = [
+            sum(z == zona[i] for z in locais_por_setor.get(i, [])) for i in range(n)
+        ]
+        pedacos["inscritos_locais"] = [inscritos_do_local.get((i, zona[i]), 0.0) for i in range(n)]
+        resumo = pedacos.groupby("rotulo").agg(
+            zona=("zona", "first"), inscritos_locais=("inscritos_locais", "sum"),
+            inscritos=("inscritos", "sum"), area=("area", "sum"), locais=("locais", "sum"),
+        )
+        # O corpo da zona é o pedaço onde estão os inscritos dos locais dela
+        # (desempate: inscritos estimados, área). Pelos inscritos estimados, um
+        # pedaço denso sem local nenhum da zona podia virar o "principal".
+        principal = set(
+            resumo.sort_values(["inscritos_locais", "inscritos", "area"], ascending=False)
+            .drop_duplicates("zona").index
+        )
+        mudou = False
+
+        for r, p in resumo.loc[~resumo.index.isin(principal) & (resumo["locais"] == 0)].iterrows():
+            membros = rotulo == r
+            fora = np.r_[b[membros[a] & ~membros[b]], a[membros[b] & ~membros[a]]]
+            peso_fora = np.r_[fronteira[membros[a] & ~membros[b]], fronteira[membros[b] & ~membros[a]]]
+            outras = zona[fora] != p["zona"]
+            if not outras.any():
+                continue  # ilha no mar ou só cercada pela própria zona
+            vizinha = pd.Series(peso_fora[outras]).groupby(zona[fora][outras]).sum().idxmax()
+            zona[membros] = vizinha
+            stats["ilhas_absorvidas"] += 1
+            mudou = True
+        if mudou:
+            continue
+
+        for r, p in resumo.loc[~resumo.index.isin(principal) & (resumo["locais"] == 1)].iterrows():
+            origem = np.flatnonzero(rotulo == r)
+            corpo = [q for q in principal if resumo.loc[q, "zona"] == p["zona"]]
+            destino = np.flatnonzero(np.isin(rotulo, corpo))
+            # A ponte não atravessa setor já movido por outra ponte nem setor com
+            # local de votação de outra zona (o local ficaria fora da própria zona).
+            custo = inscritos + 1
+            outra_zona_com_local = np.array(
+                [bool(zonas_com_local.get(i, set()) - {p["zona"]}) for i in range(n)]
+            )
+            bloqueado = (fixado | outra_zona_com_local) & (zona != p["zona"])
+            custo = np.where(bloqueado, INTRANSPONIVEL, custo)
+            grafo_custo = csr_matrix((custo[destinos], (origens, destinos)), shape=(n, n))
+            dist, pred, _ = dijkstra(grafo_custo, indices=origem, min_only=True, return_predecessors=True)
+            k = destino[np.argmin(dist[destino])]
+            if not dist[k] < INTRANSPONIVEL:
+                continue
+            caminho, v, em_origem = [], pred[k], set(origem)
+            while v >= 0 and v not in em_origem:
+                caminho.append(v)
+                v = pred[v]
+            caminho = np.array([s for s in caminho if zona[s] != p["zona"]], dtype=int)
+            if len(caminho) == 0:
+                continue
+            delta = pd.Series(inscritos[caminho]).groupby(zona[caminho]).sum()
+            doadoras = list(delta.index)
+            delta.loc[p["zona"]] = -delta.sum()
+            variacao = (delta.abs() / delta.index.map(lambda z: inscritos_reais.get(z, np.nan))).max()
+            if not variacao <= LIMITE_PONTE_INSCRITOS:
+                stats["pontes_recusadas"] += 1
+                continue
+            nova = zona.copy()
+            nova[caminho] = p["zona"]
+            if any(pedacos_com_local(nova, z) > pedacos_com_local(zona, z) for z in doadoras):
+                stats["pontes_cortariam_zona"] += 1
+                continue
+            zona[caminho] = p["zona"]
+            fixado[caminho] = True
+            stats["pontes"] += 1
+            mudou = True
+        if not mudou:
+            break
+    else:
+        logger.warning("Continuidade das zonas não estabilizou em %d iterações.", MAX_ITERACOES_CONTINUIDADE)
+    return zona, stats
+
+
+def _corrige_continuidade(
+    setores: gpd.GeoDataFrame,
+    setor_zona: pd.DataFrame,
+    locais: gpd.GeoDataFrame,
+    pesos: pd.DataFrame,
+    col_setor: str,
+    col_id_local: str,
+    col_mun: str,
+    col_zona: str,
+) -> pd.DataFrame:
+    """Roda `_torna_zonas_continuas` em cada município com várias zonas.
+
+    Inscritos estimados por setor = Σ inscritos do local × peso(local, setor);
+    soma real por zona = inscritos dos locais da zona (todos os não
+    especiais, inclusive os posicionados no centróide do município).
+    """
+    inscritos_setor = (
+        pesos[[col_id_local, col_setor, "peso"]]
+        .merge(locais[[col_id_local, "qt_eleitores"]], on=col_id_local, how="inner")
+        .assign(inscritos=lambda d: d["peso"] * d["qt_eleitores"].fillna(0))
+        .groupby(col_setor)["inscritos"]
+        .sum()
+    )
+    reais = locais.groupby([col_mun, col_zona])["qt_eleitores"].sum()
+    com_coord = locais
+    if "flag_sem_coord" in locais.columns:
+        com_coord = locais.loc[~locais["flag_sem_coord"].astype(bool)]
+    com_coord = com_coord.to_crs(CRS_METRICO_BR)
+
+    base = (
+        setores[[col_setor, "geometry"]]
+        .merge(setor_zona[[col_setor, col_mun, col_zona]], on=col_setor, how="inner")
+        .to_crs(CRS_METRICO_BR)
+    )
+    base["inscritos"] = base[col_setor].map(inscritos_setor).fillna(0.0)
+
+    partes, total = [], {}
+    for cd_mun, s in base.groupby(col_mun):
+        zona, stats = _torna_zonas_continuas(
+            s, com_coord.loc[com_coord[col_mun] == cd_mun], reais.loc[cd_mun], col_zona
+        )
+        partes.append(s[[col_setor, col_mun]].assign(**{col_zona: zona}))
+        total = {k: total.get(k, 0) + v for k, v in stats.items()}
+    logger.info(
+        "Continuidade das zonas: %d ilhas absorvidas, %d pontes aplicadas, %d recusadas "
+        "(> %.0f%% dos inscritos), %d recusadas por cortar outra zona.",
+        total.get("ilhas_absorvidas", 0), total.get("pontes", 0), total.get("pontes_recusadas", 0),
+        100 * LIMITE_PONTE_INSCRITOS, total.get("pontes_cortariam_zona", 0),
+    )
+    return pd.concat(partes, ignore_index=True)
+
+
 def constroi_zona_mun(
     setores: gpd.GeoDataFrame,
-    locais: pd.DataFrame,
+    locais: gpd.GeoDataFrame,
     pesos: pd.DataFrame,
     municipios: gpd.GeoDataFrame,
     *,
@@ -320,12 +546,16 @@ def constroi_zona_mun(
     - Município com **uma só zona**: a geometria é o próprio polígono do IBGE,
       exata (`geom_estimada = False`).
     - Município com **várias zonas**: cada setor é atribuído à zona que recebe
-      a maior parte dos seus adultos (via `pesos` + `locais`), e os setores da
-      mesma zona são fundidos (`geom_estimada = True`).
+      a maior parte dos seus adultos (via `pesos` + `locais`); setores sem
+      adulto, à zona do local mais próximo; depois as zonas são tornadas
+      contínuas (`_torna_zonas_continuas`), e os setores da mesma zona são
+      fundidos (`geom_estimada = True`).
 
     Args:
         setores: polígonos dos setores censitários 2022, com `col_setor`.
-        locais: tabela de locais, com `col_id_local`, `col_mun`, `col_zona`.
+        locais: locais não especiais (inclusive os posicionados no centróide
+            do município), com `col_id_local`, `col_mun`, `col_zona`,
+            `qt_eleitores`, `flag_sem_coord` e a geometria do ponto.
         pesos: matriz de pesos local -> setor (de `constroi_pesos_local_setor`).
         municipios: polígonos dos municípios (geobr), com `col_mun`.
         col_setor, col_id_local, col_mun, col_zona: nomes das colunas.
@@ -334,6 +564,17 @@ def constroi_zona_mun(
         GeoDataFrame com `id_zona_mun`, `col_mun`, `col_zona`, `n_zonas_mun`,
         `geom_estimada`.
     """
+    # A malha nacional de 2022 tem 914 códigos de setor repetidos (setores
+    # guardados em mais de um polígono: ilhas, margens de rio). Sem juntar os
+    # pedaços, cada um virava um setor à parte na continuidade e, no merge final
+    # por código, cada pedaço herdava a zona dos outros — sobravam ilhas.
+    repetido = setores[col_setor].duplicated(keep=False)
+    if repetido.any():
+        setores = pd.concat(
+            [setores.loc[~repetido], setores.loc[repetido].dissolve(by=col_setor, as_index=False)],
+            ignore_index=True,
+        )
+
     n_zonas_mun = locais.groupby(col_mun)[col_zona].nunique().rename("n_zonas_mun")
     locais_zona = locais[[col_id_local, col_mun, col_zona]].merge(
         n_zonas_mun, on=col_mun, how="left"
@@ -372,6 +613,10 @@ def constroi_zona_mun(
             [setor_zona, _zona_do_local_mais_proximo(sem_zona, locais, col_setor, col_mun, col_zona)],
             ignore_index=True,
         )
+
+    setor_zona = _corrige_continuidade(
+        setores, setor_zona, locais, pesos, col_setor, col_id_local, col_mun, col_zona
+    )
 
     dissolvidos = (
         # setores[[col_setor, "geometry"]]: `setores` também tem seu próprio

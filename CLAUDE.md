@@ -355,6 +355,16 @@ the full data model (geometry files vs. result files joined by a shared id).
   área dos municípios com várias zonas virava buraco (corrigido em
   29/09/2026). Ao mexer nessa função, conferir a área descoberta por
   município, não só a contagem de polígonos.
+- **Continuidade das zonas estimadas** (`alocacao._torna_zonas_continuas`,
+  30/09/2026). "Ilha" de zona vem da regra de maioria por setor, não de
+  coordenada errada. Ao mexer nessa função, recontar as partes por zona com
+  `notebooks/diagnostico_ilhas_zona_mun.ipynb` (categorias: sem local, sem zona
+  vizinha, 1 local, 2+ locais) — não basta olhar o log. As três travas das
+  pontes (local de outra zona, setor já movido, não partir outra zona) foram
+  todas necessárias; tirar qualquer uma faz reaparecer oscilação ou exclave novo.
+- **`SETORES_2022_GPKG` tem 914 códigos de setor repetidos** (um setor em mais
+  de um polígono, em 267 municípios). Qualquer merge por `cd_setor` com a malha
+  precisa juntar os pedaços antes (`dissolve`), senão cruza linhas em silêncio.
 - **`.gitignore`: `/dados/` ancorado na raiz.** Sem a barra inicial, a regra
   também pegava `docs/mapas/dados/` e o visualizador ia ao ar sem dados.
 - **A chave do CARTO não tem efeito** (testado em 29/09/2026): o tile volta

@@ -166,6 +166,16 @@ def main(ano: int, cd_mun_filtro: list[str] | None = None) -> None:
     locais = carrega_locais_elegiveis(ano)
     if cd_mun_filtro:
         locais = locais.loc[locais["cd_mun"].isin(cd_mun_filtro)].copy()
+    # Locais no centróide do município (sem coordenada real) não atraem
+    # domicílios: a posição deles não é a do local. Continuam na camada de
+    # zona × município (contam na zona e nos inscritos dela), e os votos deles
+    # ficam em local/zona_mun/município, fora do setor — como os especiais.
+    sem_coord = locais["flag_sem_coord"].astype(bool)
+    locais_alocacao = locais.loc[~sem_coord].copy()
+    logger.info(
+        "%d locais no centróide do município ficam fora da alocação (%d inscritos).",
+        int(sem_coord.sum()), int(locais.loc[sem_coord, "qt_eleitores"].sum()),
+    )
     domicilios = carrega_domicilios_cnefe(cd_mun_filtro)
     pop18 = carrega_pop18()
     municipios = carrega_limites_municipio(ano)
@@ -186,7 +196,7 @@ def main(ano: int, cd_mun_filtro: list[str] | None = None) -> None:
     )
 
     logger.info("Alocando domicílios ao local mais próximo (por município)...")
-    domicilios["id_local"] = alocacao.aloca_domicilios_a_locais(domicilios, locais)
+    domicilios["id_local"] = alocacao.aloca_domicilios_a_locais(domicilios, locais_alocacao)
 
     n_sem_local = domicilios["id_local"].isna().sum()
     if n_sem_local:
@@ -200,10 +210,10 @@ def main(ano: int, cd_mun_filtro: list[str] | None = None) -> None:
     pesos = alocacao.constroi_pesos_local_setor(domicilios, pop18)
 
     logger.info("Gerando os polígonos de Voronoi dos locais (por município)...")
-    areas_locais = alocacao.poligonos_voronoi_por_municipio(locais, municipios)
+    areas_locais = alocacao.poligonos_voronoi_por_municipio(locais_alocacao, municipios)
 
     logger.info("Calculando o diagnóstico de razão de eleitores...")
-    diagnostico = alocacao.diagnostico_razao_eleitores(locais, pesos)
+    diagnostico = alocacao.diagnostico_razao_eleitores(locais_alocacao, pesos)
 
     RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
     GEOMETRIAS_DIR.mkdir(parents=True, exist_ok=True)

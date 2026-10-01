@@ -429,6 +429,44 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
     18% para 3% do tamanho do polígono (p90). O download comprimido vai de 3,6
     para 8,3 MB por ano. A geometria passou a `zona_mun_{ano}_geo.json`
     (`.json`, que o GitHub Pages comprime).
+- **Resolvido (30/09/2026): zonas contínuas e locais no centróide fora da
+  alocação.** Diagnóstico e exemplos em `notebooks/diagnostico_ilhas_zona_mun.ipynb`.
+  - A regra "setor inteiro vai à zona com mais adultos" deixava ilhas: em 2022,
+    387 das 721 zonas estimadas estavam em mais de um pedaço (ex.: 3 setores da
+    zona 251 dentro da 374, em São Paulo). `alocacao._torna_zonas_continuas`
+    corrige, por município com várias zonas:
+    - pedaço **sem local da própria zona** → vai à zona vizinha com mais
+      fronteira em comum; se não encosta em nenhuma zona (ilha no mar) ou só
+      encosta por uma quina, fica;
+    - pedaço com **1 local** → ligado ao corpo da zona pela "ponte" de setores
+      de menos inscritos, se nenhuma zona envolvida mudar a soma estimada de
+      inscritos (Σ inscritos do local × peso) em mais de 5% da soma real
+      (inscritos dos locais da zona). Decisão do Gil;
+    - pedaço com **2 ou mais locais** → fica (a zona cobre dois territórios);
+    - o corpo da zona é o pedaço com mais inscritos dos locais dela.
+
+    Três travas nas pontes, todas necessárias na prática: não atravessar setor
+    com local de outra zona; não mexer de novo num setor já movido por ponte (sem
+    isso as pontes oscilavam: 391 "pontes" para 78 partes); e recusar a ponte que
+    partiria outra zona em pedaços com local (sem isso surgiam exclaves novos).
+  - Resultado em 2022 (antes → depois): ilhas sem local 526 → 15; partes com 1
+    local 78 → 31 (47 pontes; 4 recusadas por passar de 5%, 40 por cortar outra
+    zona); partes com 2+ locais 64 → 61; ilhas no mar 429 (intocadas). Locais
+    fora do polígono da própria zona: 319 → 312. Área sem zona continua 0,28%.
+    2018 é parecido.
+  - As ilhas sem local que sobram vêm da própria malha do IBGE: setores
+    descontínuos (um mesmo setor em pedaços separados, em ilhas e margens de
+    rio), que vão inteiros para uma zona, ou pedaços que só encostam em outra
+    zona por um ponto.
+  - Uma ponte pode mover um setor grande e pouco povoado (ex.: Petrolina, zona
+    145): o critério é de inscritos, não de área.
+  - Os locais no centróide do município (208 em 2022, 129 em 2018) saíram da
+    alocação dos domicílios, do Voronoi e do diagnóstico; continuam na zona ×
+    município. O total por setor cai ~0,1% (os votos deles ficam em local e
+    zona × município).
+  - A malha de setores 2022 tem 914 códigos repetidos (setor em mais de um
+    polígono). `constroi_zona_mun` junta os pedaços de cada código antes de
+    atribuir a zona.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.
 - A camada por setor é uma **estimativa**. A nota metodológica e a legenda devem deixar isso explícito, e a camada de locais (valores observados) deve ficar sempre disponível ao lado.
