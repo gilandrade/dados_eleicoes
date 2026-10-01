@@ -1,0 +1,254 @@
+---
+title: "01 · Locais de votação"
+params:
+  ano: 2022
+---
+
+Baixa `eleitorado_local_votacao_{ano}` do TSE e constrói as chaves usadas pelo
+resto do pipeline (`id_local`, `id_secao`), tratando seções agregadas e
+marcando as seções especiais (voto em trânsito, presídio, internação) que não
+entram na distribuição espacial (ver PLAN.md > Método, passo 2).
+
+```{r setup}
+#| message: false
+library(dplyr)
+library(readr)
+library(stringr)
+library(httr2)
+library(arrow)
+
+ano <- params$ano
+
+BRUTO_DIR <- file.path("dados/01_bruto", ano)
+PROCESSADO_DIR <- "dados/02_processado"
+dir.create(BRUTO_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(PROCESSADO_DIR, showWarnings = FALSE, recursive = TRUE)
+
+CRESCE_ZONA <- 4  # dígitos de zero-padding de NR_ZONA nas chaves
+CRESCE_NUM <- 4   # dígitos de zero-padding de NR_LOCAL/NR_SECAO
+```
+
+## 1. Download
+
+```{r download}
+#| message: false
+url_locais <- sprintf(
+  "https://cdn.tse.jus.br/estatistica/sead/odsele/eleitorado_locais_votacao/eleitorado_local_votacao_%d.zip",
+  ano
+)
+caminho_zip <- file.path(BRUTO_DIR, sprintf("eleitorado_local_votacao_%d.zip", ano))
+
+baixar_com_retry <- function(url, destino, tentativas = 3) {
+  if (file.exists(destino)) {
+    return(invisible(destino))
+  }
+  for (tentativa in seq_len(tentativas)) {
+    resultado <- tryCatch(
+      {
+        resp <- request(url) |>
+          req_user_agent("dados_eleicoes (CEM/USP)") |>
+          req_perform()
+        writeBin(resp_body_raw(resp), destino)
+        TRUE
+      },
+      error = function(e) {
+        message(sprintf("Tentativa %d/%d falhou: %s", tentativa, tentativas, conditionMessage(e)))
+        FALSE
+      }
+    )
+    if (isTRUE(resultado)) break
+    if (tentativa < tentativas) Sys.sleep(2^tentativa)
+  }
+  if (!file.exists(destino)) stop("Não foi possível baixar ", url)
+  invisible(destino)
+}
+
+baixar_com_retry(url_locais, caminho_zip)
+```
+
+## 2. Leitura
+
+Arquivos do TSE são `;`-separados, em latin-1, com todas as colunas lidas como
+texto (evita perder zeros à esquerda em códigos de município/zona/seção).
+
+```{r leitura}
+#| message: false
+arquivo_interno <- grep(
+  "\\.csv$", utils::unzip(caminho_zip, list = TRUE)$Name,
+  ignore.case = TRUE, value = TRUE
+)[1]
+
+locais_bruto <- read_delim(
+  unz(caminho_zip, arquivo_interno),
+  delim = ";",
+  locale = locale(encoding = "latin1", decimal_mark = ","),
+  col_types = cols(.default = col_character())
+) |>
+  janitor::clean_names()
+
+nrow(locais_bruto)
+```
+
+## 3. Chaves e crosswalk
+
+O arquivo real (confirmado em 28/09/2026, ver CLAUDE.md) traz **uma linha por
+seção por turno** (`NR_TURNO`), não uma linha por seção — então `id_secao`
+sozinho não é único; a chave completa da linha é `(id_secao, nr_turno)`. O
+`CD_MUNICIPIO` já vem com 5 dígitos e zero à esquerda (`"01120"`), no mesmo
+formato do `cd_mun_tse` do crosswalk depois do `str_pad()` da etapa 00.
+
+```{r chaves}
+#| message: false
+crosswalk <- read_parquet("dados/02_processado/aux/crosswalk_mun_tse_ibge.parquet")
+
+locais_com_chave <- locais_bruto |>
+  mutate(
+    nr_turno = as.integer(nr_turno),
+    id_local_proprio = str_c(
+      cd_municipio,
+      str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
+      str_pad(nr_local_votacao, CRESCE_NUM, pad = "0")
+    ),
+    id_secao = str_c(
+      cd_municipio,
+      str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
+      str_pad(nr_secao, CRESCE_NUM, pad = "0")
+    )
+  ) |>
+  left_join(crosswalk, by = c("cd_municipio" = "cd_mun_tse"))
+
+n_sem_crosswalk <- sum(is.na(locais_com_chave$cd_mun) & locais_com_chave$sg_uf.x != "ZZ")
+if (n_sem_crosswalk > 0) {
+  warning(n_sem_crosswalk, " locais sem crosswalk para município IBGE (fora do exterior).")
+}
+```
+
+### Seções agregadas: resolver o local pela seção principal
+
+`DS_TIPO_SECAO_AGREGADA` tem três valores (contados no arquivo real de 2022):
+`Principal` (944.150 linhas), `Agregada` (48.326) e `Distribuída de ofício`
+(1.236). Só a `Agregada` tem `NR_SECAO_PRINCIPAL` de verdade (as outras trazem
+`-1`, sentinela de "não se aplica"). Em **952 das 48.326** (~2%) o
+`NR_LOCAL_VOTACAO` da própria linha "Agregada" diverge do local da seção
+principal — resolver pelo `NR_SECAO_PRINCIPAL` é obrigatório, não um detalhe
+cosmético. A resolução é feita dentro do mesmo `nr_turno`, porque a seção
+principal referenciada é a do mesmo turno.
+
+```{r resolve_secao_principal}
+#| message: false
+locais_com_chave <- locais_com_chave |>
+  mutate(
+    id_secao_principal = if_else(
+      nr_secao_principal != "-1",
+      str_c(
+        cd_municipio,
+        str_pad(nr_zona, CRESCE_ZONA, pad = "0"),
+        str_pad(nr_secao_principal, CRESCE_NUM, pad = "0")
+      ),
+      NA_character_
+    )
+  )
+
+local_por_secao <- locais_com_chave |>
+  distinct(id_secao, nr_turno, .keep_all = TRUE) |>
+  select(id_secao, nr_turno, id_local_da_secao = id_local_proprio)
+
+locais_com_chave <- locais_com_chave |>
+  left_join(
+    local_por_secao,
+    by = c("id_secao_principal" = "id_secao", "nr_turno" = "nr_turno")
+  ) |>
+  mutate(id_local = coalesce(id_local_da_secao, id_local_proprio))
+
+n_resolvidas_por_principal <- sum(
+  locais_com_chave$id_local != locais_com_chave$id_local_proprio
+)
+n_resolvidas_por_principal
+```
+
+## 4. Seções especiais
+
+`DS_TIPO_LOCAL` tem quatro valores reais (não é um campo de texto livre a
+adivinhar): `Convencional`, `Temporário`, `Preso provisório` e `Voto em
+trânsito`. Só as duas últimas quebram o pressuposto "vota perto de casa" (ver
+PLAN.md > Pesquisa) e ficam de fora da distribuição espacial — `Temporário` é
+mantido (o prédio é temporário, não necessariamente o eleitorado).
+
+```{r flags}
+#| message: false
+locais_flag <- locais_com_chave |>
+  mutate(
+    flag_transito = ds_tipo_local == "Voto em trânsito",
+    flag_presidio = ds_tipo_local == "Preso provisório",
+    flag_especial = flag_transito | flag_presidio
+  )
+
+locais_flag |> count(ds_tipo_local, flag_especial)
+```
+
+## 5. Locais e seções (uma linha por local / por (seção, turno))
+
+```{r locais_secoes}
+#| message: false
+# Prioriza linhas Principal/Distribuída de ofício para os metadados do local
+# (endereço, coordenadas, tipo) — uma linha Agregada aponta para o mesmo
+# prédio, mas prefere-se a fonte "canônica" quando ambas existem.
+locais <- locais_flag |>
+  arrange(id_local, ds_tipo_secao_agregada != "Principal") |>
+  distinct(id_local, .keep_all = TRUE) |>
+  transmute(
+    id_local,
+    cd_mun,
+    sg_uf = sg_uf.y,
+    nr_zona = as.integer(nr_zona),
+    nm_local_votacao,
+    ds_endereco = coalesce(ds_endereco, ""),
+    nm_bairro = coalesce(nm_bairro, ""),  # `localidade` do geocodebr (etapa 02)
+    nr_cep = coalesce(nr_cep, ""),
+    latitude = suppressWarnings(as.numeric(nr_latitude)),
+    longitude = suppressWarnings(as.numeric(nr_longitude)),
+    ds_tipo_local,
+    flag_especial
+  )
+
+# Eleitores por local: soma QT_ELEITOR_SECAO de todas as seções já resolvidas
+# para esse id_local (turno 1 como referência — o efetivo quase não muda de
+# um turno para o outro, mesmo quando o local muda, ver seção 3). Usado no
+# diagnóstico de alocação da etapa 03 (razão eleitores / adultos estimados).
+eleitores_por_local <- locais_flag |>
+  filter(nr_turno == 1) |>
+  group_by(id_local) |>
+  summarise(qt_eleitores = sum(as.integer(qt_eleitor_secao), na.rm = TRUE), .groups = "drop")
+
+locais <- locais |> left_join(eleitores_por_local, by = "id_local")
+
+secao_local <- locais_flag |>
+  transmute(id_secao, nr_turno, id_local) |>
+  distinct(id_secao, nr_turno, .keep_all = TRUE)
+
+stopifnot(
+  "toda seção deveria apontar para um local existente" =
+    all(secao_local$id_local %in% locais$id_local)
+)
+
+write_parquet(locais, file.path(PROCESSADO_DIR, sprintf("locais_%d.parquet", ano)))
+write_parquet(secao_local, file.path(PROCESSADO_DIR, sprintf("secao_local_%d.parquet", ano)))
+
+list(n_locais = nrow(locais), n_secoes_x_turno = nrow(secao_local))
+```
+
+## 6. Municípios com mais de uma zona
+
+Insumo para a camada `id_zona_mun` (PLAN.md > Pesquisa > Zonas eleitorais): só
+nesses municípios a geometria da zona precisa ser estimada.
+
+```{r n_zonas_por_mun}
+#| message: false
+n_zonas_mun <- locais |>
+  distinct(cd_mun, nr_zona) |>
+  count(cd_mun, name = "n_zonas_mun") |>
+  arrange(desc(n_zonas_mun))
+
+write_parquet(n_zonas_mun, file.path(PROCESSADO_DIR, sprintf("n_zonas_mun_%d.parquet", ano)))
+head(n_zonas_mun, 10)
+```

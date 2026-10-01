@@ -114,15 +114,35 @@ Combina os três achados. A unidade de alocação é o **endereço residencial d
 |---|---|
 | `res_presidente_{ano}_t{t}_local.parquet` | `id_local` → pontos e áreas (valores observados) |
 | `res_presidente_{ano}_t{t}_zona_mun.parquet` | `id_zona_mun` → zona × município (valores observados; soma dos locais, incluindo os especiais) |
+| `res_presidente_{ano}_t{t}_municipio.parquet` | `cd_mun` → município do IBGE (valores observados; soma de zona×município. Para anos sem locais processados — ex. 2018 — sai direto da seção via `resultados.agrega_secao_por_municipio`, sem depender de `secao_local`/`locais`) |
 | `res_presidente_{ano}_t{t}_setor.parquet` | `cd_setor` → malha de setores (valores estimados) |
+| `mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet` | `id_zona_mun` (ids do ano mais recente) → só 2º turno (2 candidatos): `var_pc_validos_pt` (Δ p.p. do PT entre os dois anos), `mudou_vencedor` e `sentido_virada` |
 | `pesos_local_setor_{ano}.parquet` | `id_local`, `cd_setor`, `n_dom`, `adultos`, `peso`; publicado por transparência/reuso |
 | `secao_local_{ano}.parquet` | `id_secao` → `id_local` |
 
 **Colunas dos resultados:**
 - `qt_aptos`, `qt_comparecimento`, `qt_brancos`, `qt_nulos`, `qt_votos_{nr}`;
-- `pc_comparecimento`, `pc_abstencao`, `pc_brancos`, `pc_nulos`, `pc_validos_{nr}` (0–1);
+- `pc_comparecimento`, `pc_abstencao`, `pc_brancos`, `pc_nulos`, `pc_brancos_nulos`,
+  `pc_validos_{nr}` (0–1);
 - `nr_vencedor`, `margem`;
 - no setor, também `qualidade_alocacao`.
+
+**Mapas do site (`mapas.qmd`).** Um visualizador Leaflet único (`assets/mapas.js`)
+lê JSON compactos de `docs/mapas/dados/` (`scripts/05_exporta_visualizador.py`),
+no lugar de um HTML Folium por mapa (~30 MB cada; com 2018, 2022 e 2026 o site
+estouraria o limite de 1 GB do GitHub Pages). Cinco mapas, 2018 e 2022, nos
+dois turnos:
+
+- locais de votação (pontos): Presidente (`pc_validos`, margem PT − Bolsonaro),
+  brancos e nulos (`pc_brancos_nulos`, sobre o total de votos) e abstenção
+  (`pc_abstencao`, sobre os inscritos);
+- zona × município: Presidente e a mudança 2018 → 2022 (2º turno).
+
+Cores em `src/eleicoes/cores.py`: classes **discretas** com cortes fixos iguais
+em todos os anos (margem: 5/15/30/50 p.p.; mudança: 2/5/10/15 p.p.; brancos e
+nulos: 3/5/7/10%; abstenção: 15/18/21/25% — quintis arredondados da distribuição
+conjunta de 2018 e 2022). A classe mais clara tem croma ≥ 0,12:
+com o croma da paleta original, margens de ~3 p.p. liam como cinza.
 
 **Ids:**
 - `id_local = {cd_mun_tse}{nr_zona:04}{nr_local:04}` (texto);
@@ -188,13 +208,12 @@ dados_eleicoes/
   - tem de cair dentro do município (buffer de 500 m), no padrão de `datasus-estabelecimentos-saude/index.qmd` ~L1012–1050;
   - não pode ser repetida em ≥ 3 locais do município.
 - Fallback, nesta ordem:
-  1. outro ano;
+  1. outro ano — só a coordenada **do TSE** validada naquele ano (`tse`/`tse_confirmado`), nunca uma estimativa;
   2. Hidalgo;
-  3. escola (Jaro-Winkler ≥ 0,9);
-  4. `geocodebr` (`definir_campos` + `geocode(resolver_empates=TRUE, cache=TRUE)`, como em `locais-nova-rfb-geocoding/index.qmd` L1520–1690), aceitando precisão até `logradouro`;
-  5. centróide do município com flag.
+  3. escola (Jaro-Winkler ≥ 0,9) — **ainda não implementado**;
+  4. `geocodebr` (`definir_campos` + `geocode(resolver_empates=TRUE, cache=TRUE)`, como em `locais-nova-rfb-geocoding/index.qmd` L1520–1690), aceitando precisão até `logradouro` e desvio ≤ 1 km;
+  5. centróide do município com flag (`flag_sem_coord`: fora do mapa de pontos, dentro dos totais).
 - Mantém a coordenada do TSE se estiver a menos de 800 m da referência (regra do `geobr::read_polling_places`).
-- **MVP antes de 04/10:** validação + outro ano + Hidalgo. Escola e `geocodebr` entram depois.
 
 **03 — Pesos de alocação (Python, 1× por ano).**
 - `alocacao.py` implementa o método descrito acima (passos 1–7): CNEFE lido com DuckDB (`ST_GeomFromWKB` → x/y) ou `shapely.from_wkb`, e `scipy.spatial.cKDTree` por município.
@@ -258,9 +277,197 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
 
 ## Riscos e pendências
 
-- Acesso ao CDN do TSE (403 aqui). Testar da rede do CEM no primeiro dia.
+- Acesso ao CDN do TSE (403 aqui, **confirmado ok em 25/09/2026 fora do sandbox**).
+- Qualquer chamada de rede em R (httr2, `url()`) trava com "segmentation fault" no
+  ambiente onde este repositório foi montado — testado até com `base::url()`, sem
+  geobr envolvido, então não é o bug documentado do geobr 2.x. Fora desse sandbox
+  (confirmado pelo Gil em 25/09/2026) a rede em R funciona normalmente.
+- **Confirmado (25/09/2026):** `geobr::read_municipality(..., showProgress = FALSE)`
+  devolve `NULL` em silêncio ao renderizar via `quarto render`. Corrigido em
+  `00_auxiliares.qmd` (deixar `showProgress` no padrão) — ver CLAUDE.md.
+- **Resolvido (28/09/2026):** as etapas 00 e 01 rodaram de ponta a ponta com
+  dados reais de 2022. Três bugs corrigidos no caminho — detalhes em
+  CLAUDE.md: (1) crosswalk sem zero à esquerda em `cd_mun_tse` (join falhava
+  para ~15% dos locais); (2) `01_locais_votacao.qmd` usava nomes de coluna
+  adivinhados (`ds_situacao_local_votacao`) em vez dos reais (`ds_tipo_local`,
+  com as categorias `Convencional`/`Temporário`/`Preso provisório`/`Voto em
+  trânsito`); (3) o arquivo tem uma linha por seção **por turno**, e seções
+  "Agregada" precisam ser resolvidas pela seção principal (não pelo próprio
+  `NR_LOCAL_VOTACAO`, que diverge em ~2% dos casos). Resultado real: 92.393
+  locais, 993.712 seções×turno, 262 flags especiais, 0 coordenadas nulas.
+  `pop18` também usava nomes de variável do IBGE em vez dos indicadores já
+  nomeados do `cn22-pop` — corrigido do mesmo jeito.
+- **Resolvido (28/09/2026):** a etapa 02 também rodou de ponta a ponta com
+  2022. Quatro correções — detalhes em CLAUDE.md: validação de coordenada
+  vetorizada (o loop original não terminava em 5 min para ~90 mil locais);
+  uma função de distância que não aguentava `NA` (`dplyr::if_else()` avalia
+  os dois ramos inteiros, não só o escolhido); um `select()` que perdia a
+  coluna `fonte_coord`; e o último degrau do fallback (centróide do
+  município) que faltava — sem ele, locais não resolvidos publicavam a
+  coordenada **inválida** do TSE (`-1,-1`) como se fosse real, só visível
+  inspecionando os limites geográficos da saída. Também corrigido o esquema
+  assumido do painel Hidalgo contra o real. Resultado: 92.185 pontos (92.393
+  locais menos o exterior, fora do mapa por design); 91,5% TSE original,
+  7,8% Hidalgo, 0,56% centróide do município, 0,12% TSE confirmado a <800m.
+- **Resolvido (29/09/2026): o pipeline inteiro (00→05) rodou para o Brasil
+  todo com 2022, e o resultado por candidato bate exatamente com o oficial**
+  (Lula 57.259.504, Bolsonaro 51.072.345, comparecimento 123.682.372, aptos
+  156.451.515). Seis correções no caminho — detalhes em CLAUDE.md:
+  - malha de setores usada direto de um repo irmão (`process_gtfs`), sem
+    gerar cópia própria;
+  - `COD_SETOR` do CNEFE tem um sufixo `"P"` que a malha oficial não tem, e
+    mesmo removendo, ~8–10% dos domicílios do CNEFE caem num setor que não
+    existe na malha 2022 (medido, não resolvido — ver
+    `alocacao.mede_cobertura_setor`);
+  - `cod_setor` do `cn22-pop` também precisava ser lido como texto (mesma
+    classe do bug do crosswalk: virava `double`, perdia precisão e quebrava
+    o join em silêncio);
+  - `CD_MUNICIPIO` **não tem o mesmo padding em todos os arquivos do TSE**
+    (`eleitorado_local_votacao` sempre 5 dígitos, `votacao_secao` não) — sem
+    corrigir, ~10% das linhas de resultado não achavam `id_local`;
+  - `detalhe_votacao_secao` existe, com nome diferente do que eu tinha
+    chutado (sem `_BR` no zip) — o Gil achou pelo portal humano. Tem
+    `QT_APTOS`/`QT_COMPARECIMENTO` reais por seção×turno; `qt_comparecimento`
+    bate sem exceção com a soma de `qt_votos` (confirma o cálculo que já
+    fazíamos), e `qt_aptos` ficou mais preciso usando o arquivo (diferença
+    contra o total oficial caiu de 2.496 para 657). Opcional — cai em
+    `locais.qt_eleitores` se o arquivo (243 MB) não estiver baixado;
+  - **bug de conservação real:** `pandas.astype(str)` numa coluna nula
+    devolve `NaN` de verdade, e a concatenação propaga — o `id_zona_mun` do
+    exterior (`cd_mun` nulo) virava `NaN`, e `pivot_table()` descarta grupos
+    `NaN` por padrão. ~294 mil votos do exterior sumiam do `zona_mun` sem
+    nenhum erro, só visível comparando o total com `local`. Corrigido com
+    um valor-sentinela (`"EXTERIOR"`) antes de montar a chave.
+
+  `res_..._setor` fica ~0,8% abaixo do total por desenho (locais especiais e
+  sem domicílio alocado ficam fora da matriz de pesos) — não é bug.
+- **Resolvido (28/09/2026): camada de pontos, `pc_brancos_nulos`, resultado por
+  município e comparação 2018→2022 implementados.** `res_..._municipio.parquet`
+  (soma de zona×mun; para anos sem locais processados, `resultados.
+  agrega_secao_por_municipio` agrega direto da seção via crosswalk) e
+  `mudanca_presidente_{a}_{b}_t2_municipio.parquet` (`resultados.mudanca_votacao`,
+  Δ p.p. do PT + `sentido_virada`) são as duas tabelas novas. Validado: o
+  caminho "direto da seção" bate voto a voto com o caminho "via zona×mun" para
+  2022 t2 (diferença zero em todos os 5.571 `cd_mun`), e os totais de
+  `_municipio` continuam batendo exato com o TSE nos dois turnos de 2022 (t1:
+  Lula 57.259.504/Bolsonaro 51.072.345; t2: 60.345.999/58.206.354). Mapas de
+  pontos (Presidente, branco/nulo, abstenção — `docs/mapas/{ano}_t{turno}/
+  pontos_*.html`) gerados para 2022 t1 e t2, 26–33 MB cada, bem abaixo do
+  teto do GitHub Pages; usam `folium.CircleMarker` com `prefer_canvas=True`
+  (obrigatório: ~92 mil marcadores SVG travam o navegador).
+- **Resolvido (28/09/2026): mudança de votação 2018→2022 (2º turno) rodada
+  com dados reais.** O Gil baixou `votacao_secao_2018_BR.zip` fora do sandbox
+  (cabeçalho conferido contra `fontes.ESQUEMA_COLUNAS` antes de rodar —
+  bateu sem surpresas). `res_presidente_2018_t2_municipio.parquet`
+  (`scripts/processa_municipio.py`) tem os totais nacionais **exatos**:
+  Haddad 47.040.906, Bolsonaro 57.797.847, comparecimento 115.933.451.
+  `mudanca_presidente_2018_2022_t2_municipio.parquet`
+  (`scripts/06_mudanca_votacao.py --de 2018 --para 2022`) classifica os
+  5.570 municípios (exterior fora, por não ser território): 2.756
+  `manteve_pt`, 2.391 `manteve_bolsonaro`, 369 `virou_pt`, 54
+  `virou_bolsonaro`. Conferido à mão contra resultados conhecidos: São Paulo
+  (capital) `virou_pt` (+13,9 p.p., bate com a virada real de 2022), Rio de
+  Janeiro e Curitiba `manteve_bolsonaro`, Fortaleza `manteve_pt` — todos
+  batendo com o resultado público. (Substituído em 29/09/2026 pela comparação
+  por zona × município, abaixo; a contagem de viradas acima estava inflada pelo
+  bug de `mudou_vencedor`.)
+- **Resolvido (29/09/2026): 2018 pelo pipeline completo (01→04) e visualizador
+  único no site.**
+  - `eleitorado_local_votacao_2018` (regerado pelo TSE em 2024) tem **o mesmo
+    esquema de 2022** nas colunas usadas: `NR_TURNO` (uma linha por seção ×
+    turno), `DS_TIPO_SECAO_AGREGADA` (só `Principal`/`Agregada`, sem
+    `Distribuída de ofício`), os mesmos quatro `DS_TIPO_LOCAL`, `CD_MUNICIPIO`
+    com 5 dígitos. 01 rodou sem mudança: 93.557 locais, aptos 147.306.275 (o
+    oficial). Diferença real: 18,6% das linhas sem coordenada do TSE.
+  - 02 para 2018: o "outro ano" apontava para o próprio 2018 e lia colunas
+    `latitude`/`longitude` que a camada de pontos não tem (só geometria) —
+    corrigidos. Resultado: 93.346 pontos; 79,0% TSE, 18,2% mesmo local em
+    2022, 2,4% Hidalgo, 0,27% centróide.
+  - **Código 97 ("voto anulado e apurado em separado")** aparece no 1º turno
+    de 2018 (746 votos) e era tratado como candidato — entrava nos votos
+    válidos. Agora `config.CODIGOS_NAO_CANDIDATO` o exclui, e ele conta em
+    `pc_brancos_nulos`. Totais de 2018 **exatos**: t1 Bolsonaro 49.277.010
+    (46,03%), Haddad 31.342.051 (29,28%), Ciro 13.344.371, válidos
+    107.050.749; t2 Bolsonaro 57.797.847, Haddad 47.040.906. O `_municipio` de
+    2018 t2 bate voto a voto com o caminho direto da seção.
+  - **Bug em `mudou_vencedor`:** comparava os números dos vencedores, e o do
+    Bolsonaro muda (17 → 22) — todo lugar que ele venceu duas vezes contava
+    como virada. Agora sai de "o PT venceu?" nos dois anos.
+  - **Mudança por zona × município**, a pedido do Gil (mesmo nível do mapa de
+    votação). Medido que as zonas quase não mudaram entre 2018 e 2022: 6.102
+    unidades nos dois anos; os 189 municípios com mais de uma zona têm o
+    mesmo conjunto de zonas; dos 20.059 locais desses municípios casados por
+    nome, 99,84% ficaram na mesma zona (99,81% dos eleitores de 2022). Só 36
+    municípios de zona única trocaram o número da zona —
+    `resultados.alinha_zona_mun` casa esses pelo município.
+- **Resolvido (29/09/2026): passo `geocodebr` na etapa 02.** Os locais que
+  caíam no centróide do município eram, na maioria, **temporários** (prédios
+  que mudam a cada eleição: não estão no Hidalgo nem batem com outro ano pelo
+  `id_local`), mas todos têm endereço e CEP. O `DS_ENDERECO` do TSE é texto
+  livre: `logradouro` é o trecho até a primeira vírgula e o número, o que vem
+  logo depois dela; `NM_BAIRRO` (agora levado pela etapa 01) entra como
+  `localidade`. Aceita `numero`, `numero_aproximado` e `logradouro` com
+  desvio ≤ 1 km; `cep`/`municipio` (desvio mediano ~15 km) são descartados.
+  Resultado: locais sem ponto caíram de 516 para 208 em 2022 e de 255 para
+  129 em 2018; os 308 + 160 pontos do `geocodebr` caem todos dentro do
+  próprio município. O que sobra é, em boa parte, endereço rural sem
+  logradouro ("POVOADO …", "DISTRITO DE …", aldeias indígenas) ou ruas
+  genéricas ("RUA 09") que o CNEFE não desambigua.
+  - O "outro ano" passou a usar só coordenada do TSE: antes, 2018 herdava
+    pontos do Hidalgo de 2022 com o rótulo `ano_2022` (18,2% dos pontos); agora
+    são 10.359, e o Hidalgo de 2018 cobre o resto.
+- **Resolvido (29/09/2026): buracos e deformação na camada zona × município.**
+  - A regra "setores sem domicílio vão à zona do local mais próximo" nunca
+    tinha sido implementada em `alocacao.constroi_zona_mun`: só entravam os
+    setores com adultos na matriz de pesos. Nos 189 municípios com várias
+    zonas, a mediana de 24% da área ficava sem zona nenhuma (31,5% em São
+    Paulo, 71% em Belém), aparecendo como buracos no mapa. Agora esses setores
+    vão à zona do local elegível mais próximo do seu ponto interior, no mesmo
+    município.
+  - A simplificação do visualizador (cobertura, sem frestas) desceu de 0,005°
+    para 0,0005°: nos 20% menores polígonos, o deslocamento da borda caiu de
+    18% para 3% do tamanho do polígono (p90). O download comprimido vai de 3,6
+    para 8,3 MB por ano. A geometria passou a `zona_mun_{ano}_geo.json`
+    (`.json`, que o GitHub Pages comprime).
+- **Resolvido (30/09/2026): zonas contínuas e locais no centróide fora da
+  alocação.** Diagnóstico e exemplos em `notebooks/diagnostico_ilhas_zona_mun.ipynb`.
+  - A regra "setor inteiro vai à zona com mais adultos" deixava ilhas: em 2022,
+    387 das 721 zonas estimadas estavam em mais de um pedaço (ex.: 3 setores da
+    zona 251 dentro da 374, em São Paulo). `alocacao._torna_zonas_continuas`
+    corrige, por município com várias zonas:
+    - pedaço **sem local da própria zona** → vai à zona vizinha com mais
+      fronteira em comum; se não encosta em nenhuma zona (ilha no mar) ou só
+      encosta por uma quina, fica;
+    - pedaço com **1 local** → ligado ao corpo da zona pela "ponte" de setores
+      de menos inscritos, se nenhuma zona envolvida mudar a soma estimada de
+      inscritos (Σ inscritos do local × peso) em mais de 5% da soma real
+      (inscritos dos locais da zona). Decisão do Gil;
+    - pedaço com **2 ou mais locais** → fica (a zona cobre dois territórios);
+    - o corpo da zona é o pedaço com mais inscritos dos locais dela.
+
+    Três travas nas pontes, todas necessárias na prática: não atravessar setor
+    com local de outra zona; não mexer de novo num setor já movido por ponte (sem
+    isso as pontes oscilavam: 391 "pontes" para 78 partes); e recusar a ponte que
+    partiria outra zona em pedaços com local (sem isso surgiam exclaves novos).
+  - Resultado em 2022 (antes → depois): ilhas sem local 526 → 15; partes com 1
+    local 78 → 31 (47 pontes; 4 recusadas por passar de 5%, 40 por cortar outra
+    zona); partes com 2+ locais 64 → 61; ilhas no mar 429 (intocadas). Locais
+    fora do polígono da própria zona: 319 → 312. Área sem zona continua 0,28%.
+    2018 é parecido.
+  - As ilhas sem local que sobram vêm da própria malha do IBGE: setores
+    descontínuos (um mesmo setor em pedaços separados, em ilhas e margens de
+    rio), que vão inteiros para uma zona, ou pedaços que só encostam em outra
+    zona por um ponto.
+  - Uma ponte pode mover um setor grande e pouco povoado (ex.: Petrolina, zona
+    145): o critério é de inscritos, não de área.
+  - Os locais no centróide do município (208 em 2022, 129 em 2018) saíram da
+    alocação dos domicílios, do Voronoi e do diagnóstico; continuam na zona ×
+    município. O total por setor cai ~0,1% (os votos deles ficam em local e
+    zona × município).
+  - A malha de setores 2022 tem 914 códigos repetidos (setor em mais de um
+    polígono). `constroi_zona_mun` junta os pedaços de cada código antes de
+    atribuir a zona.
 - Prazo de publicação do boletim de urna em 2026 (D+3 em 2022).
-- 2018: confirmar se há coordenadas no arquivo do TSE; se não houver, usar o Hidalgo.
 - O CNEFE 2022 envelhece para 2026 e é anacrônico para 2018 (bairros novos ou esvaziados). Aceitável, mas precisa ser documentado.
 - A camada por setor é uma **estimativa**. A nota metodológica e a legenda devem deixar isso explícito, e a camada de locais (valores observados) deve ficar sempre disponível ao lado.
 - Sigilo: nenhum dado individual é usado. CNEFE e TSE são públicos e agregados.

@@ -1,0 +1,300 @@
+"""Dados do visualizador de mapas do site (`docs/mapas/dados/`, lidos por `assets/mapas.js`).
+
+JSON compacto e colunar, carregado sob demanda pela página `mapas.qmd`, no
+lugar de um HTML Folium por mapa (~30 MB cada; com 2018, 2022 e 2026 o site
+passaria do limite de 1 GB do GitHub Pages).
+
+- Percentuais viram inteiros **por mil** (452 = 45,2%), `null` = sem dado.
+- A classe de cor já vem calculada (`cores.py`): o JS só pinta.
+- A geometria é separada dos resultados: `locais_{ano}.json` e
+  `zona_mun_{ano}_geo.json` valem para os dois turnos do ano.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+import duckdb
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import shapely
+
+from . import cores
+from .config import (
+    BRUTO_DIR,
+    CARGO_PRESIDENTE,
+    CODIGOS_NAO_CANDIDATO,
+    CRS_SIRGAS2000,
+    GEOMETRIAS_DIR,
+    NOME_PT_POR_ANO,
+    NR_BOLSONARO_POR_ANO,
+    NR_PT,
+    PROCESSADO_DIR,
+    REPO_ROOT,
+    RESULTADOS_DIR,
+    TILES_VISUALIZADOR,
+    TILES_VISUALIZADOR_ATTR,
+)
+from .fontes import _sql_read_csv
+from .resultados import SENTINELA_EXTERIOR
+
+logger = logging.getLogger(__name__)
+
+DADOS_VISUALIZADOR_DIR = REPO_ROOT / "docs" / "mapas" / "dados"
+
+# Medido em 29/09/2026 na malha de 2022, nos 20% menores polígonos (< 138 km²):
+# com 0,005° (~500 m) a borda se deslocava até 18% do tamanho do polígono
+# (p90) e as zonas urbanas ficavam deformadas; com 0,0005° (~50 m), 3%. O
+# arquivo vai de 13 para 32 MB, mas comprimido (o que o navegador baixa) só
+# de 3,6 para 8,3 MB. A simplificação é de cobertura: vizinhos continuam
+# colados, sem frestas, ao contrário do `simplify` por feição.
+TOLERANCIA_SIMPLIFICACAO = 0.0005
+GRADE_COORDENADA = 0.0001
+CASAS_COORDENADA = 4
+
+
+def _escreve_json(obj, caminho: Path) -> Path:
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    with open(caminho, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
+    logger.info("%s (%.1f MB)", caminho.name, caminho.stat().st_size / 1e6)
+    return caminho
+
+
+def _por_mil(serie: pd.Series) -> list:
+    v = pd.to_numeric(serie, errors="coerce").to_numpy(dtype=float)
+    return [None if np.isnan(x) else int(round(1000 * x)) for x in v]
+
+
+def _inteiro(serie: pd.Series) -> list:
+    v = pd.to_numeric(serie, errors="coerce").to_numpy(dtype=float)
+    return [None if np.isnan(x) else int(round(x)) for x in v]
+
+
+def _nome_municipio() -> pd.Series:
+    """`cd_mun` -> "Município – UF"."""
+    mun = gpd.read_file(
+        PROCESSADO_DIR / "aux" / "municipios.gpkg", columns=["cd_mun", "name_muni", "abbrev_state"],
+        ignore_geometry=True,
+    )
+    return pd.Series(
+        (mun["name_muni"] + " – " + mun["abbrev_state"]).to_numpy(), index=mun["cd_mun"]
+    )
+
+
+def nomes_candidatos(ano: int, turno: int) -> dict[str, str]:
+    """`{nr: nome}` dos candidatos a Presidente, lidos do `votacao_secao` bruto."""
+    caminho = BRUTO_DIR / str(ano) / f"votacao_secao_{ano}_BR.csv"
+    linhas = duckdb.sql(
+        f"""select distinct cast(nr_votavel as integer) as nr, nm_votavel
+            from {_sql_read_csv(caminho)}
+            where cast(cd_cargo as integer) = {CARGO_PRESIDENTE}
+              and cast(nr_turno as integer) = {turno}"""
+    ).fetchall()
+    # Ordenado: o `distinct` do duckdb não tem ordem fixa, e o JSON mudaria a
+    # cada exportação sem nada ter mudado.
+    return {
+        str(nr): nome.title() for nr, nome in sorted(linhas) if nr not in CODIGOS_NAO_CANDIDATO
+    }
+
+
+def _margem_pt_bolsonaro(df: pd.DataFrame, ano: int) -> pd.Series:
+    return df[f"pc_validos_{NR_PT}"] - df[f"pc_validos_{NR_BOLSONARO_POR_ANO[ano]}"]
+
+
+# ==== Pontos (locais de votação) ==============================================
+
+
+def exporta_locais(ano: int) -> list[str]:
+    """`locais_{ano}.json`: posição, nome e município de cada local (ordem fixa).
+
+    Returns:
+        A lista de `id_local` na ordem gravada — os arquivos por turno são
+        alinhados a ela.
+    """
+    geom = gpd.read_file(GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg")
+    geom = geom.loc[~geom["flag_sem_coord"].astype(bool)].to_crs(CRS_SIRGAS2000)
+    geom = geom.sort_values("id_local").reset_index(drop=True)
+
+    locais = pd.read_parquet(
+        PROCESSADO_DIR / f"locais_{ano}.parquet", columns=["id_local", "nm_local_votacao"]
+    )
+    geom = geom.merge(locais, on="id_local", how="left")
+
+    nome_mun = _nome_municipio()
+    municipios = sorted(geom["cd_mun"].dropna().unique())
+    idx_mun = {cd: i for i, cd in enumerate(municipios)}
+
+    _escreve_json(
+        {
+            "id": geom["id_local"].tolist(),
+            "lon": np.round(geom.geometry.x, 5).tolist(),
+            "lat": np.round(geom.geometry.y, 5).tolist(),
+            "nome": geom["nm_local_votacao"].fillna("").str.title().tolist(),
+            "mun": [idx_mun[cd] for cd in geom["cd_mun"]],
+            "municipios": [nome_mun.get(cd, cd) for cd in municipios],
+        },
+        DADOS_VISUALIZADOR_DIR / f"locais_{ano}.json",
+    )
+    return geom["id_local"].tolist()
+
+
+def exporta_locais_turno(ano: int, turno: int, ids: list[str]) -> Path:
+    """`locais_{ano}_t{turno}.json`: classes e valores alinhados a `locais_{ano}.json`."""
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet")
+    res = res.set_index("id_local").reindex(ids)
+    margem = _margem_pt_bolsonaro(res, ano)
+    cols_candidatos = [
+        c for c in res.columns
+        if c.startswith("qt_votos_") and int(c.removeprefix("qt_votos_")) not in CODIGOS_NAO_CANDIDATO
+    ]
+    # min_count=1: local sem resultado fica sem dado (null), não com 0 votos.
+    qt_validos = res[cols_candidatos].sum(axis=1, min_count=1)
+
+    return _escreve_json(
+        {
+            "c_pres": cores.classifica_divergente(margem, cores.QUEBRAS_MARGEM).tolist(),
+            "c_bn": cores.classifica_sequencial(res["pc_brancos_nulos"], cores.QUEBRAS_BRANCO_NULO).tolist(),
+            "c_abst": cores.classifica_sequencial(res["pc_abstencao"], cores.QUEBRAS_ABSTENCAO).tolist(),
+            "pt": _por_mil(res[f"pc_validos_{NR_PT}"]),
+            "bo": _por_mil(res[f"pc_validos_{NR_BOLSONARO_POR_ANO[ano]}"]),
+            "bn": _por_mil(res["pc_brancos_nulos"]),
+            "abst": _por_mil(res["pc_abstencao"]),
+            "aptos": _inteiro(res["qt_aptos"]),
+            "comp": _inteiro(res["qt_comparecimento"]),
+            "val": _inteiro(qt_validos),
+            "venc": _inteiro(res["nr_vencedor"]),
+            "candidatos": nomes_candidatos(ano, turno),
+        },
+        DADOS_VISUALIZADOR_DIR / f"locais_{ano}_t{turno}.json",
+    )
+
+
+# ==== Polígonos (zona × município) ============================================
+
+
+def exporta_zona_mun_geom(ano: int) -> Path:
+    """`zona_mun_{ano}_geo.json`, simplificado como cobertura (sem frestas)."""
+    gdf = gpd.read_file(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg").to_crs(CRS_SIRGAS2000)
+    gdf = gdf.loc[~gdf["id_zona_mun"].str.startswith(SENTINELA_EXTERIOR)].reset_index(drop=True)
+
+    geometria = shapely.coverage_simplify(gdf.geometry.values, TOLERANCIA_SIMPLIFICACAO)
+    gdf["geometry"] = shapely.set_precision(geometria, grid_size=GRADE_COORDENADA)
+    n_vazias = int(gdf.geometry.is_empty.sum())
+    if n_vazias:
+        logger.warning("zona_mun %d: %d geometrias vazias depois de simplificar — descartadas.", ano, n_vazias)
+        gdf = gdf.loc[~gdf.geometry.is_empty]
+
+    nome_mun = _nome_municipio()
+    features = [
+        {
+            "type": "Feature",
+            "properties": {
+                "id": id_zm,
+                "rot": f"{nome_mun.get(id_zm[:7], id_zm[:7])} · zona {int(id_zm[7:])}",
+                "est": bool(estimada),
+            },
+            "geometry": _geojson_arredondado(geometria),
+        }
+        for id_zm, estimada, geometria in zip(gdf["id_zona_mun"], gdf["geom_estimada"], gdf.geometry)
+    ]
+    return _escreve_json(
+        {"type": "FeatureCollection", "features": features},
+        DADOS_VISUALIZADOR_DIR / f"zona_mun_{ano}_geo.json",
+    )
+
+
+def _geojson_arredondado(geometria) -> dict:
+    """GeoJSON da geometria com coordenadas em `CASAS_COORDENADA` casas —
+    `round()` do Python devolve a representação curta (-46.6333), sem o
+    ruído binário (-46.633300000000004) que dobraria o tamanho."""
+    def arredonda(c):
+        return [round(c[0], CASAS_COORDENADA), round(c[1], CASAS_COORDENADA)] if isinstance(c[0], float) else [arredonda(x) for x in c]
+
+    mapeada = shapely.geometry.mapping(geometria)
+    return {"type": mapeada["type"], "coordinates": arredonda(mapeada["coordinates"])}
+
+
+def exporta_zona_mun_turno(ano: int, turno: int) -> Path:
+    """`zona_mun_{ano}_t{turno}.json`: `{id: [classe, pt, bo, margem, comparecimento, vencedor]}`."""
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_zona_mun.parquet")
+    res = res.loc[~res["id_zona_mun"].str.startswith(SENTINELA_EXTERIOR)].reset_index(drop=True)
+    margem = _margem_pt_bolsonaro(res, ano)
+    colunas = zip(
+        cores.classifica_divergente(margem, cores.QUEBRAS_MARGEM).tolist(),
+        _por_mil(res[f"pc_validos_{NR_PT}"]),
+        _por_mil(res[f"pc_validos_{NR_BOLSONARO_POR_ANO[ano]}"]),
+        _por_mil(margem),
+        _inteiro(res["qt_comparecimento"]),
+        _inteiro(res["nr_vencedor"]),
+    )
+    return _escreve_json(
+        {
+            "dados": dict(zip(res["id_zona_mun"], (list(c) for c in colunas))),
+            "candidatos": nomes_candidatos(ano, turno),
+        },
+        DADOS_VISUALIZADOR_DIR / f"zona_mun_{ano}_t{turno}.json",
+    )
+
+
+def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
+    """`mudanca_{a}_{b}_t2.json`: `{id: [classe, pt_antes, pt_depois, delta, virou]}`,
+    sobre a geometria de `zona_mun_{ano_depois}_geo.json`."""
+    mud = pd.read_parquet(
+        RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet"
+    )
+    colunas = zip(
+        cores.classifica_divergente(mud["var_pc_validos_pt"], cores.QUEBRAS_MUDANCA).tolist(),
+        _por_mil(mud[f"pc_validos_pt_{ano_antes}"]),
+        _por_mil(mud[f"pc_validos_pt_{ano_depois}"]),
+        _por_mil(mud["var_pc_validos_pt"]),
+        mud["mudou_vencedor"].astype(int).tolist(),
+    )
+    return _escreve_json(
+        {"dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas)))},
+        DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t2.json",
+    )
+
+
+# ==== Configuração (tiles, legendas, combinações disponíveis) ================
+
+
+def exporta_config(
+    pontos: list[tuple[int, int]],
+    zona_mun: list[tuple[int, int]],
+    mudancas: list[tuple[int, int]],
+) -> Path:
+    """`config.json`: fundo do mapa, legendas e combinações disponíveis."""
+    anos = sorted({a for a, _ in pontos} | {a for a, _ in zona_mun})
+    legenda_presidente = {str(a): cores.legenda_margem(NOME_PT_POR_ANO[a]) for a in anos}
+    return _escreve_json(
+        {
+            "tiles": {"url": TILES_VISUALIZADOR, "attr": TILES_VISUALIZADOR_ATTR},
+            "nome_pt": {str(a): NOME_PT_POR_ANO[a] for a in anos},
+            "nr_pt": NR_PT,
+            "nr_bolsonaro": {str(a): NR_BOLSONARO_POR_ANO[a] for a in anos},
+            "cor_sem_dado": cores.COR_SEM_DADO,
+            "cores_divergentes": cores.cores_divergentes(),
+            "cores_sequenciais": cores.RAMPA_SEQUENCIAL,
+            "legendas": {
+                "pontos_presidente": legenda_presidente,
+                "zona_mun_presidente": legenda_presidente,
+                "pontos_branco_nulo": cores.legenda_sequencial(
+                    "Brancos e nulos (% do total de votos)", cores.QUEBRAS_BRANCO_NULO
+                ),
+                "pontos_abstencao": cores.legenda_sequencial(
+                    "Abstenção (% dos inscritos)", cores.QUEBRAS_ABSTENCAO
+                ),
+                "mudanca": cores.legenda_mudanca(),
+            },
+            "disponivel": {
+                "pontos": [list(x) for x in pontos],
+                "zona_mun": [list(x) for x in zona_mun],
+                "mudanca": [list(x) for x in mudancas],
+            },
+        },
+        DADOS_VISUALIZADOR_DIR / "config.json",
+    )

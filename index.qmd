@@ -1,0 +1,26 @@
+---
+title: "dados_eleicoes"
+---
+
+Pipeline ETL de dados eleitorais do TSE (locais de votação e resultados) para a
+[GeoReDUS](https://www.redus.org.br/georedus). Ver [PLAN.md](https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md)
+para o contexto completo.
+
+## [Mapas](mapas.qmd)
+
+Presidente em 2018 e 2022, nos dois turnos, num só visualizador:
+
+- **locais de votação:** Presidente, brancos e nulos, abstenção;
+- **zona × município:** Presidente e a mudança de votação 2018 → 2022 (2º turno).
+
+## Etapas
+
+- [00 · Auxiliares](00_auxiliares.qmd) — crosswalk TSE↔IBGE, malhas, população adulta por setor.
+- [01 · Locais de votação](01_locais_votacao.qmd) — download e chaves dos locais e seções (2022;
+  [2018](01_locais_votacao_2018.html)).
+- [02 · Geocodificação](02_geocodificacao_locais.qmd) — validação e fallback de coordenada (2022;
+  [2018](02_geocodificacao_locais_2018.html)).
+
+As etapas 03–06 (distribuição espacial, resultados, mudança entre anos e
+exportação) são em Python, em `src/eleicoes/` e `scripts/` — ver o README do
+repositório.

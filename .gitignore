@@ -1,0 +1,35 @@
+# Dados (git-ignorados, ver PLAN.md). Ancorado na raiz: sem a barra inicial,
+# também ignoraria docs/mapas/dados/ (os dados publicados do visualizador).
+/dados/
+input/
+output/
+
+# R / renv / Quarto
+renv/library/
+renv/staging/
+renv/python/
+renv/sandbox/
+.Rproj.user/
+.Rhistory
+.RData
+/.quarto/
+*_files/
+*_cache/
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# segredos
+.env
+
+# outros
+.claude
+.DS_Store
+Thumbs.db
+
+**/*.quarto_ipynb
