@@ -27,6 +27,10 @@ RAMPA_PT = ["#f5938c", "#dd716a", "#c74845", "#9e3432", "#681114"]
 RAMPA_BOLSONARO = ["#7eb5fe", "#5997e8", "#2a78d6", "#1a5cab", "#01366f"]
 # Violeta: não usar azul nas métricas sem polo, para não ler como "Bolsonaro".
 RAMPA_SEQUENCIAL = ["#a9a8fc", "#8c88e6", "#6f67d4", "#564ea9", "#322972"]
+# Cinza neutro, em passos iguais de luminosidade OKLab (0,81 -> 0,27). A faixa é
+# mais larga que a das rampas acima: sem matiz, só a luminosidade separa as classes.
+# Usada na GeoReDUS para brancos e nulos (o visualizador do site segue na violeta).
+RAMPA_CINZA = ["#c1c1c1", "#9b9b9b", "#777777", "#525252", "#262626"]
 
 # Cortes em fração (0,05 = 5 p.p. ou 5%). Quatro cortes -> cinco classes.
 # Brancos/nulos e abstenção: quintis arredondados da distribuição conjunta dos
@@ -97,8 +101,10 @@ def legenda_mudanca() -> dict:
     )
 
 
-def legenda_sequencial(titulo: str, quebras: tuple[float, ...]) -> dict:
-    return _legenda(titulo, RAMPA_SEQUENCIAL, _faixas(quebras, "%"))
+def legenda_sequencial(
+    titulo: str, quebras: tuple[float, ...], rampa: list[str] = RAMPA_SEQUENCIAL
+) -> dict:
+    return _legenda(titulo, rampa, _faixas(quebras, "%"))
 
 
 def _legenda(titulo: str, cores: list[str], rotulos: list[str], nota: str | None = None) -> dict:

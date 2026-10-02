@@ -28,8 +28,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pyarrow.parquet as pq
 import pyogrio
 
-from eleicoes import exporta
-from eleicoes.config import CARGA_DIR, GEOMETRIAS_DIR, PROCESSADO_DIR, RESULTADOS_DIR
+from eleicoes import cores, exporta
+from eleicoes.config import (
+    CARGA_DIR,
+    CODIGOS_NAO_CANDIDATO,
+    GEOMETRIAS_DIR,
+    NR_BOLSONARO_POR_ANO,
+    NR_PT,
+    PROCESSADO_DIR,
+    RESULTADOS_DIR,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -37,6 +45,11 @@ logger = logging.getLogger(__name__)
 SCHEMA_PG = "tse"
 FONTE_RAIZ = "tse/eleicoes"  # dentro de data-src (local e S3)
 TURNO_MUDANCA = 2  # a tabela de mudança só existe para o 2º turno
+
+# Nome do município e UF para os tooltips (o schema `tse` só guarda `cd_mun`).
+TABELA_MUNICIPIO = "ibge.malha_br_municipio_2024"
+SCHEMA_MUNICIPIO = Path("ibge") / "malha" / "br_municipio_2024" / "schema.sql"
+JOIN_MUNICIPIO = f"  LEFT JOIN {TABELA_MUNICIPIO} AS mun\n    ON malha.cd_mun = mun.cd_mun"
 
 # Colunas de `locais_{ano}.parquet` que vão para o banco: só o que a malha de
 # pontos não tem. `latitude`/`longitude` ficam de fora (coordenada bruta do
@@ -75,6 +88,91 @@ def exige(caminho: Path) -> Path:
     if not caminho.exists():
         raise FileNotFoundError(f"{caminho} não existe — rode as etapas anteriores primeiro.")
     return caminho
+
+
+# ==== Colunas derivadas em SQL ================================================
+#
+# As views carregam a classe de cor já calculada, com os mesmos cortes do site
+# (`cores.py`): na GeoReDUS as camadas são pintadas por classe, com os presets
+# categóricos. Os presets contínuos da UI não servem aqui: o de pontos não tem
+# cor por valor, e o de polígonos não permite voltar aos cortes fixos depois de
+# trocar o método de classificação.
+
+
+def sql_cortes(quebras: tuple[float, ...]) -> str:
+    return f"ARRAY[{', '.join(str(q) for q in quebras)}]::double precision[]"
+
+
+def sql_classe_divergente(expr: str, quebras: tuple[float, ...]) -> str:
+    """Equivalente SQL de `cores.classifica_divergente`; sem dado fica `NULL`."""
+    n = len(quebras) + 1
+    passo = f"width_bucket(abs({expr}), {sql_cortes(quebras)})"
+    return (
+        f"CASE\n    WHEN {expr} > 0 THEN {n - 1} - {passo}\n"
+        f"    WHEN {expr} < 0 THEN {n + 1} + {passo}\n"
+        f"    WHEN {expr} = 0 THEN {n}\n  END"
+    )
+
+
+def sql_classe_sequencial(expr: str, quebras: tuple[float, ...]) -> str:
+    """Equivalente SQL de `cores.classifica_sequencial`; sem dado fica `NULL`."""
+    return f"width_bucket({expr}, {sql_cortes(quebras)})"
+
+
+# Os percentuais das classes são recalculados das contagens, com as fórmulas de
+# `resultados.calcula_indicadores`, em vez de lidos das colunas `pc_*`: o
+# `ogr2ogr` grava decimais com 15 dígitos significativos, e num empate exato
+# com um corte (abstenção de 21,0%, margem de 50,0 p.p.) essa diferença na 16ª
+# casa troca a classe. A divisão de inteiros dá o mesmo double do pandas.
+
+
+def sql_fracao(numerador: str, denominador: str) -> str:
+    """Divisão em `double precision`; `NULL` com denominador zero (o NaN do pandas)."""
+    return f"({numerador})::double precision / NULLIF({denominador}, 0)"
+
+
+def sql_qt_votos(colunas: dict[str, str], *, candidatos: bool) -> str:
+    """Soma dos votos em candidatos, ou em branco, nulo e anulado."""
+    cols = [
+        col
+        for col in colunas
+        if col.startswith("qt_votos_")
+        and (int(col.removeprefix("qt_votos_")) not in CODIGOS_NAO_CANDIDATO) == candidatos
+    ]
+    return " + ".join(f"res.{col}" for col in cols)
+
+
+def sql_qt_validos(colunas: dict[str, str]) -> str:
+    return sql_qt_votos(colunas, candidatos=True)
+
+
+def sql_pc_abstencao() -> str:
+    return f"1 - {sql_fracao('res.qt_comparecimento', 'res.qt_aptos')}"
+
+
+def sql_pc_brancos_nulos(colunas: dict[str, str]) -> str:
+    return sql_fracao(sql_qt_votos(colunas, candidatos=False), "res.qt_comparecimento")
+
+
+def colunas_margem(ano: int, colunas: dict[str, str]) -> list[str]:
+    """`margem_pt_bolsonaro` (PT − Bolsonaro nos votos válidos) e `classe_margem`."""
+    if ano not in NR_BOLSONARO_POR_ANO:
+        logger.warning("%d: sem número de Bolsonaro — views sem margem e classe_margem", ano)
+        return []
+    validos = f"({sql_qt_validos(colunas)})"
+    margem = (
+        f"{sql_fracao(f'res.qt_votos_{NR_PT}', validos)}"
+        f" - {sql_fracao(f'res.qt_votos_{NR_BOLSONARO_POR_ANO[ano]}', validos)}"
+    )
+    return [
+        f"{margem} AS margem_pt_bolsonaro",
+        f"{sql_classe_divergente(f'({margem})', cores.QUEBRAS_MARGEM)} AS classe_margem",
+    ]
+
+
+def sql_pct(coluna: str) -> str:
+    """Percentual em escala 0–100, para quem baixa os dados da camada."""
+    return f"round((100 * res.{coluna})::numeric, 2)::double precision"
 
 
 # ==== Escrita =================================================================
@@ -162,10 +260,12 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
     )
 
     # ---- Resultados e views, por turno ------------------------------------
+    schema_municipio = saida / "collections" / SCHEMA_MUNICIPIO
     for turno in turnos:
         eleicao = f"presidente_{ano}_t{turno}"
         schemas_res: dict[str, Path] = {}
         colunas_res: dict[str, list[str]] = {}
+        tipos_res: dict[str, dict[str, str]] = {}
         for nivel, chave in (("zona_mun", "id_zona_mun"), ("local", "id_local")):
             parquet = exige(RESULTADOS_DIR / f"res_{eleicao}_{nivel}.parquet")
             colunas = colunas_parquet(parquet)
@@ -177,6 +277,7 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
                 chave=chave,
                 schema_raiz=schema_raiz,
             )
+            tipos_res[nivel] = colunas
             colunas_res[nivel] = [f"res.{col}" for col in colunas if col != chave]
 
         pasta = dir_api / SCHEMA_PG / f"malha_zona_mun_{ano}_t{turno}"
@@ -186,21 +287,29 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
                 "malha.id_zona_mun AS id",
                 "malha.id_zona_mun",
                 "malha.cd_mun",
+                "mun.nm_mun",
+                "mun.sigla_uf",
                 "malha.nr_zona",
                 "malha.n_zonas_mun",
                 "malha.geom_estimada",
                 "malha.geom",
                 *colunas_res["zona_mun"],
+                *colunas_margem(ano, tipos_res["zona_mun"]),
             ],
             from_sql=(
                 f"FROM\n  {SCHEMA_PG}.malha_zona_mun_{ano} AS malha\n"
                 f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_zona_mun AS res\n"
-                "    ON malha.id_zona_mun = res.id_zona_mun"
+                "    ON malha.id_zona_mun = res.id_zona_mun\n"
+                f"{JOIN_MUNICIPIO}"
             ),
             diretorio_saida=pasta,
-            requires=requires(pasta, dir_api / "schema.sql", schema_zona, schemas_res["zona_mun"]),
+            requires=requires(
+                pasta, dir_api / "schema.sql", schema_zona, schemas_res["zona_mun"], schema_municipio
+            ),
         )
 
+        # Locais sem coordenada confiável ficam no centróide do município; como
+        # no site, não são desenhados (os presets genéricos não têm filtro).
         pasta = dir_api / SCHEMA_PG / f"malha_locais_votacao_{ano}_t{turno}"
         exporta.gera_view_publica(
             f"{SCHEMA_PG}_malha_locais_votacao_{ano}_t{turno}",
@@ -208,12 +317,13 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
                 "malha.id_local AS id",
                 "malha.id_local",
                 "malha.cd_mun",
+                "mun.nm_mun",
+                "mun.sigla_uf",
                 f"{SQL_ID_ZONA_MUN} AS id_zona_mun",
                 "malha.nr_zona",
                 "malha.fonte_coord",
                 "malha.precisao",
                 "malha.flag_especial",
-                "malha.flag_sem_coord",
                 "malha.qt_eleitores",
                 "loc.nm_local_votacao",
                 "loc.ds_endereco",
@@ -222,17 +332,34 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
                 "loc.ds_tipo_local",
                 "malha.geom",
                 *colunas_res["local"],
+                f"{sql_qt_validos(tipos_res['local'])} AS qt_validos",
+                *colunas_margem(ano, tipos_res["local"]),
+                f"{sql_pct('pc_brancos_nulos')} AS pct_brancos_nulos",
+                sql_classe_sequencial(
+                    sql_pc_brancos_nulos(tipos_res["local"]), cores.QUEBRAS_BRANCO_NULO
+                )
+                + " AS classe_brancos_nulos",
+                f"{sql_pct('pc_abstencao')} AS pct_abstencao",
+                sql_classe_sequencial(sql_pc_abstencao(), cores.QUEBRAS_ABSTENCAO)
+                + " AS classe_abstencao",
             ],
             from_sql=(
                 f"FROM\n  {SCHEMA_PG}.malha_locais_votacao_{ano} AS malha\n"
                 f"  LEFT JOIN {SCHEMA_PG}.locais_votacao_{ano} AS loc\n"
                 "    ON malha.id_local = loc.id_local\n"
                 f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_local AS res\n"
-                "    ON malha.id_local = res.id_local"
+                "    ON malha.id_local = res.id_local\n"
+                f"{JOIN_MUNICIPIO}\n"
+                "WHERE\n  NOT malha.flag_sem_coord"
             ),
             diretorio_saida=pasta,
             requires=requires(
-                pasta, dir_api / "schema.sql", schema_pontos, schema_locais, schemas_res["local"]
+                pasta,
+                dir_api / "schema.sql",
+                schema_pontos,
+                schema_locais,
+                schemas_res["local"],
+                schema_municipio,
             ),
         )
         logger.info("%d, turno %d: tabelas e views geradas", ano, turno)
@@ -272,19 +399,30 @@ def gera_mudanca(
             "malha.id_zona_mun AS id",
             "malha.id_zona_mun",
             "malha.cd_mun",
+            "mun.nm_mun",
+            "mun.sigla_uf",
             "malha.nr_zona",
             "malha.n_zonas_mun",
             "malha.geom_estimada",
             "malha.geom",
             *[f"res.{col}" for col in colunas if col != "id_zona_mun"],
+            f"{sql_classe_divergente('res.var_pc_validos_pt', cores.QUEBRAS_MUDANCA)}"
+            " AS classe_mudanca",
         ],
         from_sql=(
             f"FROM\n  {SCHEMA_PG}.malha_zona_mun_{ano_depois} AS malha\n"
             f"  LEFT JOIN {SCHEMA_PG}.{nome}_zona_mun AS res\n"
-            "    ON malha.id_zona_mun = res.id_zona_mun"
+            "    ON malha.id_zona_mun = res.id_zona_mun\n"
+            f"{JOIN_MUNICIPIO}"
         ),
         diretorio_saida=pasta,
-        requires=requires(pasta, dir_api / "schema.sql", schema_zona, schema_mudanca),
+        requires=requires(
+            pasta,
+            dir_api / "schema.sql",
+            schema_zona,
+            schema_mudanca,
+            saida / "collections" / SCHEMA_MUNICIPIO,
+        ),
     )
     logger.info("Mudança %d -> %d: tabela e view geradas", ano_antes, ano_depois)
 

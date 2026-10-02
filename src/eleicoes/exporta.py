@@ -7,6 +7,7 @@ tipo de artefato; a orquestração fica em `scripts/processa_turno.py` e
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import geopandas as gpd
@@ -184,7 +185,8 @@ def gera_view_publica(
     Args:
         nome_view: nome da view (ex.: `tse_malha_zona_mun_2022_t2`).
         colunas_select: expressões do `SELECT`, já com o alias da tabela.
-        from_sql: cláusula `FROM ... LEFT JOIN ...`, sem o ponto e vírgula.
+        from_sql: cláusula `FROM ... LEFT JOIN ...` (e `WHERE`, se houver),
+            sem o ponto e vírgula.
         diretorio_saida: pasta da view dentro de `collections/public_read_api/`.
         requires: caminhos (relativos a `diretorio_saida`) dos `schema.sql`
             das tabelas usadas.
@@ -210,41 +212,102 @@ def gera_view_publica(
     return {"schema.sql": schema_sql, "down.sql": down_sql}
 
 
+# Colunas da aba `eleicoes` da planilha de cadastro, na ordem da aba. As abas
+# são temáticas e cada uma tem as colunas que os seus presets leem.
+COLUNAS_CADASTRO = (
+    "id",
+    "collection_id",
+    "indicator_id",
+    "preset",
+    "tiles",
+    "source_layer",
+    "path",
+    "label",
+    "shortDescription",
+    "measure_unit",
+    "unit",
+    "style",
+    "tooltip",
+    "sourceLabel",
+    "download_url",
+    "metodology",
+    "skip",
+)
+
+
 def linha_cadastro(
     *,
-    collection_id: str,
-    source_table_id: str,
-    variable_id: str,
+    id_camada: str,
+    view: str,
     preset: str,
-    year: int,
-    indicator_path: str,
-    color_scheme: str,
-    classification_method: str,
-    measure_unit: str,
-    metodology_url: str,
+    path: str,
+    label: str,
+    style: dict,
+    tooltip: dict,
+    collection_id: str,
+    indicator_id: str,
+    descricao: str = "",
+    measure_unit: str = "",
+    unit: str = "",
+    metodology: str = "",
+    source_label: str = "TSE",
 ) -> dict[str, str]:
-    """Monta uma linha no formato da planilha de cadastro da GeoReDUS.
+    """Monta uma linha da aba `eleicoes` do cadastro da GeoReDUS.
 
-    Ver `georedus-ui/public/georedus/data/cem_censo_2022.csv` para o exemplo
-    de referência (colunas replicadas aqui).
+    Os presets genéricos do `@redus/georedus-ui` (`vector_point_continuous`,
+    `vector_polygon_continuous`...) leem a camada direto dos tiles da view e
+    desenham conforme o JSON de `style`.
+
+    Args:
+        id_camada: identificador único da camada no mapa.
+        view: nome da view em `public_read_api` (ex.: `tse_malha_zona_mun_2022_t2`).
+        preset: preset do front que desenha a camada.
+        path: caminho da camada no menu (`Tema / ano / subtema`).
+        label: nome da camada no menu e título da legenda.
+        style: variável, cores e classificação, no formato do preset.
+        tooltip: `{"title": ..., "entries": [...]}`.
+        collection_id: rótulo de agrupamento (obrigatório no cadastro).
+        indicator_id: rótulo de agrupamento (obrigatório no cadastro).
+        descricao: texto curto exibido junto da camada.
+        measure_unit: unidade da legenda de tamanho (`vector_point_continuous`).
+        unit: unidade da legenda de cor (`vector_polygon_continuous`).
+        metodology: texto ou link da nota metodológica.
+        source_label: fonte exibida no mapa.
+
+    Returns:
+        A linha, com as chaves de `COLUNAS_CADASTRO`.
     """
+    # JSON em linha única: célula com quebra de linha atrapalha o colar na planilha.
+    em_linha = lambda obj: json.dumps(obj, ensure_ascii=False, separators=(", ", ": "))
     return {
+        "id": id_camada,
         "collection_id": collection_id,
-        "source_table_id": source_table_id,
-        "variable_id": variable_id,
+        "indicator_id": indicator_id,
         "preset": preset,
-        "year": str(year),
-        "indicator_path": indicator_path,
-        "colorScheme": color_scheme,
-        "classificationMethod": classification_method,
+        "tiles": f"${{VECTOR_TILE_SERVER_ENDPOINT}}/{view}.geom/{{z}}/{{x}}/{{y}}",
+        "source_layer": f"{view}.geom",
+        "path": path,
+        "label": label,
+        "shortDescription": descricao,
         "measure_unit": measure_unit,
-        "metodology": metodology_url,
+        "unit": unit,
+        "style": em_linha(style),
+        "tooltip": em_linha(tooltip),
+        "sourceLabel": source_label,
+        "download_url": f"${{METADATA_API_ENDPOINT}}/{view}",
+        "metodology": metodology,
+        "skip": "",
     }
 
 
 def escreve_cadastro(linhas: list[dict[str, str]], caminho: Path) -> Path:
-    """Escreve as linhas de cadastro em CSV, prontas para colar na planilha."""
+    """Escreve as linhas de cadastro em CSV, prontas para colar na planilha.
+
+    UTF-8 com BOM, para os acentos abrirem certo também no Excel.
+    """
     caminho = Path(caminho)
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(linhas).to_csv(caminho, index=False)
+    pd.DataFrame(linhas, columns=list(COLUNAS_CADASTRO)).to_csv(
+        caminho, index=False, encoding="utf-8-sig"
+    )
     return caminho
