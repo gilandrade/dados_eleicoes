@@ -40,7 +40,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from .config import CARGO_PRESIDENTE
+from .config import CARGO_PRESIDENTE, CODIGOS_NAO_CANDIDATO
 
 ESQUEMA_COLUNAS = [
     "ano",
@@ -72,6 +72,29 @@ def _sql_read_csv(caminho: Path) -> str:
     )
 
 
+def _executa(con: duckdb.DuckDBPyConnection, query: str, por_partido: bool) -> pd.DataFrame:
+    """Executa a consulta de `ler_votacao_secao`, somando por partido se pedido."""
+    if not por_partido:
+        return con.execute(query).df()
+    nao_candidato = ", ".join(str(c) for c in CODIGOS_NAO_CANDIDATO)
+    return con.execute(
+        f"""
+        with base as ({query})
+        select
+            ano, turno, sg_uf, cd_mun_tse, nr_zona, nr_secao, cd_cargo,
+            case
+                when nr_votavel in ({nao_candidato}) then nr_votavel
+                else cast(substr(cast(nr_votavel as varchar), 1, 2) as integer)
+            end as nr_votavel,
+            sum(qt_votos) as qt_votos,
+            any_value(qt_comparecimento) as qt_comparecimento,
+            any_value(qt_aptos) as qt_aptos
+        from base
+        group by all
+        """
+    ).df()
+
+
 def ler_votacao_secao(
     caminho_votacao_secao: Path,
     ano: int,
@@ -79,6 +102,7 @@ def ler_votacao_secao(
     *,
     caminho_detalhe: Path | None = None,
     cd_cargo: int = CARGO_PRESIDENTE,
+    por_partido: bool = False,
 ) -> pd.DataFrame:
     """Lê `votacao_secao_{ano}_BR.csv`, opcionalmente enriquecido com
     `detalhe_votacao_secao_{ano}_BR.csv` (ver módulo — nome do arquivo real,
@@ -94,6 +118,12 @@ def ler_votacao_secao(
         ano: ano da eleição.
         turno: 1 ou 2.
         cd_cargo: código TSE do cargo (`CD_CARGO`).
+        por_partido: se True, soma no próprio SQL os votos de cada partido por
+            seção (`nr_votavel` vira o número do partido, os 2 primeiros
+            dígitos; branco, nulo e anulado ficam como estão) e a coluna
+            `nm_votavel` sai. Mesmo resultado de `resultados.agrega_por_partido`,
+            mas sem materializar uma linha por candidato — o que importa para
+            o país inteiro (~25 milhões de linhas de Deputado Federal).
         caminho_detalhe: CSV de `detalhe_votacao_secao_{ano}_BR.csv` (dentro
             do zip `detalhe_votacao_secao_{ano}.zip`), com `QT_APTOS` e
             `QT_COMPARECIMENTO` reais por seção. Se `None` (padrão),
@@ -141,7 +171,7 @@ def ler_votacao_secao(
                 cast(NULL as integer) as qt_aptos
             from votos
         """
-        return con.execute(query).df()
+        return _executa(con, query, por_partido)
 
     sql_detalhe = _sql_read_csv(caminho_detalhe)
     query = f"""
@@ -170,7 +200,7 @@ def ler_votacao_secao(
         left join detalhe d
             on d.cd_mun_tse = v.cd_mun_tse and d.nr_zona = v.nr_zona and d.nr_secao = v.nr_secao
     """
-    return con.execute(query).df()
+    return _executa(con, query, por_partido)
 
 
 def extrai_municipio_do_zip(
