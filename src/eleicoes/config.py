@@ -25,6 +25,8 @@ GEOREDUS_DIR = DADOS_DIR / "03_georedus"
 GEOMETRIAS_DIR = GEOREDUS_DIR / "geometrias"
 RESULTADOS_DIR = GEOREDUS_DIR / "resultados"
 CARGA_DIR = GEOREDUS_DIR / "carga"
+# Análise perfil do eleitorado × voto, por município (scripts 09 e 10).
+ANALISE_DIR = DADOS_DIR / "04_analise"
 
 # CNEFE 2022 por município (cnefetools, IBGE), já filtrado às espécies de
 # domicílio e com `cd_setor` de 15 dígitos (sem o "P" do `COD_SETOR` original).
@@ -54,6 +56,9 @@ CRS_METRICO_BR = 5880  # SIRGAS 2000 / Brazil Polyconic — para distâncias nac
 
 ANOS = (2018, 2022, 2026)
 CARGO_PRESIDENTE = 1  # código TSE do cargo Presidente (CD_CARGO / NR_CARGO = 1)
+# Só na análise por município. Vem em `votacao_secao_{ano}_{UF}.zip` (o `_BR`
+# só tem Presidente); candidato tem 4 dígitos, voto de legenda tem 2.
+CARGO_DEPUTADO_FEDERAL = 6
 CODIGO_BRANCO = 95
 CODIGO_NULO = 96
 # "Voto anulado e apurado em separado" — existe no 2018 (1º turno), não em

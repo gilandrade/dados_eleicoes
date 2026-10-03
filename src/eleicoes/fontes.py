@@ -22,12 +22,19 @@ vezes): `detalhe_votacao_secao/detalhe_votacao_secao_{ano}.zip` — **sem**
 (só Presidente, `TP_ABRANGENCIA='F'`) e um por UF. Padrão de nome do TSE não é
 uniforme entre datasets — não adivinhar de novo sem checar o portal.
 
-Ambos os leitores filtram o cargo Presidente na própria leitura (mais barato
-que filtrar depois de ler o Brasil inteiro).
+Ambos os leitores filtram o cargo na própria leitura (mais barato que filtrar
+depois de ler o Brasil inteiro) — Presidente por padrão.
+
+A análise por município (`scripts/10_perfil_voto_municipio.py`) usa ainda
+`extrai_municipio_do_zip`, que tira de um zip do TSE só as linhas de um
+município, e `ler_perfil_eleitor_secao`, o cadastro dos eleitores por seção.
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import zipfile
 from pathlib import Path
 
 import duckdb
@@ -71,19 +78,22 @@ def ler_votacao_secao(
     turno: int,
     *,
     caminho_detalhe: Path | None = None,
+    cd_cargo: int = CARGO_PRESIDENTE,
 ) -> pd.DataFrame:
     """Lê `votacao_secao_{ano}_BR.csv`, opcionalmente enriquecido com
     `detalhe_votacao_secao_{ano}_BR.csv` (ver módulo — nome do arquivo real,
     não `..._{ano}_BR.zip` que eu tinha chutado).
 
     Caminho "oficial", consolidado pelo TSE após a apuração. Filtra o cargo
-    Presidente e o turno pedido.
+    (`cd_cargo`, Presidente por padrão) e o turno pedido.
 
     Args:
         caminho_votacao_secao: CSV de `votacao_secao_{ano}_BR.zip` (votos por
-            candidato/seção).
+            candidato/seção). Para os outros cargos, o CSV de
+            `votacao_secao_{ano}_{UF}.zip`, que tem o mesmo cabeçalho.
         ano: ano da eleição.
         turno: 1 ou 2.
+        cd_cargo: código TSE do cargo (`CD_CARGO`).
         caminho_detalhe: CSV de `detalhe_votacao_secao_{ano}_BR.csv` (dentro
             do zip `detalhe_votacao_secao_{ano}.zip`), com `QT_APTOS` e
             `QT_COMPARECIMENTO` reais por seção. Se `None` (padrão),
@@ -102,7 +112,9 @@ def ler_votacao_secao(
         select
             {ano} as ano,
             {turno} as turno,
-            sg_uf,
+            -- alias explícito: sem ele o duckdb devolve o nome como está no
+            -- CSV (SG_UF, NM_VOTAVEL), fora do esquema comum.
+            sg_uf as sg_uf,
             -- CD_MUNICIPIO aqui não tem zero à esquerda (varia de 2 a 5
             -- dígitos: "1120", não "01120" como em eleitorado_local_votacao)
             -- — confirmado contra o arquivo real de 2022 em 29/09/2026.
@@ -113,10 +125,10 @@ def ler_votacao_secao(
             cast(nr_secao as integer) as nr_secao,
             cast(cd_cargo as integer) as cd_cargo,
             cast(nr_votavel as integer) as nr_votavel,
-            nm_votavel,
+            nm_votavel as nm_votavel,
             cast(qt_votos as integer) as qt_votos
         from {sql_votos}
-        where cast(cd_cargo as integer) = {CARGO_PRESIDENTE}
+        where cast(cd_cargo as integer) = {cd_cargo}
             and cast(nr_turno as integer) = {turno}
     """
 
@@ -157,6 +169,99 @@ def ler_votacao_secao(
         from votos v
         left join detalhe d
             on d.cd_mun_tse = v.cd_mun_tse and d.nr_zona = v.nr_zona and d.nr_secao = v.nr_secao
+    """
+    return con.execute(query).df()
+
+
+def extrai_municipio_do_zip(
+    caminho_zip: Path,
+    caminho_csv: Path,
+    cd_mun_tse: str,
+    *,
+    nome_interno: str | None = None,
+) -> int:
+    """Grava em `caminho_csv` só as linhas de um município de um CSV do TSE.
+
+    Lê o CSV direto de dentro do zip, linha a linha, sem extrair o arquivo
+    inteiro (o `votacao_secao_{ano}_BR.csv` tem vários GB). O resultado mantém
+    o cabeçalho e o formato original (`;`, latin-1), então os leitores deste
+    módulo servem sem mudança.
+
+    `CD_MUNICIPIO` não tem o mesmo formato em todos os arquivos — vem entre
+    aspas e com zero à esquerda no perfil (`"01120"`), sem aspas e sem zero em
+    `votacao_secao` (`1120`). A comparação é feita pelo valor inteiro.
+
+    Args:
+        caminho_zip: zip baixado do TSE.
+        caminho_csv: CSV de saída, só com o município.
+        cd_mun_tse: código TSE do município (5 dígitos, texto).
+        nome_interno: nome do CSV dentro do zip. Se `None`, o primeiro `.csv`.
+
+    Returns:
+        Número de linhas gravadas (sem o cabeçalho).
+    """
+    alvo = int(cd_mun_tse)
+    trecho = str(alvo)
+    caminho_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(caminho_zip) as z:
+        nome = nome_interno or next(n for n in z.namelist() if n.lower().endswith(".csv"))
+        with (
+            io.TextIOWrapper(z.open(nome), encoding="latin-1", newline="") as origem,
+            open(caminho_csv, "w", encoding="latin-1", newline="") as saida,
+        ):
+            cabecalho = origem.readline()
+            pos = next(csv.reader([cabecalho], delimiter=";")).index("CD_MUNICIPIO")
+            saida.write(cabecalho)
+
+            n_linhas = 0
+            for linha in origem:
+                # Filtro barato antes do parse: a grande maioria das linhas
+                # nem contém o código.
+                if trecho not in linha:
+                    continue
+                campo = next(csv.reader([linha], delimiter=";"))[pos]
+                if campo.isdigit() and int(campo) == alvo:
+                    saida.write(linha)
+                    n_linhas += 1
+    return n_linhas
+
+
+def ler_perfil_eleitor_secao(caminho_perfil: Path) -> pd.DataFrame:
+    """Lê `perfil_eleitor_secao_{ano}_{UF}.csv`: o cadastro por seção.
+
+    O arquivo tem uma linha por seção × gênero × estado civil × faixa etária ×
+    escolaridade (e, a partir de 2026, raça/cor), com a contagem de eleitores.
+    Aqui sai somado por seção × gênero × faixa etária × escolaridade.
+
+    O nome da coluna de contagem muda entre os anos (conferido nos arquivos
+    reais do PI em 03/10/2026): `QT_ELEITORES_PERFIL` em 2022, `QT_ELEITORES`
+    em 2026.
+
+    Args:
+        caminho_perfil: CSV do perfil (inteiro ou já filtrado por
+            `extrai_municipio_do_zip`).
+
+    Returns:
+        DataFrame com `cd_mun_tse`, `nr_zona`, `nr_secao`, `cd_genero`,
+        `cd_faixa_etaria`, `cd_grau_escolaridade` e `qt_eleitores`.
+    """
+    con = duckdb.connect()
+    sql_perfil = _sql_read_csv(caminho_perfil)
+    colunas = {c.lower() for c in con.sql(f"select * from {sql_perfil} limit 0").columns}
+    col_qt = "qt_eleitores_perfil" if "qt_eleitores_perfil" in colunas else "qt_eleitores"
+
+    query = f"""
+        select
+            lpad(cd_municipio, 5, '0') as cd_mun_tse,
+            cast(nr_zona as integer) as nr_zona,
+            cast(nr_secao as integer) as nr_secao,
+            cast(cd_genero as integer) as cd_genero,
+            cast(cd_faixa_etaria as integer) as cd_faixa_etaria,
+            cast(cd_grau_escolaridade as integer) as cd_grau_escolaridade,
+            sum(cast({col_qt} as integer)) as qt_eleitores
+        from {sql_perfil}
+        group by all
     """
     return con.execute(query).df()
 

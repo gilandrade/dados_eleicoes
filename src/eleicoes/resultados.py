@@ -30,6 +30,37 @@ from .config import (
 SENTINELA_EXTERIOR = "EXTERIOR"
 
 
+def agrega_por_partido(resultados_secao: pd.DataFrame) -> pd.DataFrame:
+    """Soma os votos de um cargo proporcional por partido, em cada seção.
+
+    O número do partido são os dois primeiros dígitos de `nr_votavel`: o
+    candidato a deputado federal tem 4 dígitos (`1345` -> 13) e o voto de
+    legenda tem só os 2 do partido. Branco, nulo e anulado
+    (`CODIGOS_NAO_CANDIDATO`) ficam como estão.
+
+    A saída mantém o esquema longo de `fontes.py`, com o número do partido em
+    `nr_votavel` — por isso `agrega_por_local`, `agrega_por_setor` e
+    `calcula_indicadores` servem sem mudança. Só `nm_votavel` sai (não há um
+    nome único por partido aqui).
+
+    Args:
+        resultados_secao: esquema longo de `fontes.py`, uma linha por seção ×
+            votável.
+
+    Returns:
+        Uma linha por seção × partido (ou código de não candidato).
+    """
+    df = resultados_secao.drop(columns="nm_votavel")
+    eh_candidato = ~df["nr_votavel"].isin(CODIGOS_NAO_CANDIDATO)
+    nr_partido = df["nr_votavel"].astype(str).str[:2].astype(int)
+    df["nr_votavel"] = df["nr_votavel"].where(~eh_candidato, nr_partido)
+
+    chaves = [c for c in df.columns if c != "qt_votos"]
+    # dropna=False: qt_aptos é nulo quando não há detalhe_votacao_secao, e o
+    # groupby descartaria todas as linhas.
+    return df.groupby(chaves, as_index=False, dropna=False)["qt_votos"].sum()
+
+
 def secao_para_id_local(
     resultados_secao: pd.DataFrame,
     secao_local: pd.DataFrame,
