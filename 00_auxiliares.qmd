@@ -5,8 +5,9 @@ title: "00 · Auxiliares"
 Prepara três insumos usados por todas as etapas seguintes:
 
 1. **crosswalk** `cd_mun_tse` ↔ `cd_mun` (IBGE);
-2. **malha de municípios** (via `geobr`, fixado em 1.9.1 — ver `CLAUDE.md`);
-3. **população adulta estimada por setor** (`pop18`), a partir do Censo 2022.
+2. **malha de municípios** (via `geobr`);
+3. **população adulta estimada por setor** (`pop18`), a partir do Censo 2022
+   (via `censobr`).
 
 ```{r setup}
 #| message: false
@@ -22,9 +23,6 @@ library(arrow)
 
 AUX_DIR <- "dados/02_processado/aux"
 dir.create(AUX_DIR, showWarnings = FALSE, recursive = TRUE)
-
-# Repositório irmão com os indicadores de população do Censo 2022 (cn22-pop)
-CN22_POP_DIR <- file.path("..", "cn22-pop", "dados", "01_indicadores")
 ```
 
 ## 1. Crosswalk `cd_mun_tse` ↔ `cd_mun`
@@ -113,7 +111,7 @@ divergencias <- crosswalk |>
 divergencias
 ```
 
-## 2. Malha de municípios (`geobr`, fixado em 1.9.1)
+## 2. Malha de municípios (`geobr`)
 
 ```{r municipios}
 # showProgress = FALSE faz o geobr devolver NULL em silêncio ao renderizar
@@ -145,44 +143,43 @@ de `src/eleicoes/alocacao.pop18_por_setor()` (Python) — ver PLAN.md > Método,
 passo 4. É calculada aqui (R, etapa "auxiliares") e só lida em Python, para não
 duplicar a leitura dos CSVs do Censo em duas linguagens.
 
-Os CSVs do `cn22-pop` já vêm com os **indicadores nomeados** no padrão
-GeoReDUS (`cn22_pop01_res_tot_0`, `cn22_pop03_0a4_tot_0`, ...), não com as
-variáveis brutas do IBGE (`V0001`, `V01031`, ...) — a chave de setor ali é
-`cod_setor`, não `cd_setor` (confirmado rodando contra os arquivos reais em
-25/09/2026; renomeado aqui para `cd_setor`, o nome usado no resto do pipeline).
+Os agregados por setor vêm do `censobr` (nomes conferidos nos dados reais em
+03/10/2026): o total de pessoas é `V0001`, no conjunto `Basico`; as faixas
+etárias estão no conjunto `Pessoas`, com o prefixo da tabela de origem
+(`demografia_V01031` a `demografia_V01034`).
 
 ```{r pop18}
 #| message: false
-# cod_setor precisa ser lido como texto (col_character): sem isso, o readr
-# adivinha "número" para um código de 15 dígitos e ele vira double — que
-# tanto perde precisão (15 dígitos está no limite do double) quanto quebra
-# o join com o cd_setor (texto) do resto do pipeline em silêncio (nenhum
-# erro, só 0% de correspondência). Achado rodando a etapa 03 de verdade.
-pop01 <- read_csv(
-  file.path(CN22_POP_DIR, "cn22_pop01_abs.csv"),
-  col_types = cols(cod_setor = col_character(), .default = col_guess())
-) |>
-  transmute(cd_setor = cod_setor, total = cn22_pop01_res_tot_0)
+pop_total <- censobr::read_tracts(year = 2022, dataset = "Basico") |>
+  select(code_tract, total = V0001) |>
+  collect()
 
-pop03 <- read_csv(
-  file.path(CN22_POP_DIR, "cn22_pop03_abs.csv"),
-  col_types = cols(cod_setor = col_character(), .default = col_guess())
-) |>
-  transmute(
-    cd_setor = cod_setor,
-    fx_0a4 = cn22_pop03_0a4_tot_0,
-    fx_5a9 = cn22_pop03_5a9_tot_0,
-    fx_10a14 = cn22_pop03_10a14_tot_0,
-    fx_15a19 = cn22_pop03_15a19_tot_0
-  )
+pop_faixas <- censobr::read_tracts(year = 2022, dataset = "Pessoas") |>
+  select(
+    code_tract,
+    fx_0a4 = demografia_V01031,
+    fx_5a9 = demografia_V01032,
+    fx_10a14 = demografia_V01033,
+    fx_15a19 = demografia_V01034
+  ) |>
+  collect()
 
-pop18_setor <- pop01 |>
-  left_join(pop03, by = "cd_setor") |>
+pop18_setor <- pop_total |>
+  left_join(pop_faixas, by = "code_tract") |>
   mutate(
+    # code_tract é double no censobr (15 dígitos, sem perda de precisão).
+    # O resto do pipeline usa cd_setor como texto: sprintf evita a notação
+    # científica que as.character() pode devolver.
+    cd_setor = sprintf("%.0f", code_tract),
     across(c(fx_0a4, fx_5a9, fx_10a14, fx_15a19), ~ replace(.x, is.na(.x), 0)),
     pop18 = pmax(total - fx_0a4 - fx_5a9 - fx_10a14 - 0.6 * fx_15a19, 0)
   ) |>
   select(cd_setor, pop18)
+
+stopifnot(
+  "cd_setor deveria ter 15 dígitos" = all(nchar(pop18_setor$cd_setor) == 15),
+  "cd_setor não deveria ter duplicatas" = !anyDuplicated(pop18_setor$cd_setor)
+)
 
 write_parquet(pop18_setor, file.path(AUX_DIR, "pop18_setor.parquet"))
 pop18_setor
