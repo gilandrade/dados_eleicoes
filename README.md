@@ -88,7 +88,19 @@ observada). O descritivo e as regressões estão em
 `notebooks/perfil_voto_municipio.ipynb`; para outro município, trocar `CD_MUN` no
 topo do notebook.
 
-Os resultados são agregados por local ou setor: mostram onde cada partido vai
+Para o **país inteiro** a unidade é a zona × município (voto e escolaridade
+observados; renda estimada). Precisa de `pesos_local_setor_{ano}.parquet` nacional
+(etapa 03) e dos zips do TSE de perfil e votos das 27 UFs:
+
+```bash
+Rscript scripts/09_censo_setor_brasil.R
+python scripts/10_perfil_voto_municipio.py --ano 2022 --zips-dir D:/tse2022 --tmp-dir D:/tmp_csv
+# depois: notebooks/perfil_voto_brasil.ipynb
+```
+
+Leva cerca de 7 minutos depois de baixar os arquivos.
+
+Os resultados são agregados por local, setor ou zona: mostram onde cada partido vai
 melhor, não como vota cada grupo de eleitores.
 
 `dados/`, `venv/` e `renv/library/` são git-ignorados — ver `PLAN.md` para as fontes

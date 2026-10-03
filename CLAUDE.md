@@ -478,6 +478,58 @@ the full data model (geometry files vs. result files joined by a shared id).
   - **Na tabela por setor, os setores do mesmo local repetem o voto dele.** A
     variação independente é a dos ~300 locais, não a dos ~1.400 setores: as
     regressões por setor agrupam o erro padrão por `id_local_dominante`.
+  - **Modo país (03/10/2026), unidade = zona × município.** `10_perfil_voto_municipio.py`
+    sem `--cd-mun` (`main_brasil`) leva **6,7 min** nesta máquina (i7 16 threads,
+    32 GB), contra 20–45 min estimados, com os pesos nacionais já prontos (a etapa 03
+    não roda de novo). Passos: `scripts/09_censo_setor_brasil.R` (7 s) e
+    `--zips-dir` com os 27 zips de perfil, os 27 de `votacao_secao` e o `_BR`
+    (3,9 GB, ~15 min de download; fora da pasta do OneDrive, de preferência). Cada
+    CSV é extraído, lido no DuckDB e apagado, um UF por vez (`--tmp-dir`).
+    - Voto e perfil por zona são **observados** (soma dos locais); só a renda é
+      estimada (renda da área do local, média ponderada pelos adultos). Sem passo
+      `W ×` por setor.
+    - `ler_votacao_secao(..., por_partido=True)` soma por partido no SQL: Deputado
+      Federal tem ~25 milhões de linhas por candidato e não precisa passar pelo pandas.
+      Confere com `resultados.agrega_por_partido` em Teresina (30.100 linhas iguais).
+    - **Extrair o município de cada zip não escala** (relê o zip da UF por
+      município): só vale no modo município.
+    - Totais, sem o exterior (que não é território): comparecimento de Presidente 1º
+      turno 123.378.340 = oficial 123.682.372 − 304.032 do exterior; cadastro com
+      155.756.933 eleitores; Teresina bate com a rodada municipal (PT 112.479 e
+      589.264 eleitores). Deputado Federal tem ~183 mil votos a menos que Presidente
+      (voto em trânsito só vota para Presidente).
+    - 6.102 unidades, 5.570 municípios, 721 unidades em 189 municípios com várias
+      zonas. Nenhuma sem renda.
+    - Achado do modelo nacional (efeito fixo de UF, erro agrupado por município): a
+      renda domina e a escolaridade perde força, ao contrário de Teresina por local.
+      Correlação entre superior completo e log da renda por zona: 0,75.
+  - **Inferência ecológica multinível (03/10/2026, em andamento, `src/eleicoes/ei.py`).**
+    Objetivo: voto por grupo escolaridade × renda e pós-estratificação por zona. Não é
+    MRP (não há pesquisa individual); é EI bayesiana RxC em NumPyro. Sempre descrever
+    o resultado como **estimativa ecológica / associação condicional**, nunca como
+    efeito causal da escolaridade (pedido do Gil).
+    - Os limites determinísticos nas 6.102 zonas são de 0% a 96% para o PT por grupo:
+      os dados sozinhos não restringem quase nada, o resultado vem das hipóteses.
+    - **Simulação com verdade conhecida (`scripts/_teste_manual_ei.py`, dados sintéticos,
+      600 zonas)**: se o voto de cada grupo só varia entre zonas por ruído, recupera
+      as taxas (erro médio 4,7 p.p. no PT, ordem dos grupos com Spearman 0,87) mas os
+      intervalos de 90% cobrem só 42% (SVI de campo médio, estreito demais). Se o
+      contexto da zona (renda média da área) desloca o voto de todos os grupos e anda
+      junto com a composição (correlação 0,85 aqui; 0,75 entre superior e renda nos
+      dados reais), o erro vai a 30 p.p. e a **ordem dos grupos se inverte**
+      (Spearman −0,4 a −0,7). Uma covariável de contexto com erro de medida **não
+      conserta** (γ estimado 0,1 contra 0,5 verdadeiro): contexto e composição são
+      quase colineares. Não usar as taxas por grupo como resultado sem uma âncora
+      externa (pesquisa individual) ou um desenho que tire o contexto (variação
+      dentro do município).
+    - Sem Rtools não há problema aqui, mas o `jax` (dependência do NumPyro) entrou no
+      `requirements.txt`. Cada ajuste de 600 zonas leva ~1,5 min (CPU).
+    - `scripts/11_setor_ap.R` grava `setor_ap.parquet` (setor → área de ponderação do
+      Censo, via `code_weighting` do `geobr`): 468.097 setores, 14.406 áreas de
+      ponderação, e **2.993 dos 5.570 municípios têm uma área só** (a composição
+      conjunta da zona não varia dentro deles). Os microdados controlados da amostra
+      do Censo (município e área de ponderação só existem nessa versão) ainda não
+      estão nesta máquina.
   - **Sem Rtools, o `renv::restore()` falha** nos pacotes cuja versão do lock só
     existe como fonte (`duckdb`, `s2`, `enderecobr`) e aborta sem gravar nada na
     biblioteca. Instalar o binário mais recente desses
