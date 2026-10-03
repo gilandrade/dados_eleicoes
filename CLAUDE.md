@@ -44,6 +44,16 @@ Outro ano nas etapas R: `quarto render 01_locais_votacao.qmd -P ano:2018 --outpu
 01_locais_votacao_2018.html` (idem para 02) — o `--output` evita sobrescrever a
 página de 2022 no site.
 
+Análise perfil do eleitorado × voto, por município (depois de 00 e 01; não
+precisa da etapa 02 nem dos repos irmãos):
+
+```bash
+Rscript scripts/09_insumos_municipio.R 2211001 2022
+python scripts/03_pesos_alocacao.py --ano 2022 --cd-mun 2211001
+python scripts/10_perfil_voto_municipio.py --ano 2022 --cd-mun 2211001
+# depois: notebooks/perfil_voto_municipio.ipynb (CD_MUN e ANO no topo)
+```
+
 ## Architecture
 
 Five stages, two languages, parquet/gpkg as the handoff format. See `PLAN.md` for
@@ -67,6 +77,14 @@ the full data model (geometry files vs. result files joined by a shared id).
   local, em `dados/mapas_folium/` — não voltar a publicá-los (tamanho, ver abaixo).
 - **06 (Python, `scripts/06_mudanca_votacao.py`)**: mudança de votação entre
   dois anos no 2º turno, por zona × município.
+- **09–10 (análise por município, fora do fluxo da GeoReDUS)**:
+  `scripts/09_insumos_municipio.R` baixa e prepara os insumos de um município
+  (zips do TSE, CNEFE via `cnefetools`, renda por setor via `censobr`, malha de
+  setores via `geobr`, pontos dos locais com a coordenada do TSE validada);
+  `scripts/10_perfil_voto_municipio.py` cruza o cadastro dos eleitores
+  (`src/eleicoes/perfil.py`), a renda do Censo e o voto por partido (Presidente
+  e Deputado Federal) por local e por setor, em `dados/04_analise/{cd_mun}/`;
+  `notebooks/perfil_voto_municipio.ipynb` faz o descritivo e as regressões.
 
 ## Conventions and gotchas
 
@@ -79,11 +97,16 @@ the full data model (geometry files vs. result files joined by a shared id).
   A malha do geobr tem ~1% menos setores que a do IBGE usada em 2022.
 - **CRS:** tudo em EPSG:4674 nas saídas para a GeoReDUS. Cálculos de distância usam
   EPSG:5880 (SIRGAS 2000 / Brazil Polyconic), métrico nacional.
-- **geobr 2.1.0** (a restrição a 1.9.1 caiu; atualizado na branch `analise-perfil-voto`).
-- **`geobr::read_municipality(..., showProgress = FALSE)` devolve `NULL` em silêncio**
-  ao renderizar via `quarto render` (fora de um console interativo) — confirmado em
-  25/09/2026. Deixar `showProgress` no padrão (`TRUE`, omitir o argumento), mesmo que
-  isso jogue a barra de progresso no output do Quarto.
+- **geobr 2.1.0** (03/10/2026, decisão do Gil: usar os pacotes mais recentes; o
+  `cnefetools` 0.3.0 exige `geobr >= 2.0.0`). Antes era fixado em 1.9.1 porque a
+  2.x quebrava o catálogo de malhas. Conferido na 2.1.0: `read_municipality(year =
+  2022)` devolve os 5.570 municípios e `read_census_tract(year = 2022, code_tract
+  = cd_mun)` funciona. `year` agora é o primeiro argumento e obrigatório; `code_muni`
+  e `code_tract` vêm como número (double), não texto.
+- **`geobr::read_municipality(..., showProgress = FALSE)` devolvia `NULL` em silêncio**
+  ao renderizar via `quarto render` na 1.9.1 (25/09/2026). Na 2.1.0 a mesma chamada
+  devolveu as 5.570 linhas via `Rscript`; dentro do `quarto render` não foi
+  retestada, então `00_auxiliares.qmd` segue com o padrão (`TRUE`).
 - **Ids são texto**, no formato IBGE/TSE (nunca inteiro, para preservar zeros à
   esquerda): `id_local`, `id_secao`, `id_zona_mun`, `cd_mun`, `cd_setor`.
 - **Camadas observadas vs. estimadas:** `geom_locais_votacao` e
@@ -418,3 +441,46 @@ the full data model (geometry files vs. result files joined by a shared id).
   ~55 min, 44 só na alocação dos domicílios). `06_mudanca_votacao.py` aceita
   `--turno` (2022→2026 no 1º turno: Lula × bolsonarista, demais candidatos no
   "não-voto" da base dos aptos).
+- **Análise perfil × voto por município (03/10/2026, Teresina 2022).** O
+  processamento por município é independente dos repos irmãos:
+  - **`pop18` vem do `censobr`** (`00_auxiliares.qmd`), não mais do `cn22-pop`.
+    `code_tract` é double (15 dígitos, sem perda): virar texto com
+    `sprintf("%.0f", ...)`. O total é `V0001` em `Basico`; as faixas etárias estão
+    em `Pessoas` com o prefixo da tabela (`demografia_V01031`...). Renda do
+    responsável em `ResponsavelRenda`: `V06004` é a média e `V06006` a mediana
+    (dos responsáveis com rendimento). O `pop18` novo não foi comparado com o
+    do `cn22-pop` (o repo não está nesta máquina).
+  - **`03_pesos_alocacao.py --cd-mun`** lê `cnefe_{cd_mun}.parquet` e
+    `setores_{cd_mun}.gpkg` (etapa 09; a main já não depende dos repos irmãos). Sem a camada nacional de pontos (etapa 02), usa
+    `geom_locais_votacao_{ano}_{cd_mun}.gpkg`, que só valida a coordenada do TSE:
+    local reprovado vai ao centróide e fica fora da alocação. A etapa 09 para se
+    isso passar de 1% dos inscritos (em Teresina: 5 locais, 0,82%).
+  - **`COD_SETOR` do CNEFE lido pelo `cnefetools` também tem o sufixo `"P"`.**
+  - **Deputado Federal** é `CD_CARGO = 6` e só existe em
+    `votacao_secao_{ano}_{UF}.zip`; Presidente só no `_BR`. Candidato tem 4
+    dígitos e voto de legenda tem 2: `resultados.agrega_por_partido` reduz tudo
+    aos 2 primeiros dígitos, e o resto de `resultados.py` serve sem mudança.
+  - **`perfil_eleitor_secao_{ano}_{UF}.zip` muda de cabeçalho entre os anos**:
+    `QT_ELEITORES_PERFIL` em 2022, `QT_ELEITORES` em 2026 (e `AA_ELEICAO` no
+    lugar de `ANO_ELEICAO`). Raça/cor vem `#NE` em 2022 e preenchida em 2026.
+    `CD_FAIXA_ETARIA` junta os limites da faixa (`4549` = 45 a 49; `1900` = 19;
+    `9999` = 100 ou mais; `-3` = inválida).
+  - **O perfil é ligado ao local por `secao_local`**, não pelo
+    `NR_LOCAL_VOTACAO` do arquivo: as seções agregadas votam no local da
+    principal. Em Teresina o cadastro tem 1.845 seções e os votos, 1.678.
+  - **duckdb devolve o nome da coluna como está no CSV** quando ela é
+    selecionada sem alias (`sg_uf` saía `SG_UF`, `nm_votavel` saía
+    `NM_VOTAVEL`). Sempre `coluna as coluna` nos leitores de `fontes.py`.
+  - **Conferência de Teresina 2022:** 589.264 eleitores no cadastro (igual à
+    soma de `qt_eleitores`); Deputado Federal com comparecimento 498.721 =
+    nominais 428.842 + legenda 18.313 + brancos 27.072 + nulos 24.494, PT
+    112.479; 98,7% a 98,9% dos válidos chegam ao setor.
+  - **Na tabela por setor, os setores do mesmo local repetem o voto dele.** A
+    variação independente é a dos ~300 locais, não a dos ~1.400 setores: as
+    regressões por setor agrupam o erro padrão por `id_local_dominante`.
+  - **Sem Rtools, o `renv::restore()` falha** nos pacotes cuja versão do lock só
+    existe como fonte (`duckdb`, `s2`, `enderecobr`) e aborta sem gravar nada na
+    biblioteca. Instalar o binário mais recente desses
+    (`renv::install(..., type = "binary")`) e repetir o restore excluindo-os.
+    Por isso o lock passou a `duckdb` 1.5.6, `s2` 1.1.13, `enderecobr` 0.6.1 e
+    `geocodebr` 0.7.0 — a etapa 02 não foi rodada de novo com essas versões.

@@ -68,6 +68,29 @@ python scripts/05_gera_mapas.py --ano 2022 --turno 1
 sem precisar das etapas 01–03 — útil para um ano ainda não processado e como
 validação cruzada.
 
+## Análise: perfil do eleitorado × voto por partido (por município)
+
+Cruza o voto por partido (Presidente e Deputado Federal) com a escolaridade do
+cadastro eleitoral e a renda do Censo 2022, para um município de cada vez. Não
+depende de outros repositórios: o CNEFE vem do `cnefetools`, o Censo do `censobr`
+e as malhas do `geobr`. Precisa das etapas 00 e 01 já rodadas.
+
+```bash
+# exemplo: Teresina-PI (código IBGE 2211001), eleição de 2022
+Rscript scripts/09_insumos_municipio.R 2211001 2022
+python scripts/03_pesos_alocacao.py --ano 2022 --cd-mun 2211001
+python scripts/10_perfil_voto_municipio.py --ano 2022 --cd-mun 2211001
+```
+
+As tabelas saem em `dados/04_analise/{cd_mun}/`: por local de votação (voto e
+cadastro observados) e por setor censitário (voto e cadastro estimados, renda
+observada). O descritivo e as regressões estão em
+`notebooks/perfil_voto_municipio.ipynb`; para outro município, trocar `CD_MUN` no
+topo do notebook.
+
+Os resultados são agregados por local ou setor: mostram onde cada partido vai
+melhor, não como vota cada grupo de eleitores.
+
 `dados/`, `venv/` e `renv/library/` são git-ignorados — ver `PLAN.md` para as fontes
 e como baixá-los. `.env` (a chave do CARTO) também é git-ignorado — ver `.env.example`.
 
