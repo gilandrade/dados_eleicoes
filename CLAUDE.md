@@ -530,6 +530,34 @@ the full data model (geometry files vs. result files joined by a shared id).
       conjunta da zona não varia dentro deles). Os microdados controlados da amostra
       do Censo (município e área de ponderação só existem nessa versão) ainda não
       estão nesta máquina.
+  - **Renda calibrada pelos microdados controlados da amostra do Censo (04/10/2026).**
+    `scripts/12_celulas_censo_amostra.py` lê o zip de acesso controlado
+    (`config.MICRODADOS_CENSO_ZIP`, em `dados/`, git-ignorado e **não redistribuível**) e
+    grava só agregados por área de ponderação (`celulas_censo_ap.parquet`,
+    `renda_ap.parquet`): 1,4 min, extraindo e apagando um UF por vez. `Pessoas` e
+    `Domicilios` ligam por `Controle` (único por UF); `P0090` é a área de ponderação,
+    `P0111` o peso (a soma bate exato com a população do Censo, 203.080.756), `D0360` a
+    renda domiciliar per capita (395 domicílios sem valor só no PI; 0,46% das pessoas
+    16+ no Brasil), `P0760` a instrução (1 a 7, sem lacunas), `P0520` a nacionalidade
+    (1 a 3). População usada: 16+ e `P0520 != 3` = 159.445.362 (o cadastro tem
+    155.756.933 eleitores sem o exterior, ~97,7%).
+    - 14.270 áreas de ponderação nos microdados; as 136 do `geobr` que faltam não têm
+      habitante (252 setores com `pop18` 0). Cada área tem ≥ 356 pessoas na amostra, mas
+      32% das **células** (área × escolaridade × renda) têm menos de 30: usar
+      `n_amostra` e confirmar com as regras da sala de acesso antes de tirar células
+      pequenas da máquina.
+    - `10_perfil_voto_municipio.py` (modo país) ganhou `renda_calibrada_por_zona`: padrão
+      espacial dos setores, nível dos microdados (`g_s = renda_pc_media[ap] ×
+      renda_media_resp[s] / r̄[ap]`). Colunas `renda_pc_cal`, `renda_pc_ap`,
+      `renda_pc_mediana_ap`, `pc_renda_baixa_ap`, `pc_renda_alta_ap`.
+    - **Resultado: trocar a medida de renda quase não muda a regressão nacional.** A
+      correlação entre o log da renda per capita dos microdados e o da renda do
+      responsável dos setores, por área de ponderação, é 0,97. PT no 1º turno: superior
+      completo +1,8 (antes) contra +1,9 (calibrada); renda (log) −6,6 contra −6,9. Logo, o
+      sinal positivo da escolaridade **não** é artefato do erro de medida da renda entre
+      áreas. O que não dá para validar é o erro **dentro** da área de ponderação (os
+      microdados não têm setor). Calibrada e "só da área" correlacionam 1,00 por zona: no
+      país, quase toda a variação da renda entre zonas é entre áreas.
   - **Sem Rtools, o `renv::restore()` falha** nos pacotes cuja versão do lock só
     existe como fonte (`duckdb`, `s2`, `enderecobr`) e aborta sem gravar nada na
     biblioteca. Instalar o binário mais recente desses

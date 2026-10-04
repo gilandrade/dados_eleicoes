@@ -100,6 +100,17 @@ python scripts/10_perfil_voto_municipio.py --ano 2022 --zips-dir D:/tse2022 --tm
 
 Leva cerca de 7 minutos depois de baixar os arquivos.
 
+Opcional: com os microdados da amostra do Censo 2022 (acesso controlado, não
+versionados), a renda da zona também sai calibrada por renda domiciliar per capita
+da população em idade de votar:
+
+```bash
+Rscript scripts/11_setor_ap.R
+python scripts/12_celulas_censo_amostra.py
+```
+
+Só contagens agregadas por área de ponderação são gravadas em `dados/`.
+
 Os resultados são agregados por local, setor ou zona: mostram onde cada partido vai
 melhor, não como vota cada grupo de eleitores.
 
