@@ -42,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from eleicoes import fontes, perfil, resultados
@@ -51,6 +52,7 @@ from eleicoes.config import (
     CARGO_DEPUTADO_FEDERAL,
     CARGO_PRESIDENTE,
     CODIGOS_NAO_CANDIDATO,
+    POP18_SETOR_PARQUET,
     PROCESSADO_DIR,
     RESULTADOS_DIR,
 )
@@ -285,6 +287,80 @@ def resultados_com_indicadores(res: pd.DataFrame, prefixo: str) -> pd.DataFrame:
     return com_prefixo(res, prefixo, "id_zona_mun")
 
 
+def renda_calibrada_por_zona(
+    pesos: pd.DataFrame,
+    locais: pd.DataFrame,
+    censo_setor: pd.DataFrame,
+    setor_ap: pd.DataFrame,
+    renda_ap: pd.DataFrame,
+    pop18: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Renda per capita da população em idade de votar, por zona, calibrada pelos microdados.
+
+    Dois problemas da renda por setor (renda média do *responsável*, só com rendimento):
+    mede outra coisa que a renda dos eleitores, e o erro de medida não é observável. Os
+    microdados da amostra do Censo (`scripts/12_celulas_censo_amostra.py`) dão, por área
+    de ponderação, a renda domiciliar per capita das pessoas de 16 anos ou mais, mas numa
+    escala geográfica mais grossa (14.406 áreas contra 468 mil setores).
+
+    Combinação: o **padrão espacial** dentro de cada área vem dos setores e o **nível**
+    vem dos microdados. Para o setor `s` da área `a`:
+
+        g_s = renda_pc_media[a] × renda_media_resp[s] / r̄[a]
+
+    com `r̄[a]` a média da renda do responsável nos setores da área (ponderada pelos
+    adultos do setor). Por construção, a média de `g` na área (ponderada pelos adultos)
+    bate com a dos microdados e a ordem dos setores dentro da área é preservada. A zona
+    recebe a média de `g` ponderada pelos adultos que cada setor manda para os locais dela.
+
+    Também devolve as estatísticas só por área de ponderação (sem a parte espacial), que
+    não dependem da renda do responsável.
+
+    Returns:
+        `(zonas, validacao)`. `zonas`: `id_zona_mun`, `renda_pc_cal`, `renda_pc_ap`,
+        `renda_pc_mediana_ap`, `pc_renda_baixa_ap`, `pc_renda_alta_ap`. `validacao`: por
+        área, `renda_pc_media` (microdados) e `r_ap` (setores), para medir a concordância.
+    """
+    setores = (
+        setor_ap.merge(censo_setor[["cd_setor", "renda_media_resp"]], on="cd_setor", how="left")
+        .merge(pop18, on="cd_setor", how="left")
+        .dropna(subset=["renda_media_resp", "pop18"])
+    )
+    setores = setores.loc[setores["pop18"] > 0]
+    r_ap = (
+        (setores["renda_media_resp"] * setores["pop18"]).groupby(setores["cd_ap"]).sum()
+        / setores.groupby("cd_ap")["pop18"].sum()
+    ).rename("r_ap")
+
+    area = renda_ap.merge(r_ap, on="cd_ap", how="left")
+    validacao = area[["cd_ap", "cd_mun", "pop16_pond", "renda_pc_media", "r_ap"]]
+
+    local_zona = locais[["id_local", "id_zona_mun"]]
+    adultos = (
+        pesos.merge(local_zona, on="id_local")
+        .groupby(["id_zona_mun", "cd_setor"], as_index=False)["adultos"].sum()
+        .merge(setor_ap[["cd_setor", "cd_ap"]], on="cd_setor")
+        .merge(censo_setor[["cd_setor", "renda_media_resp"]], on="cd_setor", how="left")
+        .merge(area.drop(columns="cd_mun"), on="cd_ap", how="inner")
+    )
+    adultos["g"] = adultos["renda_pc_media"] * adultos["renda_media_resp"] / adultos["r_ap"]
+
+    def media_ponderada(df: pd.DataFrame, coluna: str) -> pd.Series:
+        ok = df.dropna(subset=[coluna])
+        return (ok[coluna] * ok["adultos"]).groupby(ok["id_zona_mun"]).sum() / ok.groupby(
+            "id_zona_mun"
+        )["adultos"].sum()
+
+    zonas = pd.DataFrame({
+        "renda_pc_cal": media_ponderada(adultos, "g"),
+        "renda_pc_ap": media_ponderada(adultos, "renda_pc_media"),
+        "renda_pc_mediana_ap": media_ponderada(adultos, "renda_pc_mediana"),
+        "pc_renda_baixa_ap": media_ponderada(adultos, "pc_renda_baixa"),
+        "pc_renda_alta_ap": media_ponderada(adultos, "pc_renda_alta"),
+    }).reset_index()
+    return zonas, validacao
+
+
 def main_brasil(ano: int, zips_dir: Path, tmp_dir: Path) -> None:
     inicio = time.time()
 
@@ -335,6 +411,27 @@ def main_brasil(ano: int, zips_dir: Path, tmp_dir: Path) -> None:
         renda_zona[f"{col}_area"] = soma / ok.groupby("id_zona_mun")["adultos"].sum()
     tabela = tabela.merge(pd.DataFrame(renda_zona).reset_index(), on="id_zona_mun", how="left")
     marca("perfil e renda por zona prontos")
+
+    # Renda calibrada pelos microdados da amostra do Censo (etapas 11 e 12), se existirem.
+    aux = PROCESSADO_DIR / "aux"
+    insumos = [aux / "setor_ap.parquet", aux / "renda_ap.parquet", POP18_SETOR_PARQUET]
+    if all(c.exists() for c in insumos):
+        zonas_renda, validacao = renda_calibrada_por_zona(
+            pesos, locais, censo_setor, pd.read_parquet(insumos[0]),
+            pd.read_parquet(insumos[1]), pd.read_parquet(insumos[2]),
+        )
+        tabela = tabela.merge(zonas_renda, on="id_zona_mun", how="left")
+        v = validacao.dropna(subset=["renda_pc_media", "r_ap"])
+        v = v.loc[(v["renda_pc_media"] > 0) & (v["r_ap"] > 0)]
+        corr = np.corrcoef(np.log(v["renda_pc_media"]), np.log(v["r_ap"]))[0, 1]
+        marca(
+            f"renda calibrada: {len(v)} áreas de ponderação; correlação entre o log da renda "
+            f"per capita dos microdados e o log da renda do responsável dos setores: {corr:.2f}"
+        )
+        (ANALISE_DIR / "BR").mkdir(parents=True, exist_ok=True)
+        validacao.to_parquet(ANALISE_DIR / "BR" / f"renda_ap_validacao_{ano}.parquet", index=False)
+    else:
+        marca("sem setor_ap/renda_ap: renda calibrada não calculada (rodar scripts 11 e 12)")
 
     # ==== Votos por partido ====================================================
     csv_br = extrai_csv(zips_dir / f"votacao_secao_{ano}_BR.zip", f"votacao_secao_{ano}_BR.csv", tmp_dir)

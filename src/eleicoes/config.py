@@ -46,6 +46,23 @@ POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 SETORES_MUN_DIR = BRUTO_DIR / "aux" / "setores"
 SETORES_2022_GPKG = SETORES_MUN_DIR / "BR_setores_CD2022.gpkg"
 
+# Microdados da amostra do Censo 2022, acesso controlado (município e área de
+# ponderação só existem nessa versão). Ficam em `dados/` (git-ignorado) e **não
+# podem ser redistribuídos**: só contagens agregadas por área de ponderação saem
+# daqui (`scripts/12_celulas_censo_amostra.py`).
+MICRODADOS_CENSO_ZIP = (
+    BRUTO_DIR / "microdados" / "acesso_controlado"
+    / "microdados_censo_amostra_2022_csv_20260923_175502.zip"
+)
+# Salário mínimo de julho de 2022, mês de referência da renda no Censo.
+SALARIO_MINIMO_2022 = 1212
+# Cortes da renda domiciliar per capita, em salários mínimos: até 1/2, de 1/2 a 2, mais de 2.
+CORTES_RENDA_PC_SM = (0.5, 2.0)
+# `P0760` (nível de instrução do Censo) -> as 4 faixas de `perfil.GRUPOS_ESCOLARIDADE`:
+# 1,2 sem instrução ou fundamental incompleto; 3,4 fundamental completo ou médio
+# incompleto; 5,6 médio completo ou superior incompleto; 7 superior completo.
+ESCOLARIDADE_CENSO_PARA_FAIXA = {1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3, 7: 4}
+
 # ==== CRS ====================================================================
 
 CRS_WGS84 = 4326
