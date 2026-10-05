@@ -22,7 +22,9 @@
     },
     zona_mun_presidente: { tipo: "zona_mun", cores: "div", legendaPorAno: true },
     mudanca: { tipo: "mudanca", cores: "div" },
+    mudanca_tipo: { tipo: "mudanca", cores: "tipo", posClasse: 5 },
   };
+  const ehMapaMudanca = (chave) => MAPAS[chave].tipo === "mudanca";
 
   const el = (id) => document.getElementById(id);
   const cache = {};
@@ -37,6 +39,9 @@
   const fmtPp = (v) =>
     v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") +
       (Math.abs(v) / 10).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " p.p.";
+  const fmtCresc = (v) =>
+    v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") +
+      (Math.abs(v) / 10).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
   const fmtNum = (v) => (v == null ? "—" : v.toLocaleString("pt-BR"));
   const escapa = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -59,7 +64,7 @@
   function gravarHash(estado) {
     estado = estado || estadoAtual();
     const p = new URLSearchParams({ mapa: estado.mapa });
-    if (estado.mapa !== "mudanca") {
+    if (!ehMapaMudanca(estado.mapa)) {
       p.set("ano", estado.ano);
       p.set("turno", estado.turno);
     }
@@ -76,7 +81,7 @@
   function preencheSeletores(estado) {
     const selAno = el("sel-ano");
     const selTurno = el("sel-turno");
-    if (estado.mapa === "mudanca") {
+    if (ehMapaMudanca(estado.mapa)) {
       const [a, b] = config.disponivel.mudanca[0];
       selAno.innerHTML = `<option>${a} → ${b}</option>`;
       selTurno.innerHTML = "<option>2º</option>";
@@ -136,7 +141,8 @@
   // ==== Camadas ===============================================================
 
   function corDaClasse(classe, paleta) {
-    const cores = paleta === "seq" ? config.cores_sequenciais : config.cores_divergentes;
+    const cores = paleta === "seq" ? config.cores_sequenciais
+      : paleta === "tipo" ? config.cores_tipo_mudanca : config.cores_divergentes;
     return classe >= 0 ? cores[classe] : config.cor_sem_dado;
   }
 
@@ -221,7 +227,9 @@
   }
 
   async function camadaPoligonos(estado) {
-    const ehMudanca = estado.mapa === "mudanca";
+    const ehMudanca = ehMapaMudanca(estado.mapa);
+    const posClasse = MAPAS[estado.mapa].posClasse || 0;
+    const paleta = MAPAS[estado.mapa].cores;
     const [anoAntes, anoDepois] = ehMudanca ? config.disponivel.mudanca[0] : [null, estado.ano];
     const arquivoDados = ehMudanca
       ? `mudanca_${anoAntes}_${anoDepois}_t2.json`
@@ -233,7 +241,7 @@
       const d = dados[f.properties.id];
       const virou = ehMudanca && d && d[4] === 1;
       return {
-        fillColor: corDaClasse(d ? d[0] : -1, "div"),
+        fillColor: corDaClasse(d ? d[posClasse] : -1, paleta),
         fillOpacity: 0.85,
         color: virou ? "#1f1f1f" : "#ffffff",
         weight: virou ? 1.6 : 0.4,
@@ -248,8 +256,12 @@
         html +=
           `PT em ${anoAntes} (${escapa(config.nome_pt[String(anoAntes)])}): ${fmtPct(d[1])}<br>` +
           `PT em ${anoDepois} (${escapa(config.nome_pt[String(anoDepois)])}): ${fmtPct(d[2])}<br>` +
-          `Variação: <b>${fmtPp(d[3])}</b>` +
-          (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "");
+          `Variação nos votos válidos: <b>${fmtPp(d[3])}</b>` +
+          (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "") +
+          `<br><span class="tt-nota">Sobre o eleitorado inscrito:</span>` +
+          `<br>${escapa(config.nome_pt[String(anoDepois)])}: <b>${fmtPp(d[6])}</b> (votos ${fmtCresc(d[9])})` +
+          `<br>Bolsonaro: <b>${fmtPp(d[7])}</b> (votos ${fmtCresc(d[10])})` +
+          `<br>Abstenção, brancos e nulos: <b>${fmtPp(d[8])}</b>`;
       } else {
         html += linhaPresidente(d[1], d[2], estado.ano) + maisVotado(d[5], res.candidatos, estado.ano) +
           `<br>Comparecimento: ${fmtNum(d[4])} votos`;

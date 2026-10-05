@@ -382,6 +382,16 @@ the full data model (geometry files vs. result files joined by a shared id).
   `config.NR_BOLSONARO_POR_ANO`). Nunca comparar `nr_vencedor` entre anos
   diretamente: o primeiro `mudou_vencedor` fazia isso e marcava como virada
   todo lugar que ele venceu duas vezes.
+- **Mudança de votação tem duas bases (05/10/2026).** `var_pc_validos_pt` é o
+  swing de Butler: com dois candidatos mostra quem ganhou terreno relativo, mas
+  não vê mudança no tamanho do bolo (30×20 → 50×50 dá −10 p.p. embora o PT tenha
+  +66,7% de votos). As colunas sobre o **eleitorado apto** (`pc_aptos_*`,
+  `var_pc_aptos_*`, `tipo_mudanca`; PT + Bolsonaro + não-voto = 100%, variações
+  somam 0) mostram de onde veio o movimento. Os dois mapas ficam no site
+  (`mudanca` e `mudanca_tipo`); a GeoReDUS ainda só tem a classe do swing.
+  `tipo_mudanca` descreve o saldo agregado da zona, nunca eleitores que trocaram
+  de lado. `mudanca_votacao` só gera as colunas novas se receber
+  `nr_bolsonaro_antes/depois`.
 - **Zonas 2018 × 2022 quase idênticas** (medido em 29/09/2026): mesmo
   conjunto de zonas nos 189 municípios com várias; 99,84% dos locais na mesma
   zona. Só 36 municípios de zona única trocaram o número —

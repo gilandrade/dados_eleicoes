@@ -22,6 +22,7 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
       <optgroup label="Zona eleitoral × município (áreas)">
         <option value="zona_mun_presidente">Presidente — % dos votos válidos</option>
         <option value="mudanca">Mudança de votação 2018 → 2022 (2º turno)</option>
+        <option value="mudanca_tipo">De onde veio a mudança 2018 → 2022 (% do eleitorado)</option>
       </optgroup>
     </select>
   </label>
@@ -52,7 +53,14 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
   for o caso.
 - A **mudança de votação** compara o candidato do PT (Haddad em 2018, Lula em
   2022) contra Bolsonaro no 2º turno, zona a zona. Entre as duas eleições as
-  zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona.
+  zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor
+  mede o ganho do PT *nos votos válidos*; não enxerga mudança na abstenção,
+  nos brancos e nos nulos.
+- **De onde veio a mudança** repete a comparação sobre o *eleitorado inscrito*:
+  PT, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem
+  teve o saldo e se o movimento veio de um candidato crescer enquanto o outro
+  cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da
+  zona, não eleitores que trocaram de lado.
 - Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome
   de rua) ficam fora do mapa de pontos, mas entram nos totais — nenhum ponto é
   desenhado no centro do município.

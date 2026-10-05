@@ -48,6 +48,29 @@ def cores_divergentes() -> list[str]:
     return [*reversed(RAMPA_PT), COR_EMPATE, *RAMPA_BOLSONARO]
 
 
+# Mapa "de onde veio a mudança" (sobre o eleitorado apto): cor = quem teve o
+# saldo, tom = mecanismo. Mesmo valor de `tipo_mudanca` em `resultados.py`.
+# Escuro: um sobe e o outro cai; médio: os dois sobem; claro: os dois caem.
+TIPOS_MUDANCA = [
+    ("pt_troca", "PT cresceu, Bolsonaro caiu", RAMPA_PT[4]),
+    ("pt_ambos_cresceram", "Os dois cresceram, PT mais", RAMPA_PT[2]),
+    ("pt_ambos_cairam", "Os dois caíram, PT menos", RAMPA_PT[0]),
+    ("bolsonaro_ambos_cairam", "Os dois caíram, Bolsonaro menos", RAMPA_BOLSONARO[0]),
+    ("bolsonaro_ambos_cresceram", "Os dois cresceram, Bolsonaro mais", RAMPA_BOLSONARO[2]),
+    ("bolsonaro_troca", "Bolsonaro cresceu, PT caiu", RAMPA_BOLSONARO[4]),
+]
+
+
+def cores_tipo_mudanca() -> list[str]:
+    return [cor for _, _, cor in TIPOS_MUDANCA]
+
+
+def classifica_tipo_mudanca(tipos: pd.Series) -> np.ndarray:
+    """Índice em `TIPOS_MUDANCA`, NaN/desconhecido = `SEM_DADO`."""
+    indice = {chave: i for i, (chave, _, _) in enumerate(TIPOS_MUDANCA)}
+    return tipos.map(indice).fillna(SEM_DADO).astype(int).to_numpy()
+
+
 def classifica_divergente(valores: pd.Series, quebras: tuple[float, ...]) -> np.ndarray:
     """Índice em `cores_divergentes()`. Positivo = PT, negativo = Bolsonaro,
     exatamente 0 = empate, NaN = `SEM_DADO`."""
@@ -98,6 +121,19 @@ def legenda_mudanca() -> dict:
         cores_divergentes(),
         rotulos,
         nota="Contorno escuro: a zona trocou de vencedor.",
+    )
+
+
+def legenda_tipo_mudanca(ano_antes: int, ano_depois: int) -> dict:
+    return _legenda(
+        f"De onde veio a mudança, {ano_antes} → {ano_depois} (% do eleitorado)",
+        cores_tipo_mudanca(),
+        [rotulo for _, rotulo, _ in TIPOS_MUDANCA],
+        nota=(
+            "Saldo da zona em votos sobre os inscritos; \"cresceram\" significa que a "
+            "abstenção, os brancos e os nulos encolheram. Não indica eleitores que "
+            "trocaram de lado."
+        ),
     )
 
 

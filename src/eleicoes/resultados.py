@@ -312,13 +312,23 @@ def mudanca_votacao(
     ano_depois: int,
     nr_pt: int,
     chave: str = "cd_mun",
+    nr_bolsonaro_antes: int | None = None,
+    nr_bolsonaro_depois: int | None = None,
 ) -> pd.DataFrame:
     """Compara dois resultados (já com `calcula_indicadores`) pela coluna `chave`.
 
     Pensado para o 2º turno, com só dois candidatos — o Δ do PT é o espelho
     exato do Δ de Bolsonaro nesse caso. `nr_vencedor` (já calculado por
     `calcula_indicadores`) é o que decide a virada, então o número do
-    Bolsonaro (que muda de partido a cada eleição) não entra aqui.
+    Bolsonaro (que muda de partido a cada eleição) não entra nessa parte.
+
+    Duas bases de comparação:
+      - **votos válidos** (`var_pc_validos_pt`): o swing de Butler, quem ganhou
+        terreno relativo. Não vê mudança no tamanho do bolo (abstenção, brancos
+        e nulos).
+      - **eleitorado apto** (só se `nr_bolsonaro_*` forem passados): PT,
+        Bolsonaro e não-voto somam 100% dos aptos, então as três variações
+        somam zero e mostram de onde veio o movimento.
 
     Com `chave="id_zona_mun"`, passar `res_antes` por `alinha_zona_mun`
     antes. O exterior (`SENTINELA_EXTERIOR`) é descartado: não é território,
@@ -352,6 +362,74 @@ def mudanca_votacao(
         default="virou_bolsonaro",
     )
     df["mudou_vencedor"] = pt_antes != pt_depois
+
+    if nr_bolsonaro_antes is not None and nr_bolsonaro_depois is not None:
+        df = _acrescenta_base_aptos(
+            df, res_antes, res_depois, chave=chave, nr_pt=nr_pt,
+            nr_bolsonaro={ano_antes: nr_bolsonaro_antes, ano_depois: nr_bolsonaro_depois},
+            ano_antes=ano_antes, ano_depois=ano_depois,
+        )
+    return df
+
+
+def _acrescenta_base_aptos(
+    df: pd.DataFrame,
+    res_antes: pd.DataFrame,
+    res_depois: pd.DataFrame,
+    *,
+    chave: str,
+    nr_pt: int,
+    nr_bolsonaro: dict[int, int],
+    ano_antes: int,
+    ano_depois: int,
+) -> pd.DataFrame:
+    """Colunas da mudança sobre o eleitorado apto (ver `mudanca_votacao`).
+
+    `qt_aptos == 0` vira NA (mesma regra de `calcula_indicadores`), e a linha
+    fica sem `tipo_mudanca`.
+    """
+    def prepara(res: pd.DataFrame, ano: int) -> pd.DataFrame:
+        base = res[~res[chave].str.startswith(SENTINELA_EXTERIOR)]
+        aptos = pd.to_numeric(base["qt_aptos"], errors="coerce").replace(0, np.nan)
+        return pd.DataFrame({
+            chave: base[chave],
+            f"qt_votos_pt_{ano}": base[f"qt_votos_{nr_pt}"],
+            f"qt_votos_bolsonaro_{ano}": base[f"qt_votos_{nr_bolsonaro[ano]}"],
+            f"qt_aptos_{ano}": aptos,
+        })
+
+    df = df.merge(prepara(res_antes, ano_antes), on=chave, how="left").merge(
+        prepara(res_depois, ano_depois), on=chave, how="left"
+    )
+    for ano in (ano_antes, ano_depois):
+        aptos = df[f"qt_aptos_{ano}"]
+        df[f"pc_aptos_pt_{ano}"] = df[f"qt_votos_pt_{ano}"] / aptos
+        df[f"pc_aptos_bolsonaro_{ano}"] = df[f"qt_votos_bolsonaro_{ano}"] / aptos
+        df[f"pc_aptos_nao_voto_{ano}"] = (
+            1 - df[f"pc_aptos_pt_{ano}"] - df[f"pc_aptos_bolsonaro_{ano}"]
+        )
+
+    for parte in ("pt", "bolsonaro", "nao_voto"):
+        df[f"var_pc_aptos_{parte}"] = (
+            df[f"pc_aptos_{parte}_{ano_depois}"] - df[f"pc_aptos_{parte}_{ano_antes}"]
+        )
+    df["var_rel_votos_pt"] = df[f"qt_votos_pt_{ano_depois}"] / df[f"qt_votos_pt_{ano_antes}"].replace(0, np.nan) - 1
+    df["var_rel_votos_bolsonaro"] = (
+        df[f"qt_votos_bolsonaro_{ano_depois}"] / df[f"qt_votos_bolsonaro_{ano_antes}"].replace(0, np.nan) - 1
+    )
+    df["var_rel_aptos"] = df[f"qt_aptos_{ano_depois}"] / df[f"qt_aptos_{ano_antes}"] - 1
+
+    # Saldo (quem ganhou mais eleitorado) × mecanismo (um sobe e o outro cai,
+    # os dois sobem — o não-voto encolheu —, ou os dois caem). Descreve o saldo
+    # agregado da zona, não eleitores que mudaram de lado.
+    d_pt, d_bo = df["var_pc_aptos_pt"], df["var_pc_aptos_bolsonaro"]
+    saldo = np.where(d_pt - d_bo >= 0, "pt", "bolsonaro")
+    mecanismo = np.select(
+        [(d_pt > 0) & (d_bo < 0) | (d_pt < 0) & (d_bo > 0), (d_pt >= 0) & (d_bo >= 0)],
+        ["troca", "ambos_cresceram"],
+        default="ambos_cairam",
+    )
+    df["tipo_mudanca"] = np.where(d_pt.isna() | d_bo.isna(), None, pd.Series(saldo).str.cat(pd.Series(mecanismo), sep="_"))
     return df
 
 

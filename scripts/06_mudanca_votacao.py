@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pandas as pd
 
 from eleicoes import exporta, resultados
-from eleicoes.config import NR_PT, RESULTADOS_DIR
+from eleicoes.config import NR_BOLSONARO_POR_ANO, NR_PT, RESULTADOS_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -52,6 +52,12 @@ def main(ano_antes: int, ano_depois: int) -> None:
     mudanca = resultados.mudanca_votacao(
         res_antes, res_depois,
         ano_antes=ano_antes, ano_depois=ano_depois, nr_pt=NR_PT, chave="id_zona_mun",
+        nr_bolsonaro_antes=NR_BOLSONARO_POR_ANO[ano_antes],
+        nr_bolsonaro_depois=NR_BOLSONARO_POR_ANO[ano_depois],
+    )
+    logger.info(
+        "Tipo de mudança (sobre aptos): %s | zonas sem qt_aptos: %d",
+        mudanca["tipo_mudanca"].value_counts().to_dict(), mudanca["tipo_mudanca"].isna().sum(),
     )
 
     territorio = lambda df: set(df.loc[~df["id_zona_mun"].str.startswith(resultados.SENTINELA_EXTERIOR), "id_zona_mun"])

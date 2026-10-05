@@ -200,6 +200,43 @@ assert len(mudanca_zm) == 3  # exterior fora, os três territórios casados
 assert mudanca_zm.set_index("id_zona_mun").loc["10000000020", "sentido_virada"] == "virou_pt"
 assert not mudanca_zm.set_index("id_zona_mun").loc["20000000002", "mudou_vencedor"]
 
+# ---- 6c. mudança sobre o eleitorado apto -------------------------------------
+# Zona A: o exemplo 30 x 20 -> 50 x 50 (100 aptos nos dois anos). O swing nos
+# válidos cai 10 p.p., mas o PT ganha 20 p.p. do eleitorado (+66,7% de votos).
+# Zona B: PT sobe e Bolsonaro cai (troca). Zona C: os dois caem (não-voto cresce).
+
+def _res_aptos(votos_pt, votos_bo, aptos, nr_bo):
+    df = pd.DataFrame({
+        "id_zona_mun": ["10000000001", "20000000001", "30000000001"],
+        "qt_votos_13": votos_pt, f"qt_votos_{nr_bo}": votos_bo, "qt_aptos": aptos,
+    })
+    validos = df["qt_votos_13"] + df[f"qt_votos_{nr_bo}"]
+    df["pc_validos_13"] = df["qt_votos_13"] / validos
+    df["nr_vencedor"] = np.where(df["qt_votos_13"] > df[f"qt_votos_{nr_bo}"], 13, nr_bo)
+    return df
+
+ap_2018 = _res_aptos([30, 40, 40], [20, 40, 40], [100, 100, 100], 17)
+ap_2022 = _res_aptos([50, 55, 30], [50, 30, 30], [100, 100, 100], 22)
+m_ap = resultados.mudanca_votacao(
+    ap_2018, ap_2022, ano_antes=2018, ano_depois=2022, nr_pt=13, chave="id_zona_mun",
+    nr_bolsonaro_antes=17, nr_bolsonaro_depois=22,
+).set_index("id_zona_mun")
+print("\nmudança sobre aptos:\n", m_ap.T)
+a = m_ap.loc["10000000001"]
+assert np.isclose(a["var_pc_validos_pt"], -0.10)
+assert np.isclose(a["var_pc_aptos_pt"], 0.20)
+assert np.isclose(a["var_rel_votos_pt"], 2 / 3)
+assert a["tipo_mudanca"] == "bolsonaro_ambos_cresceram"
+assert m_ap.loc["20000000001", "tipo_mudanca"] == "pt_troca"
+assert m_ap.loc["30000000001", "tipo_mudanca"] == "pt_ambos_cairam"
+soma = m_ap[["var_pc_aptos_pt", "var_pc_aptos_bolsonaro", "var_pc_aptos_nao_voto"]].sum(axis=1)
+assert np.allclose(soma, 0), soma
+# Sem os números do Bolsonaro, as colunas novas não aparecem (compatibilidade).
+assert "tipo_mudanca" not in resultados.mudanca_votacao(
+    ap_2018, ap_2022, ano_antes=2018, ano_depois=2022, nr_pt=13, chave="id_zona_mun"
+).columns
+print("Mudança sobre aptos: OK")
+
 # ---- 7. município direto da seção (agrega_secao_por_municipio) -------------
 # Simula um ano sem locais processados (o caso de 2018): agrega direto de
 # resultados_secao via crosswalk, sem passar por secao_local/locais.

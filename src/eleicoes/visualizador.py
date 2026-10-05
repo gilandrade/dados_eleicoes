@@ -241,8 +241,12 @@ def exporta_zona_mun_turno(ano: int, turno: int) -> Path:
 
 
 def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
-    """`mudanca_{a}_{b}_t2.json`: `{id: [classe, pt_antes, pt_depois, delta, virou]}`,
-    sobre a geometria de `zona_mun_{ano_depois}_geo.json`."""
+    """`mudanca_{a}_{b}_t2.json`, sobre a geometria de `zona_mun_{ano_depois}_geo.json`:
+    `{id: [classe, pt_antes, pt_depois, delta, virou, classe_tipo, d_pt_aptos,
+    d_bolsonaro_aptos, d_nao_voto_aptos, cresc_votos_pt, cresc_votos_bolsonaro]}`.
+
+    As posições 0–4 são o swing nos votos válidos; 5–10, a mudança sobre o
+    eleitorado apto (por mil; crescimentos também por mil, 667 = +66,7%)."""
     mud = pd.read_parquet(
         RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet"
     )
@@ -252,6 +256,12 @@ def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
         _por_mil(mud[f"pc_validos_pt_{ano_depois}"]),
         _por_mil(mud["var_pc_validos_pt"]),
         mud["mudou_vencedor"].astype(int).tolist(),
+        cores.classifica_tipo_mudanca(mud["tipo_mudanca"]).tolist(),
+        _por_mil(mud["var_pc_aptos_pt"]),
+        _por_mil(mud["var_pc_aptos_bolsonaro"]),
+        _por_mil(mud["var_pc_aptos_nao_voto"]),
+        _por_mil(mud["var_rel_votos_pt"]),
+        _por_mil(mud["var_rel_votos_bolsonaro"]),
     )
     return _escreve_json(
         {"dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas)))},
@@ -270,8 +280,12 @@ def exporta_config(
     """`config.json`: fundo do mapa, legendas e combinações disponíveis."""
     anos = sorted({a for a, _ in pontos} | {a for a, _ in zona_mun})
     legenda_presidente = {str(a): cores.legenda_margem(NOME_PT_POR_ANO[a]) for a in anos}
+    legendas_mudanca_tipo = (
+        {"mudanca_tipo": cores.legenda_tipo_mudanca(*mudancas[0])} if mudancas else {}
+    )
     return _escreve_json(
         {
+            "cores_tipo_mudanca": cores.cores_tipo_mudanca(),
             "tiles": {"url": TILES_VISUALIZADOR, "attr": TILES_VISUALIZADOR_ATTR},
             "nome_pt": {str(a): NOME_PT_POR_ANO[a] for a in anos},
             "nr_pt": NR_PT,
@@ -289,6 +303,7 @@ def exporta_config(
                     "Abstenção (% dos inscritos)", cores.QUEBRAS_ABSTENCAO
                 ),
                 "mudanca": cores.legenda_mudanca(),
+                **legendas_mudanca_tipo,
             },
             "disponivel": {
                 "pontos": [list(x) for x in pontos],
