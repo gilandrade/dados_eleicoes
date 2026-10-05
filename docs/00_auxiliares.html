@@ -2,16 +2,13 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.9.36">
+<meta name="generator" content="quarto-1.8.27">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>00 · Auxiliares – dados_eleicoes</title>
 <style>
-/* Default styles provided by pandoc.
-** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-*/
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
 div.columns{display: flex; gap: min(4vw, 1.5em);}
@@ -70,14 +67,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <meta name="quarto:offset" content="./">
 <script src="site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="site_libs/quarto-html/popper.min.js"></script>
 <script src="site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="site_libs/quarto-html/anchor.min.js"></script>
 <link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-a0f9fd0d421825b736dc1bbcbcba2219.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-e31584831b205ffbb2d98406f31c2a5b.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -148,8 +146,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span class="menu-text">02 · Geocodificação</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./mapas/2022_t1/index.html"> 
-<span class="menu-text">Mapas · 2022 T1</span></a>
+    <a class="nav-link" href="./mapas.html"> 
+<span class="menu-text">Mapas</span></a>
   </li>  
 </ul>
           </div> <!-- /navcollapse -->
@@ -171,7 +169,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <ul class="collapse">
   <li><a href="#checagem-por-nome-municípios-novosrenomeados" id="toc-checagem-por-nome-municípios-novosrenomeados" class="nav-link" data-scroll-target="#checagem-por-nome-municípios-novosrenomeados">Checagem por nome (municípios novos/renomeados)</a></li>
   </ul></li>
-  <li><a href="#malha-de-municípios-geobr-fixado-em-1.9.1" id="toc-malha-de-municípios-geobr-fixado-em-1.9.1" class="nav-link" data-scroll-target="#malha-de-municípios-geobr-fixado-em-1.9.1">2. Malha de municípios (<code>geobr</code>, fixado em 1.9.1)</a></li>
+  <li><a href="#malha-de-municípios-geobr" id="toc-malha-de-municípios-geobr" class="nav-link" data-scroll-target="#malha-de-municípios-geobr">2. Malha de municípios (<code>geobr</code>)</a></li>
   <li><a href="#população-adulta-estimada-por-setor-pop18" id="toc-população-adulta-estimada-por-setor-pop18" class="nav-link" data-scroll-target="#população-adulta-estimada-por-setor-pop18">3. População adulta estimada por setor (<code>pop18</code>)</a></li>
   <li><a href="#setores-censitários-2022" id="toc-setores-censitários-2022" class="nav-link" data-scroll-target="#setores-censitários-2022">4. Setores censitários 2022</a></li>
   </ul>
@@ -202,8 +200,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Prepara três insumos usados por todas as etapas seguintes:</p>
 <ol type="1">
 <li><strong>crosswalk</strong> <code>cd_mun_tse</code> ↔︎ <code>cd_mun</code> (IBGE);</li>
-<li><strong>malha de municípios</strong> (via <code>geobr</code>, fixado em 1.9.1 — ver <code>CLAUDE.md</code>);</li>
-<li><strong>população adulta estimada por setor</strong> (<code>pop18</code>), a partir do Censo 2022.</li>
+<li><strong>malha de municípios</strong> (via <code>geobr</code>);</li>
+<li><strong>população adulta estimada por setor</strong> (<code>pop18</code>), a partir do Censo 2022 (via <code>censobr</code>).</li>
 </ol>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
@@ -217,63 +215,63 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="cell-output cell-output-stderr">
 <pre><code>Warning: pacote 'sf' foi compilado no R versão 4.5.3</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(geobr)</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(arrow)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(geobr)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>Warning: pacote 'geobr' foi compilado no R versão 4.5.3</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(arrow)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stderr">
 <pre><code>Warning: pacote 'arrow' foi compilado no R versão 4.5.3</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ==== Caminhos ===============================================================</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>AUX_DIR <span class="ot">&lt;-</span> <span class="st">"dados/02_processado/aux"</span></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="fu">dir.create</span>(AUX_DIR, <span class="at">showWarnings =</span> <span class="cn">FALSE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Repositório irmão com os indicadores de população do Censo 2022 (cn22-pop)</span></span>
-<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>CN22_POP_DIR <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="st">".."</span>, <span class="st">"cn22-pop"</span>, <span class="st">"dados"</span>, <span class="st">"01_indicadores"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ==== Caminhos ===============================================================</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>AUX_DIR <span class="ot">&lt;-</span> <span class="st">"dados/02_processado/aux"</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="fu">dir.create</span>(AUX_DIR, <span class="at">showWarnings =</span> <span class="cn">FALSE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <section id="crosswalk-cd_mun_tse-cd_mun" class="level2">
 <h2 class="anchored" data-anchor-id="crosswalk-cd_mun_tse-cd_mun">1. Crosswalk <code>cd_mun_tse</code> ↔︎ <code>cd_mun</code></h2>
 <p>O TSE usa um código de município próprio (<code>CD_MUNICIPIO</code>), diferente do código IBGE de 7 dígitos usado no resto da GeoReDUS. Não existe crosswalk em nenhum dos nossos repos (ver PLAN.md &gt; Fontes de dados) — usamos a tabela pronta do projeto <code>yuripassuelo/codigos_mun_tse_ibge</code>, que já cruza os 5.570 municípios (sem o exterior).</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>caminho_crosswalk_bruto <span class="ot">&lt;-</span> <span class="st">"dados/01_bruto/aux/relacao_mun_tse_ibge.csv"</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dir.create</span>(<span class="fu">dirname</span>(caminho_crosswalk_bruto), <span class="at">showWarnings =</span> <span class="cn">FALSE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">file.exists</span>(caminho_crosswalk_bruto)) {</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  req <span class="ot">&lt;-</span> <span class="fu">request</span>(</span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"https://raw.githubusercontent.com/yuripassuelo/codigos_mun_tse_ibge/master/relacao_mun_tse_ibge.csv"</span></span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">req_retry</span>(<span class="at">max_tries =</span> <span class="dv">3</span>, <span class="at">backoff =</span> \(n) <span class="dv">2</span><span class="sc">^</span>n) <span class="sc">|&gt;</span></span>
-<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">req_user_agent</span>(<span class="st">"dados_eleicoes (CEM/USP)"</span>)</span>
-<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  resp <span class="ot">&lt;-</span> <span class="fu">req_perform</span>(req)</span>
-<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">writeBin</span>(<span class="fu">resp_body_raw</span>(resp), caminho_crosswalk_bruto)</span>
-<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>crosswalk_bruto <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(</span>
-<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>  caminho_crosswalk_bruto,</span>
-<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">locale =</span> <span class="fu">locale</span>(<span class="at">encoding =</span> <span class="st">"latin1"</span>),</span>
-<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">col_types =</span> <span class="fu">cols</span>(<span class="at">.default =</span> <span class="fu">col_character</span>())</span>
-<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>crosswalk <span class="ot">&lt;-</span> crosswalk_bruto <span class="sc">|&gt;</span></span>
-<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
-<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>    <span class="co"># o CD_MUNICIPIO dos arquivos do TSE vem com 5 dígitos e zero à esquerda</span></span>
-<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>    <span class="co"># (ex.: "01120"), mas o CSV de origem do crosswalk guarda cd_mun_tse sem</span></span>
-<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>    <span class="co"># padding ("1120") — confirmado contra o arquivo real de locais em</span></span>
-<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 28/09/2026 (ver CLAUDE.md).</span></span>
-<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">cd_mun_tse =</span> <span class="fu">str_pad</span>(cd_mun_tse, <span class="dv">5</span>, <span class="at">pad =</span> <span class="st">"0"</span>),</span>
-<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">cd_mun =</span> <span class="fu">str_pad</span>(cd_mun_ibge, <span class="dv">7</span>, <span class="at">pad =</span> <span class="st">"0"</span>),</span>
-<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>    <span class="at">sg_uf =</span> SG_UF,</span>
-<span id="cb8-29"><a href="#cb8-29" aria-hidden="true" tabindex="-1"></a>    <span class="at">nm_mun_ibge =</span> nm_mun_ibge,</span>
-<span id="cb8-30"><a href="#cb8-30" aria-hidden="true" tabindex="-1"></a>    <span class="at">nm_mun_tse =</span> nm_mun_tse</span>
-<span id="cb8-31"><a href="#cb8-31" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb8-32"><a href="#cb8-32" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-33"><a href="#cb8-33" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
-<span id="cb8-34"><a href="#cb8-34" aria-hidden="true" tabindex="-1"></a>  <span class="st">"crosswalk deveria ter 5.570 municípios (sem o exterior)"</span> <span class="ot">=</span> <span class="fu">nrow</span>(crosswalk) <span class="sc">==</span> <span class="dv">5570</span>,</span>
-<span id="cb8-35"><a href="#cb8-35" aria-hidden="true" tabindex="-1"></a>  <span class="st">"cd_mun_tse não deveria ter duplicatas"</span> <span class="ot">=</span> <span class="sc">!</span><span class="fu">anyDuplicated</span>(crosswalk<span class="sc">$</span>cd_mun_tse),</span>
-<span id="cb8-36"><a href="#cb8-36" aria-hidden="true" tabindex="-1"></a>  <span class="st">"cd_mun (IBGE) não deveria ter duplicatas"</span> <span class="ot">=</span> <span class="sc">!</span><span class="fu">anyDuplicated</span>(crosswalk<span class="sc">$</span>cd_mun)</span>
-<span id="cb8-37"><a href="#cb8-37" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb8-38"><a href="#cb8-38" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-39"><a href="#cb8-39" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(crosswalk, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"crosswalk_mun_tse_ibge.parquet"</span>))</span>
-<span id="cb8-40"><a href="#cb8-40" aria-hidden="true" tabindex="-1"></a>crosswalk</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>caminho_crosswalk_bruto <span class="ot">&lt;-</span> <span class="st">"dados/01_bruto/aux/relacao_mun_tse_ibge.csv"</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dir.create</span>(<span class="fu">dirname</span>(caminho_crosswalk_bruto), <span class="at">showWarnings =</span> <span class="cn">FALSE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">file.exists</span>(caminho_crosswalk_bruto)) {</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  req <span class="ot">&lt;-</span> <span class="fu">request</span>(</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"https://raw.githubusercontent.com/yuripassuelo/codigos_mun_tse_ibge/master/relacao_mun_tse_ibge.csv"</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">req_retry</span>(<span class="at">max_tries =</span> <span class="dv">3</span>, <span class="at">backoff =</span> \(n) <span class="dv">2</span><span class="sc">^</span>n) <span class="sc">|&gt;</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">req_user_agent</span>(<span class="st">"dados_eleicoes (CEM/USP)"</span>)</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>  resp <span class="ot">&lt;-</span> <span class="fu">req_perform</span>(req)</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">writeBin</span>(<span class="fu">resp_body_raw</span>(resp), caminho_crosswalk_bruto)</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>crosswalk_bruto <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(</span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>  caminho_crosswalk_bruto,</span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">locale =</span> <span class="fu">locale</span>(<span class="at">encoding =</span> <span class="st">"latin1"</span>),</span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">col_types =</span> <span class="fu">cols</span>(<span class="at">.default =</span> <span class="fu">col_character</span>())</span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a>crosswalk <span class="ot">&lt;-</span> crosswalk_bruto <span class="sc">|&gt;</span></span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a>    <span class="co"># o CD_MUNICIPIO dos arquivos do TSE vem com 5 dígitos e zero à esquerda</span></span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>    <span class="co"># (ex.: "01120"), mas o CSV de origem do crosswalk guarda cd_mun_tse sem</span></span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a>    <span class="co"># padding ("1120") — confirmado contra o arquivo real de locais em</span></span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a>    <span class="co"># 28/09/2026 (ver CLAUDE.md).</span></span>
+<span id="cb10-26"><a href="#cb10-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">cd_mun_tse =</span> <span class="fu">str_pad</span>(cd_mun_tse, <span class="dv">5</span>, <span class="at">pad =</span> <span class="st">"0"</span>),</span>
+<span id="cb10-27"><a href="#cb10-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">cd_mun =</span> <span class="fu">str_pad</span>(cd_mun_ibge, <span class="dv">7</span>, <span class="at">pad =</span> <span class="st">"0"</span>),</span>
+<span id="cb10-28"><a href="#cb10-28" aria-hidden="true" tabindex="-1"></a>    <span class="at">sg_uf =</span> SG_UF,</span>
+<span id="cb10-29"><a href="#cb10-29" aria-hidden="true" tabindex="-1"></a>    <span class="at">nm_mun_ibge =</span> nm_mun_ibge,</span>
+<span id="cb10-30"><a href="#cb10-30" aria-hidden="true" tabindex="-1"></a>    <span class="at">nm_mun_tse =</span> nm_mun_tse</span>
+<span id="cb10-31"><a href="#cb10-31" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb10-32"><a href="#cb10-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-33"><a href="#cb10-33" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
+<span id="cb10-34"><a href="#cb10-34" aria-hidden="true" tabindex="-1"></a>  <span class="st">"crosswalk deveria ter 5.570 municípios (sem o exterior)"</span> <span class="ot">=</span> <span class="fu">nrow</span>(crosswalk) <span class="sc">==</span> <span class="dv">5570</span>,</span>
+<span id="cb10-35"><a href="#cb10-35" aria-hidden="true" tabindex="-1"></a>  <span class="st">"cd_mun_tse não deveria ter duplicatas"</span> <span class="ot">=</span> <span class="sc">!</span><span class="fu">anyDuplicated</span>(crosswalk<span class="sc">$</span>cd_mun_tse),</span>
+<span id="cb10-36"><a href="#cb10-36" aria-hidden="true" tabindex="-1"></a>  <span class="st">"cd_mun (IBGE) não deveria ter duplicatas"</span> <span class="ot">=</span> <span class="sc">!</span><span class="fu">anyDuplicated</span>(crosswalk<span class="sc">$</span>cd_mun)</span>
+<span id="cb10-37"><a href="#cb10-37" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb10-38"><a href="#cb10-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-39"><a href="#cb10-39" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(crosswalk, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"crosswalk_mun_tse_ibge.parquet"</span>))</span>
+<span id="cb10-40"><a href="#cb10-40" aria-hidden="true" tabindex="-1"></a>crosswalk</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div data-pagedtable="false">
   <script data-pagedtable-source="" type="application/json">
@@ -286,31 +284,31 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="anchored" data-anchor-id="checagem-por-nome-municípios-novosrenomeados">Checagem por nome (municípios novos/renomeados)</h3>
 <p>Nomes muito diferentes entre <code>nm_mun_ibge</code> e <code>nm_mun_tse</code> no mesmo <code>cd_mun</code> costumam indicar um município criado ou renomeado depois da tabela do crosswalk ter sido montada — checar à mão os que aparecerem aqui.</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>normaliza_texto <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  x <span class="sc">|&gt;</span></span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    stringr<span class="sc">::</span><span class="fu">str_to_upper</span>() <span class="sc">|&gt;</span></span>
-<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    stringi<span class="sc">::</span><span class="fu">stri_trans_general</span>(<span class="st">"Latin-ASCII"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    stringr<span class="sc">::</span><span class="fu">str_squish</span>()</span>
-<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Checados à mão e confirmados corretos (25/09/2026) — nome antigo/local no</span></span>
-<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a><span class="co"># IBGE, nome oficial atual no TSE (ou vice-versa), mesmo município:</span></span>
-<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a><span class="co">#   2405306 Boa Saúde / Januário Cicco (RN)</span></span>
-<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a><span class="co">#   1708254 Fortaleza do Tabocão / Tabocão (TO)</span></span>
-<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a><span class="co">#   2400208 Assú / Açu (RN)</span></span>
-<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Excluídos daqui pra baixo para a lista só mostrar divergências novas.</span></span>
-<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>CD_MUN_DIVERGENCIA_CONFIRMADA <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"2405306"</span>, <span class="st">"1708254"</span>, <span class="st">"2400208"</span>)</span>
-<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>divergencias <span class="ot">&lt;-</span> crosswalk <span class="sc">|&gt;</span></span>
-<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">dist_nome =</span> stringdist<span class="sc">::</span><span class="fu">stringdist</span>(</span>
-<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>      <span class="fu">normaliza_texto</span>(nm_mun_ibge), <span class="fu">normaliza_texto</span>(nm_mun_tse), <span class="at">method =</span> <span class="st">"jw"</span></span>
-<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(dist_nome <span class="sc">&gt;</span> <span class="fl">0.15</span>, <span class="sc">!</span>cd_mun <span class="sc">%in%</span> CD_MUN_DIVERGENCIA_CONFIRMADA) <span class="sc">|&gt;</span></span>
-<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(dist_nome))</span>
-<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a>divergencias</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>normaliza_texto <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  x <span class="sc">|&gt;</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    stringr<span class="sc">::</span><span class="fu">str_to_upper</span>() <span class="sc">|&gt;</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    stringi<span class="sc">::</span><span class="fu">stri_trans_general</span>(<span class="st">"Latin-ASCII"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    stringr<span class="sc">::</span><span class="fu">str_squish</span>()</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Checados à mão e confirmados corretos (25/09/2026) — nome antigo/local no</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="co"># IBGE, nome oficial atual no TSE (ou vice-versa), mesmo município:</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="co">#   2405306 Boa Saúde / Januário Cicco (RN)</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="co">#   1708254 Fortaleza do Tabocão / Tabocão (TO)</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a><span class="co">#   2400208 Assú / Açu (RN)</span></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Excluídos daqui pra baixo para a lista só mostrar divergências novas.</span></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>CD_MUN_DIVERGENCIA_CONFIRMADA <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"2405306"</span>, <span class="st">"1708254"</span>, <span class="st">"2400208"</span>)</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>divergencias <span class="ot">&lt;-</span> crosswalk <span class="sc">|&gt;</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">dist_nome =</span> stringdist<span class="sc">::</span><span class="fu">stringdist</span>(</span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>      <span class="fu">normaliza_texto</span>(nm_mun_ibge), <span class="fu">normaliza_texto</span>(nm_mun_tse), <span class="at">method =</span> <span class="st">"jw"</span></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(dist_nome <span class="sc">&gt;</span> <span class="fl">0.15</span>, <span class="sc">!</span>cd_mun <span class="sc">%in%</span> CD_MUN_DIVERGENCIA_CONFIRMADA) <span class="sc">|&gt;</span></span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(dist_nome))</span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>divergencias</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div data-pagedtable="false">
   <script data-pagedtable-source="" type="application/json">
@@ -321,77 +319,87 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </section>
 </section>
-<section id="malha-de-municípios-geobr-fixado-em-1.9.1" class="level2">
-<h2 class="anchored" data-anchor-id="malha-de-municípios-geobr-fixado-em-1.9.1">2. Malha de municípios (<code>geobr</code>, fixado em 1.9.1)</h2>
+<section id="malha-de-municípios-geobr" class="level2">
+<h2 class="anchored" data-anchor-id="malha-de-municípios-geobr">2. Malha de municípios (<code>geobr</code>)</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># showProgress = FALSE faz o geobr devolver NULL em silêncio ao renderizar</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="co"># fora de um console interativo (ver CLAUDE.md &gt; Conventions and gotchas) —</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="co"># deixar o padrão (TRUE) mesmo dentro do Quarto.</span></span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>municipios <span class="ot">&lt;-</span> geobr<span class="sc">::</span><span class="fu">read_municipality</span>(<span class="at">code_muni =</span> <span class="st">"all"</span>, <span class="at">year =</span> <span class="dv">2022</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># showProgress = FALSE faz o geobr devolver NULL em silêncio ao renderizar</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="co"># fora de um console interativo (ver CLAUDE.md &gt; Conventions and gotchas) —</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="co"># deixar o padrão (TRUE) mesmo dentro do Quarto.</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>municipios <span class="ot">&lt;-</span> geobr<span class="sc">::</span><span class="fu">read_municipality</span>(<span class="at">code_muni =</span> <span class="st">"all"</span>, <span class="at">year =</span> <span class="dv">2022</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stderr">
-<pre><code>Using year/date 2022</code></pre>
+<pre><code>ℹ Using year/date 2022</code></pre>
 </div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(municipios) <span class="sc">||</span> <span class="fu">nrow</span>(municipios) <span class="sc">==</span> <span class="dv">0</span>) {</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stop</span>(</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"geobr::read_municipality(year = 2022) devolveu NULL/vazio inesperadamente — "</span>,</span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"confirme rodando a mesma chamada direto no console do R."</span></span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>municipios <span class="ot">&lt;-</span> municipios <span class="sc">|&gt;</span></span>
-<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">cd_mun =</span> code_muni) <span class="sc">|&gt;</span></span>
-<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">cd_mun =</span> <span class="fu">as.character</span>(cd_mun)) <span class="sc">|&gt;</span></span>
-<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_transform</span>(<span class="dv">4674</span>)</span>
-<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(municipios) <span class="sc">==</span> <span class="dv">5570</span>)</span>
-<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a><span class="fu">st_write</span>(municipios, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"municipios.gpkg"</span>), <span class="at">delete_dsn =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>duckdb keeps downloaded extensions and secrets in a temporary directory:
+ℹ C:\Users\gilne\AppData\Local\Temp\RtmpGUezFk/duckdb
+This is removed when the R session ends.
+• Extensions are re-downloaded each session.
+• Secrets are lost.
+ℹ Run duckdb(shared_home = TRUE) (or create ~/.duckdb) to keep them (suitable for most users).
+ℹ Run duckdb(shared_home = FALSE) to accept the temporary directory (and silence this message).
+ℹ See ?duckdb_storage for details and alternatives.</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(municipios) <span class="sc">||</span> <span class="fu">nrow</span>(municipios) <span class="sc">==</span> <span class="dv">0</span>) {</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stop</span>(</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"geobr::read_municipality(year = 2022) devolveu NULL/vazio inesperadamente — "</span>,</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"confirme rodando a mesma chamada direto no console do R."</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>municipios <span class="ot">&lt;-</span> municipios <span class="sc">|&gt;</span></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">cd_mun =</span> code_muni) <span class="sc">|&gt;</span></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">cd_mun =</span> <span class="fu">as.character</span>(cd_mun)) <span class="sc">|&gt;</span></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_transform</span>(<span class="dv">4674</span>)</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(municipios) <span class="sc">==</span> <span class="dv">5570</span>)</span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="fu">st_write</span>(municipios, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"municipios.gpkg"</span>), <span class="at">delete_dsn =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Deleting source `dados/02_processado/aux/municipios.gpkg' using driver `GPKG'
+<pre><code>Deleting source `dados/02_processado/aux/municipios.gpkg' failed
 Writing layer `municipios' to data source 
   `dados/02_processado/aux/municipios.gpkg' using driver `GPKG'
-Writing 5570 features with 7 fields and geometry type Multi Polygon.</code></pre>
+Writing 5570 features with 8 fields and geometry type Unknown (any).</code></pre>
 </div>
 </div>
 </section>
 <section id="população-adulta-estimada-por-setor-pop18" class="level2">
 <h2 class="anchored" data-anchor-id="população-adulta-estimada-por-setor-pop18">3. População adulta estimada por setor (<code>pop18</code>)</h2>
 <p><code>pop18(s) = total(s) − [0,4] − [5,9] − [10,14] − 0,6 × [15,19]</code>, a mesma conta de <code>src/eleicoes/alocacao.pop18_por_setor()</code> (Python) — ver PLAN.md &gt; Método, passo 4. É calculada aqui (R, etapa “auxiliares”) e só lida em Python, para não duplicar a leitura dos CSVs do Censo em duas linguagens.</p>
-<p>Os CSVs do <code>cn22-pop</code> já vêm com os <strong>indicadores nomeados</strong> no padrão GeoReDUS (<code>cn22_pop01_res_tot_0</code>, <code>cn22_pop03_0a4_tot_0</code>, …), não com as variáveis brutas do IBGE (<code>V0001</code>, <code>V01031</code>, …) — a chave de setor ali é <code>cod_setor</code>, não <code>cd_setor</code> (confirmado rodando contra os arquivos reais em 25/09/2026; renomeado aqui para <code>cd_setor</code>, o nome usado no resto do pipeline).</p>
+<p>Os agregados por setor vêm do <code>censobr</code> (nomes conferidos nos dados reais em 03/10/2026): o total de pessoas é <code>V0001</code>, no conjunto <code>Basico</code>; as faixas etárias estão no conjunto <code>Pessoas</code>, com o prefixo da tabela de origem (<code>demografia_V01031</code> a <code>demografia_V01034</code>).</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># cod_setor precisa ser lido como texto (col_character): sem isso, o readr</span></span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="co"># adivinha "número" para um código de 15 dígitos e ele vira double — que</span></span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="co"># tanto perde precisão (15 dígitos está no limite do double) quanto quebra</span></span>
-<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="co"># o join com o cd_setor (texto) do resto do pipeline em silêncio (nenhum</span></span>
-<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="co"># erro, só 0% de correspondência). Achado rodando a etapa 03 de verdade.</span></span>
-<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>pop01 <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(</span>
-<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(CN22_POP_DIR, <span class="st">"cn22_pop01_abs.csv"</span>),</span>
-<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">col_types =</span> <span class="fu">cols</span>(<span class="at">cod_setor =</span> <span class="fu">col_character</span>(), <span class="at">.default =</span> <span class="fu">col_guess</span>())</span>
-<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
-<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(<span class="at">cd_setor =</span> cod_setor, <span class="at">total =</span> cn22_pop01_res_tot_0)</span>
-<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>pop03 <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(</span>
-<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(CN22_POP_DIR, <span class="st">"cn22_pop03_abs.csv"</span>),</span>
-<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">col_types =</span> <span class="fu">cols</span>(<span class="at">cod_setor =</span> <span class="fu">col_character</span>(), <span class="at">.default =</span> <span class="fu">col_guess</span>())</span>
-<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
-<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(</span>
-<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">cd_setor =</span> cod_setor,</span>
-<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_0a4 =</span> cn22_pop03_0a4_tot_0,</span>
-<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_5a9 =</span> cn22_pop03_5a9_tot_0,</span>
-<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_10a14 =</span> cn22_pop03_10a14_tot_0,</span>
-<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_15a19 =</span> cn22_pop03_15a19_tot_0</span>
-<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a>pop18_setor <span class="ot">&lt;-</span> pop01 <span class="sc">|&gt;</span></span>
-<span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(pop03, <span class="at">by =</span> <span class="st">"cd_setor"</span>) <span class="sc">|&gt;</span></span>
-<span id="cb14-26"><a href="#cb14-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb14-27"><a href="#cb14-27" aria-hidden="true" tabindex="-1"></a>    <span class="fu">across</span>(<span class="fu">c</span>(fx_0a4, fx_5a9, fx_10a14, fx_15a19), <span class="sc">~</span> <span class="fu">replace</span>(.x, <span class="fu">is.na</span>(.x), <span class="dv">0</span>)),</span>
-<span id="cb14-28"><a href="#cb14-28" aria-hidden="true" tabindex="-1"></a>    <span class="at">pop18 =</span> <span class="fu">pmax</span>(total <span class="sc">-</span> fx_0a4 <span class="sc">-</span> fx_5a9 <span class="sc">-</span> fx_10a14 <span class="sc">-</span> <span class="fl">0.6</span> <span class="sc">*</span> fx_15a19, <span class="dv">0</span>)</span>
-<span id="cb14-29"><a href="#cb14-29" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb14-30"><a href="#cb14-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(cd_setor, pop18)</span>
-<span id="cb14-31"><a href="#cb14-31" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb14-32"><a href="#cb14-32" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(pop18_setor, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"pop18_setor.parquet"</span>))</span>
-<span id="cb14-33"><a href="#cb14-33" aria-hidden="true" tabindex="-1"></a>pop18_setor</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>pop_total <span class="ot">&lt;-</span> censobr<span class="sc">::</span><span class="fu">read_tracts</span>(<span class="at">year =</span> <span class="dv">2022</span>, <span class="at">dataset =</span> <span class="st">"Basico"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(code_tract, <span class="at">total =</span> V0001) <span class="sc">|&gt;</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">collect</span>()</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>pop_faixas <span class="ot">&lt;-</span> censobr<span class="sc">::</span><span class="fu">read_tracts</span>(<span class="at">year =</span> <span class="dv">2022</span>, <span class="at">dataset =</span> <span class="st">"Pessoas"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>    code_tract,</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_0a4 =</span> demografia_V01031,</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_5a9 =</span> demografia_V01032,</span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_10a14 =</span> demografia_V01033,</span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">fx_15a19 =</span> demografia_V01034</span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">collect</span>()</span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>pop18_setor <span class="ot">&lt;-</span> pop_total <span class="sc">|&gt;</span></span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(pop_faixas, <span class="at">by =</span> <span class="st">"code_tract"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb17-18"><a href="#cb17-18" aria-hidden="true" tabindex="-1"></a>    <span class="co"># code_tract é double no censobr (15 dígitos, sem perda de precisão).</span></span>
+<span id="cb17-19"><a href="#cb17-19" aria-hidden="true" tabindex="-1"></a>    <span class="co"># O resto do pipeline usa cd_setor como texto: sprintf evita a notação</span></span>
+<span id="cb17-20"><a href="#cb17-20" aria-hidden="true" tabindex="-1"></a>    <span class="co"># científica que as.character() pode devolver.</span></span>
+<span id="cb17-21"><a href="#cb17-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">cd_setor =</span> <span class="fu">sprintf</span>(<span class="st">"%.0f"</span>, code_tract),</span>
+<span id="cb17-22"><a href="#cb17-22" aria-hidden="true" tabindex="-1"></a>    <span class="fu">across</span>(<span class="fu">c</span>(fx_0a4, fx_5a9, fx_10a14, fx_15a19), <span class="sc">~</span> <span class="fu">replace</span>(.x, <span class="fu">is.na</span>(.x), <span class="dv">0</span>)),</span>
+<span id="cb17-23"><a href="#cb17-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">pop18 =</span> <span class="fu">pmax</span>(total <span class="sc">-</span> fx_0a4 <span class="sc">-</span> fx_5a9 <span class="sc">-</span> fx_10a14 <span class="sc">-</span> <span class="fl">0.6</span> <span class="sc">*</span> fx_15a19, <span class="dv">0</span>)</span>
+<span id="cb17-24"><a href="#cb17-24" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb17-25"><a href="#cb17-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(cd_setor, pop18)</span>
+<span id="cb17-26"><a href="#cb17-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-27"><a href="#cb17-27" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
+<span id="cb17-28"><a href="#cb17-28" aria-hidden="true" tabindex="-1"></a>  <span class="st">"cd_setor deveria ter 15 dígitos"</span> <span class="ot">=</span> <span class="fu">all</span>(<span class="fu">nchar</span>(pop18_setor<span class="sc">$</span>cd_setor) <span class="sc">==</span> <span class="dv">15</span>),</span>
+<span id="cb17-29"><a href="#cb17-29" aria-hidden="true" tabindex="-1"></a>  <span class="st">"cd_setor não deveria ter duplicatas"</span> <span class="ot">=</span> <span class="sc">!</span><span class="fu">anyDuplicated</span>(pop18_setor<span class="sc">$</span>cd_setor)</span>
+<span id="cb17-30"><a href="#cb17-30" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb17-31"><a href="#cb17-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-32"><a href="#cb17-32" aria-hidden="true" tabindex="-1"></a><span class="fu">write_parquet</span>(pop18_setor, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"pop18_setor.parquet"</span>))</span>
+<span id="cb17-33"><a href="#cb17-33" aria-hidden="true" tabindex="-1"></a>pop18_setor</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div data-pagedtable="false">
   <script data-pagedtable-source="" type="application/json">
@@ -405,16 +413,16 @@ Writing 5570 features with 7 fields and geometry type Multi Polygon.</code></pre
 <h2 class="anchored" data-anchor-id="setores-censitários-2022">4. Setores censitários 2022</h2>
 <p>O shapefile de setores 2022 do IBGE é grande demais para versionar; espera-se que já esteja em <code>dados/01_bruto/aux/BR_Malha_Preliminar_2022.zip</code> (baixado à mão, ver PLAN.md &gt; Fontes de dados), lido de dentro do zip sem extrair — o mesmo padrão de <code>cnefe-etl/index.qmd</code> (<code>/vsizip/</code>).</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>caminho_zip <span class="ot">&lt;-</span> <span class="st">"dados/01_bruto/aux/BR_Malha_Preliminar_2022.zip"</span></span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>setores <span class="ot">&lt;-</span> <span class="fu">st_read</span>(</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(<span class="st">"/vsizip/"</span>, caminho_zip),</span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">quiet =</span> <span class="cn">TRUE</span></span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
-<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">cd_setor =</span> CD_SETOR) <span class="sc">|&gt;</span></span>
-<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_transform</span>(<span class="dv">4674</span>)</span>
-<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a><span class="fu">st_write</span>(setores, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"setores_2022.gpkg"</span>), <span class="at">delete_dsn =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>caminho_zip <span class="ot">&lt;-</span> <span class="st">"dados/01_bruto/aux/BR_Malha_Preliminar_2022.zip"</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>setores <span class="ot">&lt;-</span> <span class="fu">st_read</span>(</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(<span class="st">"/vsizip/"</span>, caminho_zip),</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">quiet =</span> <span class="cn">TRUE</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rename</span>(<span class="at">cd_setor =</span> CD_SETOR) <span class="sc">|&gt;</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">st_transform</span>(<span class="dv">4674</span>)</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="fu">st_write</span>(setores, <span class="fu">file.path</span>(AUX_DIR, <span class="st">"setores_2022.gpkg"</span>), <span class="at">delete_dsn =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 
 
