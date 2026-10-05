@@ -46,10 +46,11 @@ def main() -> None:
 
     for ano_antes in ANOS:
         for ano_depois in ANOS:
-            nome = f"mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet"
-            if (RESULTADOS_DIR / nome).exists():
-                visualizador.exporta_mudanca(ano_antes, ano_depois)
-                mudancas.append((ano_antes, ano_depois))
+            for turno in TURNOS:
+                nome = f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+                if (RESULTADOS_DIR / nome).exists():
+                    visualizador.exporta_mudanca(ano_antes, ano_depois, turno)
+                    mudancas.append((ano_antes, ano_depois, turno))
 
     visualizador.exporta_config(pontos, zona_mun, mudancas)
     logger.info("Pontos: %s | zona×mun: %s | mudança: %s", pontos, zona_mun, mudancas)

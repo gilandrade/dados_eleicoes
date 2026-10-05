@@ -73,10 +73,17 @@ texto (evita perder zeros à esquerda em códigos de município/zona/seção).
 
 ```{r leitura}
 #| message: false
-arquivo_interno <- grep(
+# Em 2026 o zip traz um CSV por UF + `_BRASIL.csv` (confirmado em 05/10/2026);
+# em 2018/2022 é um CSV só. Preferir o consolidado quando existir.
+csvs_internos <- grep(
   "\\.csv$", utils::unzip(caminho_zip, list = TRUE)$Name,
   ignore.case = TRUE, value = TRUE
-)[1]
+)
+arquivo_interno <- if (any(grepl("_BRASIL\\.csv$", csvs_internos))) {
+  grep("_BRASIL\\.csv$", csvs_internos, value = TRUE)[1]
+} else {
+  csvs_internos[1]
+}
 
 locais_bruto <- read_delim(
   unz(caminho_zip, arquivo_interno),
@@ -205,8 +212,10 @@ locais <- locais_flag |>
     ds_endereco = coalesce(ds_endereco, ""),
     nm_bairro = coalesce(nm_bairro, ""),  # `localidade` do geocodebr (etapa 02)
     nr_cep = coalesce(nr_cep, ""),
-    latitude = suppressWarnings(as.numeric(nr_latitude)),
-    longitude = suppressWarnings(as.numeric(nr_longitude)),
+    # 2026 traz vírgula decimal ("-22,7449552"); 2018/2022, ponto. `as.numeric`
+    # ignora o `locale` do readr e devolve NA para vírgula — trocar antes.
+    latitude = suppressWarnings(as.numeric(sub(",", ".", nr_latitude, fixed = TRUE))),
+    longitude = suppressWarnings(as.numeric(sub(",", ".", nr_longitude, fixed = TRUE))),
     ds_tipo_local,
     flag_especial
   )

@@ -26,22 +26,23 @@ GEOMETRIAS_DIR = GEOREDUS_DIR / "geometrias"
 RESULTADOS_DIR = GEOREDUS_DIR / "resultados"
 CARGA_DIR = GEOREDUS_DIR / "carga"
 
-# Repositório irmão com os pontos de endereço do CNEFE 2022 já processados
-# (ver cnefe-etl/CLAUDE.md: geometria é WKB cru em EPSG:4674, sem metadados
-# GeoParquet — decodificar com shapely.from_wkb, nunca gpd.read_parquet()).
-CNEFE_ETL_DIR = REPO_ROOT.parent / "cnefe-etl"
-CNEFE_POINTS_PARQUET = CNEFE_ETL_DIR / "output" / "points" / "cnefe_points_all_mun.parquet"
+# CNEFE 2022 por município (cnefetools, IBGE), já filtrado às espécies de
+# domicílio e com `cd_setor` de 15 dígitos (sem o "P" do `COD_SETOR` original).
+# Gerado por `scripts/00b_insumos_brasil.R` (Brasil) ou
+# `scripts/09_insumos_municipio.R` (um município); sem repos irmãos.
+CNEFE_MUN_DIR = BRUTO_DIR / "cnefe"
 
 # pop18 por setor: calculado em R na etapa 00 (00_auxiliares.qmd), a partir dos
 # indicadores já nomeados do cn22-pop (não das variáveis brutas do IBGE) — ver
 # CLAUDE.md > Conventions e gotchas. Python só lê o resultado.
 POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 
-# Malha de setores censitários 2022 (Brasil inteiro, ~472 mil polígonos,
-# ~1,5 GB), já processada em repos irmãos — usar direto em vez de baixar de
-# novo. `CD_SETOR` ali tem 15 dígitos, sem sufixo (diferente do `COD_SETOR`
-# do CNEFE, que tem um "P" no final — ver `03_pesos_alocacao.carrega_domicilios_cnefe`).
-SETORES_2022_GPKG = REPO_ROOT.parent / "process_gtfs" / "Dados" / "BR_setores_CD2022.gpkg"
+# Malha de setores censitários 2022 (geobr, ~472 mil polígonos, ~1,5 GB),
+# gerada por `scripts/00b_insumos_brasil.R`. `CD_SETOR` tem 15 dígitos, sem
+# sufixo (diferente do `COD_SETOR` do CNEFE, que tem um "P" no final). Para um
+# município só, `SETORES_MUN_DIR` (`scripts/09_insumos_municipio.R`).
+SETORES_MUN_DIR = BRUTO_DIR / "aux" / "setores"
+SETORES_2022_GPKG = SETORES_MUN_DIR / "BR_setores_CD2022.gpkg"
 
 # ==== CRS ====================================================================
 
@@ -62,8 +63,10 @@ CODIGO_ANULADO_APURADO_SEPARADO = 97
 CODIGOS_NAO_CANDIDATO = (CODIGO_BRANCO, CODIGO_NULO, CODIGO_ANULADO_APURADO_SEPARADO)
 
 # 2º turno: PT contra Bolsonaro, que troca de número (partido) a cada eleição.
-NR_BOLSONARO_POR_ANO = {2018: 17, 2022: 22}
-NOME_PT_POR_ANO = {2018: "Haddad", 2022: "Lula"}
+# Em 2026 o "bolsonarista" é Flávio Bolsonaro (PL, 22), não o próprio Jair.
+NR_BOLSONARO_POR_ANO = {2018: 17, 2022: 22, 2026: 22}
+NOME_PT_POR_ANO = {2018: "Haddad", 2022: "Lula", 2026: "Lula"}
+NOME_BOLSONARO_POR_ANO = {2018: "Bolsonaro", 2022: "Bolsonaro", 2026: "Flávio Bolsonaro"}
 
 # Número do PT no 2º turno — usado em `resultados.mudanca_votacao` para achar
 # quem venceu (o do Bolsonaro muda de partido a cada eleição: 17 em 2018,

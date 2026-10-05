@@ -109,7 +109,7 @@ def legenda_margem(nome_pt: str) -> dict:
     return _legenda(f"Vantagem nos votos válidos ({nome_pt} × Bolsonaro)", cores_divergentes(), rotulos)
 
 
-def legenda_mudanca() -> dict:
+def legenda_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict:
     faixas = _faixas(QUEBRAS_MUDANCA, " p.p.")
     rotulos = [
         *(f"PT ganhou {f}" for f in reversed(faixas)),
@@ -117,16 +117,16 @@ def legenda_mudanca() -> dict:
         *(f"PT perdeu {f}" for f in faixas),
     ]
     return _legenda(
-        "Variação do PT nos votos válidos, 2018 → 2022",
+        f"Variação do PT nos votos válidos, {ano_antes} → {ano_depois} ({turno}º turno)",
         cores_divergentes(),
         rotulos,
         nota="Contorno escuro: a zona trocou de vencedor.",
     )
 
 
-def legenda_tipo_mudanca(ano_antes: int, ano_depois: int) -> dict:
+def legenda_tipo_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict:
     return _legenda(
-        f"De onde veio a mudança, {ano_antes} → {ano_depois} (% do eleitorado)",
+        f"De onde veio a mudança, {ano_antes} → {ano_depois}, {turno}º turno (% do eleitorado)",
         cores_tipo_mudanca(),
         [rotulo for _, rotulo, _ in TIPOS_MUDANCA],
         nota=(

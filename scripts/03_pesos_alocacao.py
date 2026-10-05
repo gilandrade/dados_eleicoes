@@ -31,12 +31,14 @@ import pandas as pd
 from eleicoes import alocacao
 from eleicoes.config import (
     CNEFE_ESPECIES_DOMICILIO,
-    CNEFE_POINTS_PARQUET,
+    CNEFE_MUN_DIR,
+    CRS_SIRGAS2000,
     GEOMETRIAS_DIR,
     POP18_SETOR_PARQUET,
     PROCESSADO_DIR,
     RESULTADOS_DIR,
     SETORES_2022_GPKG,
+    SETORES_MUN_DIR,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -74,43 +76,56 @@ def carrega_domicilios_cnefe(cd_mun_filtro: list[str] | None = None) -> gpd.GeoD
     nacional: evita materializar em pandas/shapely as ~20 milhões de linhas
     de outras espécies (comércio, indústria etc.) que seriam descartadas
     logo em seguida de qualquer jeito.
+
+    Lê os `cnefe_{cd_mun}.parquet` de `CNEFE_MUN_DIR` (gerados por
+    `scripts/00b_insumos_brasil.R` ou `09_insumos_municipio.R`).
     """
-    if not CNEFE_POINTS_PARQUET.exists():
+    arquivos = sorted(CNEFE_MUN_DIR.glob("cnefe_[0-9]*.parquet"))
+    if not arquivos:
         raise FileNotFoundError(
-            f"CNEFE não encontrado em {CNEFE_POINTS_PARQUET}. Rode o pipeline de "
-            "cnefe-etl primeiro (repo irmão), ou ajuste CNEFE_POINTS_PARQUET em "
-            "src/eleicoes/config.py."
+            f"Nenhum cnefe_<cd_mun>.parquet em {CNEFE_MUN_DIR}. Rode "
+            "scripts/00b_insumos_brasil.R (Brasil) ou 09_insumos_municipio.R (um município)."
         )
-
-    con = duckdb.connect()
-    caminho_sql = str(CNEFE_POINTS_PARQUET).replace("'", "''")
-    especies = ", ".join(str(e) for e in CNEFE_ESPECIES_DOMICILIO)
-    where = [f"COD_ESPECIE in ({especies})"]
     if cd_mun_filtro:
-        codigos = ", ".join(str(int(c)) for c in cd_mun_filtro)
-        where.append(f"COD_MUNICIPIO in ({codigos})")
-    df = con.sql(
-        f"select * from read_parquet('{caminho_sql}') where {' and '.join(where)}"
+        arquivos = [a for a in arquivos if a.stem.removeprefix("cnefe_") in set(cd_mun_filtro)]
+
+    especies = ", ".join(str(e) for e in CNEFE_ESPECIES_DOMICILIO)
+    lista = ", ".join("'" + str(a).replace("\\", "/").replace("'", "''") + "'" for a in arquivos)
+    df = duckdb.connect().sql(
+        f"select cd_mun, cd_setor, cod_especie, latitude, longitude "
+        f"from read_parquet([{lista}]) where cod_especie in ({especies})"
     ).df()
-
-    gdf = alocacao.decodifica_wkb(df)
-    gdf["cd_mun"] = gdf["COD_MUNICIPIO"].astype(int).astype(str).str.zfill(7)
-    gdf["cd_setor"] = gdf["COD_SETOR"].str[:-1]
-    gdf["cod_especie"] = gdf["COD_ESPECIE"]
-    return gdf.loc[gdf["cod_especie"].astype(int).isin(CNEFE_ESPECIES_DOMICILIO)].copy()
+    return gpd.GeoDataFrame(
+        df, geometry=gpd.points_from_xy(df["longitude"], df["latitude"]), crs=CRS_SIRGAS2000
+    )
 
 
-def carrega_locais_elegiveis(ano: int) -> gpd.GeoDataFrame:
+def carrega_locais_elegiveis(
+    ano: int, cd_mun_filtro: list[str] | None = None
+) -> gpd.GeoDataFrame:
     """Lê `locais_votacao_{ano}.gpkg` (saída da etapa 02, R) e filtra os
     locais elegíveis para a distribuição (sem voto em trânsito nem especiais).
+
+    Sem a camada nacional, aceita a de cada município pedido
+    (`geom_locais_votacao_{ano}_{cd_mun}.gpkg`, de
+    `scripts/09_insumos_municipio.R`): mesma estrutura, mas só com a
+    coordenada do TSE validada, sem a cadeia de fallback da etapa 02.
     """
     caminho = GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg"
-    if not caminho.exists():
+    if caminho.exists():
+        gdf = gpd.read_file(caminho)
+        return gdf.loc[~gdf["flag_especial"]].copy()
+
+    caminhos = [
+        GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}_{c}.gpkg" for c in cd_mun_filtro or []
+    ]
+    if not caminhos or not all(c.exists() for c in caminhos):
         raise FileNotFoundError(
             f"{caminho} não existe. Rode 01_locais_votacao.qmd e "
-            "02_geocodificacao_locais.qmd (R) antes desta etapa."
+            "02_geocodificacao_locais.qmd (R) antes desta etapa, ou "
+            "scripts/09_insumos_municipio.R para um município só."
         )
-    gdf = gpd.read_file(caminho)
+    gdf = pd.concat([gpd.read_file(c) for c in caminhos], ignore_index=True)
     return gdf.loc[~gdf["flag_especial"]].copy()
 
 
@@ -139,17 +154,24 @@ def carrega_limites_municipio(ano: int) -> gpd.GeoDataFrame:
 
 
 def carrega_setores(cd_mun_filtro: list[str] | None = None) -> gpd.GeoDataFrame:
-    """Lê a malha de setores 2022 (repo irmão `process_gtfs`, ver config.py).
+    """Lê a malha de setores 2022 (geobr, ver config.py).
 
     Args:
         cd_mun_filtro: se informado, lê só esses municípios (via `where` do
             GDAL, sem materializar o Brasil inteiro — o arquivo tem ~1,5 GB).
+            Se todos já têm `setores_{cd_mun}.gpkg` em `SETORES_MUN_DIR`
+            (`scripts/09_insumos_municipio.R`), lê esses arquivos.
     """
+    if cd_mun_filtro:
+        caminhos = [SETORES_MUN_DIR / f"setores_{c}.gpkg" for c in cd_mun_filtro]
+        if all(c.exists() for c in caminhos):
+            gdf = pd.concat([gpd.read_file(c) for c in caminhos], ignore_index=True)
+            return gdf.rename(columns={"CD_SETOR": "cd_setor", "CD_MUN": "cd_mun"})
+
     caminho = SETORES_2022_GPKG
     if not caminho.exists():
         raise FileNotFoundError(
-            f"{caminho} não existe. Ajuste SETORES_2022_GPKG em "
-            "src/eleicoes/config.py para onde a malha de setores 2022 estiver."
+            f"{caminho} não existe. Rode scripts/00b_insumos_brasil.R."
         )
     if cd_mun_filtro:
         where = "CD_MUN IN (" + ", ".join(f"'{c}'" for c in cd_mun_filtro) + ")"
@@ -163,7 +185,7 @@ def main(ano: int, cd_mun_filtro: list[str] | None = None) -> None:
     logger.info("Etapa 03 — pesos de alocação, ano %d%s", ano,
                 f" (só {cd_mun_filtro})" if cd_mun_filtro else "")
 
-    locais = carrega_locais_elegiveis(ano)
+    locais = carrega_locais_elegiveis(ano, cd_mun_filtro)
     if cd_mun_filtro:
         locais = locais.loc[locais["cd_mun"].isin(cd_mun_filtro)].copy()
     # Locais no centróide do município (sem coordenada real) não atraem

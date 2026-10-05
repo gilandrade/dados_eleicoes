@@ -70,14 +70,16 @@ the full data model (geometry files vs. result files joined by a shared id).
 
 ## Conventions and gotchas
 
-- **CNEFE 2022** vem de `../cnefe-etl/output/points/cnefe_points_all_mun.parquet`
-  (repo irmão). A geometria ali é **WKB cru sem metadados GeoParquet** — decodificar
-  manualmente (`shapely.from_wkb`), nunca com `gpd.read_parquet()`. CRS é EPSG:4674
-  (SIRGAS 2000), não 4326.
+- **CNEFE 2022 e malha de setores não vêm mais de repos irmãos** (05/10/2026):
+  `scripts/00b_insumos_brasil.R` gera `dados/01_bruto/cnefe/cnefe_{cd_mun}.parquet`
+  (cnefetools, 5.570 municípios, ~90,7 milhões de domicílios, `cd_setor` já sem o
+  "P", lat/lon em EPSG:4674) e `dados/01_bruto/aux/setores/BR_setores_CD2022.gpkg`
+  (geobr 2.1.0, 468.097 setores). É retomável; rodar o CNEFE em vários processos
+  por UF (`Rscript scripts/00b_insumos_brasil.R cnefe 35`) leva ~1 h no total.
+  A malha do geobr tem ~1% menos setores que a do IBGE usada em 2022.
 - **CRS:** tudo em EPSG:4674 nas saídas para a GeoReDUS. Cálculos de distância usam
   EPSG:5880 (SIRGAS 2000 / Brazil Polyconic), métrico nacional.
-- **geobr fixado em 1.9.1** — não atualizar (ver `cnefe-etl/CLAUDE.md` para o motivo:
-  2.x quebra o catálogo de malhas).
+- **geobr 2.1.0** (a restrição a 1.9.1 caiu; atualizado na branch `analise-perfil-voto`).
 - **`geobr::read_municipality(..., showProgress = FALSE)` devolve `NULL` em silêncio**
   ao renderizar via `quarto render` (fora de um console interativo) — confirmado em
   25/09/2026. Deixar `showProgress` no padrão (`TRUE`, omitir o argumento), mesmo que
@@ -396,3 +398,14 @@ the full data model (geometry files vs. result files joined by a shared id).
   conjunto de zonas nos 189 municípios com várias; 99,84% dos locais na mesma
   zona. Só 36 municípios de zona única trocaram o número —
   `resultados.alinha_zona_mun` casa esses antes de comparar anos.
+- **2026, 1º turno (05/10/2026):** o TSE já publicou `eleitorado_local_votacao`,
+  `votacao_secao` (só Presidente, T1) e `detalhe_votacao_secao`. Diferenças reais
+  em relação a 2022: o zip do eleitorado traz um CSV por UF + `_BRASIL.csv`
+  (a etapa 01 lê o consolidado); `NR_LATITUDE/NR_LONGITUDE` usam **vírgula
+  decimal** (`"-22,7449552"`) e `as.numeric()` devolve NA em silêncio — sem o
+  `sub(",", ".")` a etapa 02 caía 42% no centróide. O "bolsonarista" é Flávio
+  (22). Etapas 01–04 de 2026 rodaram aqui (T1: Lula 53.879.538, Flávio
+  56.104.503, bate com o `votacao_secao`; 98,4% das coordenadas do TSE; 03 leva
+  ~55 min, 44 só na alocação dos domicílios). `06_mudanca_votacao.py` aceita
+  `--turno` (2022→2026 no 1º turno: PT × bolsonarista, demais candidatos no
+  "não-voto" da base dos aptos).

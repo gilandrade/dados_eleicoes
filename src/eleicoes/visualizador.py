@@ -29,6 +29,7 @@ from .config import (
     CODIGOS_NAO_CANDIDATO,
     CRS_SIRGAS2000,
     GEOMETRIAS_DIR,
+    NOME_BOLSONARO_POR_ANO,
     NOME_PT_POR_ANO,
     NR_BOLSONARO_POR_ANO,
     NR_PT,
@@ -240,15 +241,15 @@ def exporta_zona_mun_turno(ano: int, turno: int) -> Path:
     )
 
 
-def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
-    """`mudanca_{a}_{b}_t2.json`, sobre a geometria de `zona_mun_{ano_depois}_geo.json`:
+def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
+    """`mudanca_{a}_{b}_t{turno}.json`, sobre a geometria de `zona_mun_{ano_depois}_geo.json`:
     `{id: [classe, pt_antes, pt_depois, delta, virou, classe_tipo, d_pt_aptos,
     d_bolsonaro_aptos, d_nao_voto_aptos, cresc_votos_pt, cresc_votos_bolsonaro]}`.
 
     As posições 0–4 são o swing nos votos válidos; 5–10, a mudança sobre o
     eleitorado apto (por mil; crescimentos também por mil, 667 = +66,7%)."""
     mud = pd.read_parquet(
-        RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet"
+        RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
     )
     colunas = zip(
         cores.classifica_divergente(mud["var_pc_validos_pt"], cores.QUEBRAS_MUDANCA).tolist(),
@@ -265,7 +266,7 @@ def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
     )
     return _escreve_json(
         {"dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas)))},
-        DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t2.json",
+        DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t{turno}.json",
     )
 
 
@@ -275,19 +276,20 @@ def exporta_mudanca(ano_antes: int, ano_depois: int) -> Path:
 def exporta_config(
     pontos: list[tuple[int, int]],
     zona_mun: list[tuple[int, int]],
-    mudancas: list[tuple[int, int]],
+    mudancas: list[tuple[int, int, int]],
 ) -> Path:
     """`config.json`: fundo do mapa, legendas e combinações disponíveis."""
     anos = sorted({a for a, _ in pontos} | {a for a, _ in zona_mun})
     legenda_presidente = {str(a): cores.legenda_margem(NOME_PT_POR_ANO[a]) for a in anos}
-    legendas_mudanca_tipo = (
-        {"mudanca_tipo": cores.legenda_tipo_mudanca(*mudancas[0])} if mudancas else {}
-    )
+    chave = lambda a, b, t: f"{a}-{b}-{t}"
+    legendas_mudanca = {chave(*m): cores.legenda_mudanca(*m) for m in mudancas}
+    legendas_mudanca_tipo = {chave(*m): cores.legenda_tipo_mudanca(*m) for m in mudancas}
     return _escreve_json(
         {
             "cores_tipo_mudanca": cores.cores_tipo_mudanca(),
             "tiles": {"url": TILES_VISUALIZADOR, "attr": TILES_VISUALIZADOR_ATTR},
             "nome_pt": {str(a): NOME_PT_POR_ANO[a] for a in anos},
+            "nome_bolsonaro": {str(a): NOME_BOLSONARO_POR_ANO[a] for a in anos},
             "nr_pt": NR_PT,
             "nr_bolsonaro": {str(a): NR_BOLSONARO_POR_ANO[a] for a in anos},
             "cor_sem_dado": cores.COR_SEM_DADO,
@@ -302,8 +304,8 @@ def exporta_config(
                 "pontos_abstencao": cores.legenda_sequencial(
                     "Abstenção (% dos inscritos)", cores.QUEBRAS_ABSTENCAO
                 ),
-                "mudanca": cores.legenda_mudanca(),
-                **legendas_mudanca_tipo,
+                "mudanca": legendas_mudanca,
+                "mudanca_tipo": legendas_mudanca_tipo,
             },
             "disponivel": {
                 "pontos": [list(x) for x in pontos],
