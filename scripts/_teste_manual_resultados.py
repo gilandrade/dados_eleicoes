@@ -227,6 +227,7 @@ assert np.isclose(a["var_pc_validos_pt"], -0.10)
 assert np.isclose(a["var_pc_aptos_pt"], 0.20)
 assert np.isclose(a["var_rel_votos_pt"], 2 / 3)
 assert a["tipo_mudanca"] == "bolsonaro_ambos_cresceram"
+assert (a["qt_validos_2018"], a["qt_validos_2022"]) == (50, 100)  # só candidatos, sem branco/nulo
 assert m_ap.loc["20000000001", "tipo_mudanca"] == "pt_troca"
 assert m_ap.loc["30000000001", "tipo_mudanca"] == "pt_ambos_cairam"
 soma = m_ap[["var_pc_aptos_pt", "var_pc_aptos_bolsonaro", "var_pc_aptos_nao_voto"]].sum(axis=1)

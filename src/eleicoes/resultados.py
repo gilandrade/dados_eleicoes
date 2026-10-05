@@ -17,7 +17,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import CODIGO_ANULADO_APURADO_SEPARADO, CODIGO_BRANCO, CODIGO_NULO
+from .config import (
+    CODIGO_ANULADO_APURADO_SEPARADO,
+    CODIGO_BRANCO,
+    CODIGO_NULO,
+    CODIGOS_NAO_CANDIDATO,
+)
 
 # Prefixo de id_zona_mun para locais sem cd_mun (o exterior, sem crosswalk —
 # ver 00_auxiliares.qmd). 8 caracteres, não colide com nenhum cd_mun real
@@ -391,10 +396,16 @@ def _acrescenta_base_aptos(
     def prepara(res: pd.DataFrame, ano: int) -> pd.DataFrame:
         base = res[~res[chave].str.startswith(SENTINELA_EXTERIOR)]
         aptos = pd.to_numeric(base["qt_aptos"], errors="coerce").replace(0, np.nan)
+        cols_candidatos = [
+            c for c in base.columns
+            if c.startswith("qt_votos_") and c[len("qt_votos_"):].isdigit()
+            and int(c[len("qt_votos_"):]) not in CODIGOS_NAO_CANDIDATO
+        ]
         return pd.DataFrame({
             chave: base[chave],
             f"qt_votos_pt_{ano}": base[f"qt_votos_{nr_pt}"],
             f"qt_votos_bolsonaro_{ano}": base[f"qt_votos_{nr_bolsonaro[ano]}"],
+            f"qt_validos_{ano}": base[cols_candidatos].sum(axis=1),
             f"qt_aptos_{ano}": aptos,
         })
 

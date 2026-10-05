@@ -244,10 +244,14 @@ def exporta_zona_mun_turno(ano: int, turno: int) -> Path:
 def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
     """`mudanca_{a}_{b}_t{turno}.json`, sobre a geometria de `zona_mun_{ano_depois}_geo.json`:
     `{id: [classe, pt_antes, pt_depois, delta, virou, classe_tipo, d_pt_aptos,
-    d_bolsonaro_aptos, d_nao_voto_aptos, cresc_votos_pt, cresc_votos_bolsonaro]}`.
+    d_bolsonaro_aptos, d_nao_voto_aptos, cresc_votos_pt, cresc_votos_bolsonaro,
+    aptos_antes, aptos_depois, pt_antes, pt_depois, bolsonaro_antes,
+    bolsonaro_depois, validos_antes, validos_depois]}`.
 
     As posições 0–4 são o swing nos votos válidos; 5–10, a mudança sobre o
-    eleitorado apto (por mil; crescimentos também por mil, 667 = +66,7%)."""
+    eleitorado apto (por mil; crescimentos também por mil, 667 = +66,7%);
+    11–18, as contagens absolutas (inscritos, votos de cada candidato e votos
+    válidos, antes e depois) que o tooltip mostra."""
     mud = pd.read_parquet(
         RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
     )
@@ -263,6 +267,14 @@ def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
         _por_mil(mud["var_pc_aptos_nao_voto"]),
         _por_mil(mud["var_rel_votos_pt"]),
         _por_mil(mud["var_rel_votos_bolsonaro"]),
+        _inteiro(mud[f"qt_aptos_{ano_antes}"]),
+        _inteiro(mud[f"qt_aptos_{ano_depois}"]),
+        _inteiro(mud[f"qt_votos_pt_{ano_antes}"]),
+        _inteiro(mud[f"qt_votos_pt_{ano_depois}"]),
+        _inteiro(mud[f"qt_votos_bolsonaro_{ano_antes}"]),
+        _inteiro(mud[f"qt_votos_bolsonaro_{ano_depois}"]),
+        _inteiro(mud[f"qt_validos_{ano_antes}"]),
+        _inteiro(mud[f"qt_validos_{ano_depois}"]),
     )
     return _escreve_json(
         {"dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas)))},

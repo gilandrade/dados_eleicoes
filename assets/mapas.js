@@ -263,15 +263,30 @@
       let html = `<b>${escapa(p.rot)}</b><br>`;
       if (!d) return html + "Sem dado";
       if (ehMudanca) {
+        const [aptA, aptD, ptA, ptD, boA, boD, valA, valD] = d.slice(11, 19);
+        const nomePt = escapa(config.nome_pt[String(anoDepois)]);
+        const nomeBo = escapa(config.nome_bolsonaro[String(anoDepois)]);
+        const seta = (a, b) => `${fmtNum(a)} → ${fmtNum(b)}`;
+        const permil = (n, den) => (n == null || !den ? null : Math.round((1000 * n) / den));
+        const dif = (x, y) => (x == null || y == null ? null : x - y);
+        const nvA = dif(aptA, ptA == null || boA == null ? null : ptA + boA);
+        const nvD = dif(aptD, ptD == null || boD == null ? null : ptD + boD);
+        const pctVal = (n, v) => fmtPct(permil(n, v));
+        const dpBo = dif(permil(boD, valD), permil(boA, valA));
         html +=
-          `PT em ${anoAntes} (${escapa(config.nome_pt[String(anoAntes)])}): ${fmtPct(d[1])}<br>` +
-          `PT em ${anoDepois} (${escapa(config.nome_pt[String(anoDepois)])}): ${fmtPct(d[2])}<br>` +
-          `Variação nos votos válidos: <b>${fmtPp(d[3])}</b>` +
-          (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "") +
-          `<br><span class="tt-nota">Sobre o eleitorado inscrito:</span>` +
-          `<br>${escapa(config.nome_pt[String(anoDepois)])}: <b>${fmtPp(d[6])}</b> (votos ${fmtCresc(d[9])})` +
-          `<br>${escapa(config.nome_bolsonaro[String(anoDepois)])}: <b>${fmtPp(d[7])}</b> (votos ${fmtCresc(d[10])})` +
-          `<br>Abstenção, brancos e nulos${turnoMud === 1 ? " e outros candidatos" : ""}: <b>${fmtPp(d[8])}</b>`;
+          `<span class="tt-nota">Sobre o eleitorado inscrito — inscritos ${anoAntes} → ${anoDepois}: ` +
+          `${seta(aptA, aptD)} (${fmtCresc(permil(dif(aptD, aptA), aptA))})</span>` +
+          `<br>${nomePt}: ${seta(ptA, ptD)} votos (<b>${fmtPp(d[6])}</b>)` +
+          `<br>${nomeBo}: ${seta(boA, boD)} votos (<b>${fmtPp(d[7])}</b>)` +
+          `<br>Abstenção, brancos e nulos${turnoMud === 1 ? " e outros candidatos" : ""}: ` +
+          `${seta(nvA, nvD)} (<b>${fmtPp(d[8])}</b>)` +
+          `<br><span class="tt-nota">Sobre os votos válidos — válidos ${anoAntes} → ${anoDepois}: ` +
+          `${seta(valA, valD)} (${fmtCresc(permil(dif(valD, valA), valA))})</span>` +
+          `<br>${nomePt}: ${seta(ptA, ptD)} votos ` +
+          `(${pctVal(ptA, valA)} → ${pctVal(ptD, valD)}; <b>${fmtPp(d[3])}</b>)` +
+          `<br>${nomeBo}: ${seta(boA, boD)} votos ` +
+          `(${pctVal(boA, valA)} → ${pctVal(boD, valD)}; <b>${fmtPp(dpBo)}</b>)` +
+          (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "");
       } else {
         html += linhaPresidente(d[1], d[2], estado.ano) + maisVotado(d[5], res.candidatos, estado.ano) +
           `<br>Comparecimento: ${fmtNum(d[4])} votos`;
