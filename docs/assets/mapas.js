@@ -56,6 +56,7 @@
       mapa: p.get("mapa"),
       ano: Number(p.get("ano")) || null,
       turno: Number(p.get("turno")) || null,
+      par: p.get("par"),
       vista: v.length === 3 && v.every(Number.isFinite) ? v : null,
     };
   }
@@ -64,7 +65,8 @@
   function gravarHash(estado) {
     estado = estado || estadoAtual();
     const p = new URLSearchParams({ mapa: estado.mapa });
-    if (!ehMapaMudanca(estado.mapa)) {
+    if (ehMapaMudanca(estado.mapa)) p.set("par", estado.par);
+    else {
       p.set("ano", estado.ano);
       p.set("turno", estado.turno);
     }
@@ -82,10 +84,15 @@
     const selAno = el("sel-ano");
     const selTurno = el("sel-turno");
     if (ehMapaMudanca(estado.mapa)) {
-      const [a, b] = config.disponivel.mudanca[0];
-      selAno.innerHTML = `<option>${a} → ${b}</option>`;
-      selTurno.innerHTML = "<option>2º</option>";
-      selAno.disabled = selTurno.disabled = true;
+      // Aqui "ano" é o par de eleições ("2018-2022-2"): o turno vem junto.
+      const pares = config.disponivel.mudanca.map(([a, b, t]) => ({ id: `${a}-${b}-${t}`, a, b, t }));
+      if (!pares.some((p) => p.id === estado.par)) estado.par = pares[pares.length - 1].id;
+      selAno.innerHTML = pares.map((p) => `<option value="${p.id}">${p.a} → ${p.b} (${p.t}º turno)</option>`).join("");
+      selAno.value = estado.par;
+      const atual = pares.find((p) => p.id === estado.par);
+      selTurno.innerHTML = `<option>${atual.t}º</option>`;
+      selAno.disabled = false;
+      selTurno.disabled = true;
       return estado;
     }
     selAno.disabled = selTurno.disabled = false;
@@ -102,7 +109,9 @@
   }
 
   function estadoAtual() {
-    return { mapa: el("sel-mapa").value, ano: Number(el("sel-ano").value), turno: Number(el("sel-turno").value) };
+    const mapaSel = el("sel-mapa").value;
+    if (ehMapaMudanca(mapaSel)) return { mapa: mapaSel, par: el("sel-ano").value };
+    return { mapa: mapaSel, ano: Number(el("sel-ano").value), turno: Number(el("sel-turno").value) };
   }
 
   // ==== Legenda ==============================================================
@@ -110,6 +119,7 @@
   function specLegenda(estado) {
     const chave = estado.mapa;
     const spec = config.legendas[chave];
+    if (ehMapaMudanca(chave)) return spec[estado.par];
     return MAPAS[chave].legendaPorAno ? spec[String(estado.ano)] : spec;
   }
 
@@ -181,7 +191,7 @@
   }
 
   function linhaPresidente(pt, bo, ano) {
-    return `${escapa(config.nome_pt[String(ano)])}: <b>${fmtPct(pt)}</b> · Bolsonaro: <b>${fmtPct(bo)}</b>`;
+    return `${escapa(config.nome_pt[String(ano)])}: <b>${fmtPct(pt)}</b> · ${escapa(config.nome_bolsonaro[String(ano)])}: <b>${fmtPct(bo)}</b>`;
   }
 
   async function camadaPontos(estado) {
@@ -230,9 +240,9 @@
     const ehMudanca = ehMapaMudanca(estado.mapa);
     const posClasse = MAPAS[estado.mapa].posClasse || 0;
     const paleta = MAPAS[estado.mapa].cores;
-    const [anoAntes, anoDepois] = ehMudanca ? config.disponivel.mudanca[0] : [null, estado.ano];
+    const [anoAntes, anoDepois, turnoMud] = ehMudanca ? estado.par.split("-").map(Number) : [null, estado.ano, null];
     const arquivoDados = ehMudanca
-      ? `mudanca_${anoAntes}_${anoDepois}_t2.json`
+      ? `mudanca_${anoAntes}_${anoDepois}_t${turnoMud}.json`
       : `zona_mun_${estado.ano}_t${estado.turno}.json`;
     const [geo, res] = await Promise.all([carrega(`zona_mun_${anoDepois}_geo.json`), carrega(arquivoDados)]);
     const dados = res.dados;
@@ -260,8 +270,8 @@
           (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "") +
           `<br><span class="tt-nota">Sobre o eleitorado inscrito:</span>` +
           `<br>${escapa(config.nome_pt[String(anoDepois)])}: <b>${fmtPp(d[6])}</b> (votos ${fmtCresc(d[9])})` +
-          `<br>Bolsonaro: <b>${fmtPp(d[7])}</b> (votos ${fmtCresc(d[10])})` +
-          `<br>Abstenção, brancos e nulos: <b>${fmtPp(d[8])}</b>`;
+          `<br>${escapa(config.nome_bolsonaro[String(anoDepois)])}: <b>${fmtPp(d[7])}</b> (votos ${fmtCresc(d[10])})` +
+          `<br>Abstenção, brancos e nulos${turnoMud === 1 ? " e outros candidatos" : ""}: <b>${fmtPp(d[8])}</b>`;
       } else {
         html += linhaPresidente(d[1], d[2], estado.ano) + maisVotado(d[5], res.candidatos, estado.ano) +
           `<br>Comparecimento: ${fmtNum(d[4])} votos`;
@@ -325,7 +335,7 @@
     if (inicial.vista) mapa.setView([inicial.vista[0], inicial.vista[1]], inicial.vista[2]);
     mapa.on("moveend", () => gravarHash());
     if (inicial.mapa && MAPAS[inicial.mapa]) el("sel-mapa").value = inicial.mapa;
-    preencheSeletores({ mapa: el("sel-mapa").value, ano: inicial.ano, turno: inicial.turno });
+    preencheSeletores({ mapa: el("sel-mapa").value, ano: inicial.ano, turno: inicial.turno, par: inicial.par });
 
     el("sel-mapa").addEventListener("change", desenha);
     el("sel-ano").addEventListener("change", desenha);

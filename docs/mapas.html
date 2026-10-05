@@ -144,7 +144,7 @@ ul.task-list li input[type="checkbox"] {
 </header>
 
 
-<p>Resultados da eleição presidencial de 2018 e 2022 (TSE). Escolha o mapa, o ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.</p>
+<p>Resultados da eleição presidencial de 2018, 2022 e 2026 (TSE). Escolha o mapa, o ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.</p>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="assets/mapas.css">
 
@@ -158,8 +158,8 @@ ul.task-list li input[type="checkbox"] {
       </optgroup>
       <optgroup label="Zona eleitoral × município (áreas)">
         <option value="zona_mun_presidente">Presidente — % dos votos válidos</option>
-        <option value="mudanca">Mudança de votação 2018 → 2022 (2º turno)</option>
-        <option value="mudanca_tipo">De onde veio a mudança 2018 → 2022 (% do eleitorado)</option>
+        <option value="mudanca">Mudança de votação entre eleições</option>
+        <option value="mudanca_tipo">De onde veio a mudança (% do eleitorado)</option>
       </optgroup>
     </select>
   </label>
@@ -178,12 +178,9 @@ ul.task-list li input[type="checkbox"] {
 <p><strong>Como ler.</strong></p>
 <ul>
 <li><strong>Locais de votação</strong> e <strong>zona × município</strong> mostram valores <em>observados</em>, exatamente como o TSE publica.</li>
-<li>Nos locais de votação, a <strong>cor</strong> é o percentual e o <strong>tamanho</strong> da bolinha é a base desse percentual: votos válidos (Presidente), total de votos (brancos e nulos) ou inscritos (abstenção). A área é proporcional à quantidade, na mesma escala em 2018 e 2022.</li>
+<li>Nos locais de votação, a <strong>cor</strong> é o percentual e o <strong>tamanho</strong> da bolinha é a base desse percentual: votos válidos (Presidente), total de votos (brancos e nulos) ou inscritos (abstenção). A área é proporcional à quantidade, na mesma escala nos três anos.</li>
 <li>Nas cidades com mais de uma zona eleitoral, a fronteira <em>entre</em> as zonas é estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando for o caso.</li>
-<li>A <strong>mudança de votação</strong> compara o candidato do PT (Haddad em 2018, Lula em
-<ol start="2022" type="1">
-<li>contra Bolsonaro no 2º turno, zona a zona. Entre as duas eleições as zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor mede o ganho do PT <em>nos votos válidos</em>; não enxerga mudança na abstenção, nos brancos e nos nulos.</li>
-</ol></li>
+<li>A <strong>mudança de votação</strong> compara o candidato do PT (Haddad em 2018, Lula em 2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio Bolsonaro em 2026), zona a zona, no mesmo turno: 2º turno 2018 → 2022 e 1º turno 2022 → 2026. No 1º turno os demais candidatos entram em “abstenção, brancos, nulos e outros”. Entre as duas eleições as zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor mede o ganho do PT <em>nos votos válidos</em>; não enxerga mudança na abstenção, nos brancos e nos nulos.</li>
 <li><strong>De onde veio a mudança</strong> repete a comparação sobre o <em>eleitorado inscrito</em>: PT, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem teve o saldo e se o movimento veio de um candidato crescer enquanto o outro cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da zona, não eleitores que trocaram de lado.</li>
 <li>Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome de rua) ficam fora do mapa de pontos, mas entram nos totais — nenhum ponto é desenhado no centro do município.</li>
 </ul>
