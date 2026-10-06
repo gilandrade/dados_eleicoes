@@ -121,13 +121,24 @@ def exporta_locais(ano: int) -> list[str]:
     geom = geom.sort_values("id_local").reset_index(drop=True)
 
     locais = pd.read_parquet(
-        PROCESSADO_DIR / f"locais_{ano}.parquet", columns=["id_local", "nm_local_votacao"]
+        PROCESSADO_DIR / f"locais_{ano}.parquet",
+        columns=["id_local", "nm_local_votacao", "sg_uf", "nm_bairro"],
     )
-    geom = geom.merge(locais, on="id_local", how="left")
+    geom = geom.drop(columns=["sg_uf", "nm_bairro"], errors="ignore").merge(
+        locais, on="id_local", how="left"
+    )
 
     nome_mun = _nome_municipio()
     municipios = sorted(geom["cd_mun"].dropna().unique())
     idx_mun = {cd: i for i, cd in enumerate(municipios)}
+
+    # Tabelas de índices para os filtros do mapa (UF -> município -> bairro).
+    geom["sg_uf"] = geom["sg_uf"].fillna("")
+    ufs = sorted(geom["sg_uf"].unique())
+    idx_uf = {uf: i for i, uf in enumerate(ufs)}
+    bairro = geom["nm_bairro"].fillna("").str.strip().str.title().replace("", "(sem bairro)")
+    bairros = sorted(bairro.unique())
+    idx_bairro = {b: i for i, b in enumerate(bairros)}
 
     _escreve_json(
         {
@@ -137,6 +148,10 @@ def exporta_locais(ano: int) -> list[str]:
             "nome": geom["nm_local_votacao"].fillna("").str.title().tolist(),
             "mun": [idx_mun[cd] for cd in geom["cd_mun"]],
             "municipios": [nome_mun.get(cd, cd) for cd in municipios],
+            "uf": [idx_uf[u] for u in geom["sg_uf"]],
+            "ufs": ufs,
+            "bairro": [idx_bairro[b] for b in bairro],
+            "bairros": bairros,
         },
         DADOS_VISUALIZADOR_DIR / f"locais_{ano}.json",
     )

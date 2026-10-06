@@ -28,6 +28,9 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
   </label>
   <label>Ano <select id="sel-ano"></select></label>
   <label>Turno <select id="sel-turno"></select></label>
+  <label>UF <select id="sel-uf"></select></label>
+  <label>Município <select id="sel-mun"></select></label>
+  <label>Bairro <select id="sel-bairro"></select></label>
 </div>
 
 <div class="mapas-area">
@@ -64,6 +67,10 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
   teve o saldo e se o movimento veio de um candidato crescer enquanto o outro
   cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da
   zona, não eleitores que trocaram de lado.
+- Os filtros de **UF, município e bairro** valem só para os mapas de pontos
+  (ficam desativados nos mapas de áreas). O bairro é o campo preenchido pelos
+  cartórios no cadastro do TSE: os nomes são informais e um mesmo bairro pode
+  aparecer com grafias diferentes.
 - Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome
   de rua) ficam fora do mapa de pontos, mas entram nos totais — nenhum ponto é
   desenhado no centro do município.
