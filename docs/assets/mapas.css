@@ -24,6 +24,15 @@
   background: #fff;
 }
 
+.mapas-controles select#sel-uf {
+  min-width: 5rem;
+}
+
+.mapas-controles select#sel-mun,
+.mapas-controles select#sel-bairro {
+  max-width: 14rem;
+}
+
 .mapas-controles select:disabled {
   color: #52514e;
   background: #f0efec;

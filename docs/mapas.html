@@ -165,6 +165,9 @@ ul.task-list li input[type="checkbox"] {
   </label>
   <label>Ano <select id="sel-ano"></select></label>
   <label>Turno <select id="sel-turno"></select></label>
+  <label>UF <select id="sel-uf"></select></label>
+  <label>Município <select id="sel-mun"></select></label>
+  <label>Bairro <select id="sel-bairro"></select></label>
 </div>
 
 <div class="mapas-area">
@@ -182,6 +185,7 @@ ul.task-list li input[type="checkbox"] {
 <li>Nas cidades com mais de uma zona eleitoral, a fronteira <em>entre</em> as zonas é estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando for o caso.</li>
 <li>A <strong>mudança de votação</strong> compara o candidato do PT (Haddad em 2018, Lula em 2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio Bolsonaro em 2026), zona a zona, no mesmo turno: 2º turno 2018 → 2022 e 1º turno 2022 → 2026. No 1º turno os demais candidatos entram em “abstenção, brancos, nulos e outros”. Entre as duas eleições as zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor mede o ganho do PT <em>nos votos válidos</em>; não enxerga mudança na abstenção, nos brancos e nos nulos.</li>
 <li><strong>De onde veio a mudança</strong> repete a comparação sobre o <em>eleitorado inscrito</em>: PT, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem teve o saldo e se o movimento veio de um candidato crescer enquanto o outro cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da zona, não eleitores que trocaram de lado.</li>
+<li>Os filtros de <strong>UF, município e bairro</strong> valem só para os mapas de pontos (ficam desativados nos mapas de áreas). O bairro é o campo preenchido pelos cartórios no cadastro do TSE: os nomes são informais e um mesmo bairro pode aparecer com grafias diferentes.</li>
 <li>Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome de rua) ficam fora do mapa de pontos, mas entram nos totais — nenhum ponto é desenhado no centro do município.</li>
 </ul>
 <p>Metodologia e fontes: <a href="https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md">PLAN.md</a>.</p>

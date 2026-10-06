@@ -46,6 +46,10 @@
   const escapa = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   let config, mapa, camada, legenda, tooltip, geracao = 0;
+  // Filtros dos mapas de pontos. Guardam nomes (não índices): os índices mudam de
+  // um ano para outro, os nomes não.
+  const filtro = { uf: "", mun: "", bairro: "" };
+  let ajustarVista = false; // enquadra os pontos filtrados só quando o usuário mexe no filtro
 
   // ==== Estado (seletores <-> #hash) =========================================
 
@@ -57,6 +61,9 @@
       ano: Number(p.get("ano")) || null,
       turno: Number(p.get("turno")) || null,
       par: p.get("par"),
+      uf: p.get("uf") || "",
+      mun: p.get("mun") || "",
+      bairro: p.get("bairro") || "",
       vista: v.length === 3 && v.every(Number.isFinite) ? v : null,
     };
   }
@@ -70,6 +77,7 @@
       p.set("ano", estado.ano);
       p.set("turno", estado.turno);
     }
+    for (const k of ["uf", "mun", "bairro"]) if (filtro[k]) p.set(k, filtro[k]);
     const c = mapa.getCenter();
     p.set("v", `${c.lat.toFixed(4)},${c.lng.toFixed(4)},${mapa.getZoom()}`);
     history.replaceState(null, "", "#" + p.toString());
@@ -113,6 +121,41 @@
     if (ehMapaMudanca(mapaSel)) return { mapa: mapaSel, par: el("sel-ano").value };
     return { mapa: mapaSel, ano: Number(el("sel-ano").value), turno: Number(el("sel-turno").value) };
   }
+
+  // ==== Filtros (UF > município > bairro) ======================================
+
+  function preencheFiltros(geo) {
+    const ufs = new Set(), muns = new Set(), bairros = new Set();
+    for (let i = 0; i < geo.id.length; i++) {
+      const uf = geo.ufs[geo.uf[i]];
+      const mun = geo.municipios[geo.mun[i]];
+      ufs.add(uf);
+      if (filtro.uf && uf !== filtro.uf) continue;
+      muns.add(mun);
+      if (filtro.mun && mun !== filtro.mun) continue;
+      bairros.add(geo.bairros[geo.bairro[i]]);
+    }
+    const ordena = (c) => [...c].filter(Boolean).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    const monta = (id, valores, chave, rotuloTodos) => {
+      if (filtro[chave] && !valores.includes(filtro[chave])) filtro[chave] = "";
+      el(id).innerHTML = `<option value="">${rotuloTodos}</option>` +
+        valores.map((v) => `<option value="${escapa(v)}">${escapa(v)}</option>`).join("");
+      el(id).value = filtro[chave];
+      el(id).disabled = false;
+    };
+    monta("sel-uf", ordena(ufs), "uf", "Todas");
+    monta("sel-mun", ordena(muns), "mun", "Todos");
+    monta("sel-bairro", ordena(bairros), "bairro", "Todos");
+  }
+
+  function desativaFiltros() {
+    for (const id of ["sel-uf", "sel-mun", "sel-bairro"]) el(id).disabled = true;
+  }
+
+  const passaFiltro = (geo, i) =>
+    (!filtro.uf || geo.ufs[geo.uf[i]] === filtro.uf) &&
+    (!filtro.mun || geo.municipios[geo.mun[i]] === filtro.mun) &&
+    (!filtro.bairro || geo.bairros[geo.bairro[i]] === filtro.bairro);
 
   // ==== Legenda ==============================================================
 
@@ -198,6 +241,7 @@
     const { ano, turno } = estado;
     const spec = MAPAS[estado.mapa];
     const [geo, res] = await Promise.all([carrega(`locais_${ano}.json`), carrega(`locais_${ano}_t${turno}.json`)]);
+    preencheFiltros(geo);
     const renderer = L.canvas({ padding: 0.5, tolerance: 3 });
     const grupo = L.featureGroup();
     const classes = res[spec.classe];
@@ -205,7 +249,10 @@
 
     // Maiores primeiro: os pequenos ficam por cima e continuam clicáveis.
     const ordem = geo.id.map((_, i) => i).sort((a, b) => (valores[b] ?? 0) - (valores[a] ?? 0));
+    const limites = [];
     for (const i of ordem) {
+      if (!passaFiltro(geo, i)) continue;
+      limites.push([geo.lat[i], geo.lon[i]]);
       const marcador = L.circleMarker([geo.lat[i], geo.lon[i]], {
         renderer,
         ...estiloTamanho(raioPorValor(valores[i])),
@@ -217,6 +264,8 @@
       marcador._i = i;
       grupo.addLayer(marcador);
     }
+    if (ajustarVista && limites.length) mapa.fitBounds(limites, { maxZoom: 15, padding: [30, 30] });
+    ajustarVista = false;
 
     const texto = (i) => {
       const cabecalho = `<b>${escapa(geo.nome[i] || geo.id[i])}</b><br>${escapa(geo.municipios[geo.mun[i]])}<br>`;
@@ -317,7 +366,9 @@
     const minha = ++geracao;
     el("mapa-carregando").hidden = false;
     try {
-      const nova = MAPAS[estado.mapa].tipo === "pontos" ? await camadaPontos(estado) : await camadaPoligonos(estado);
+      const ehPontos = MAPAS[estado.mapa].tipo === "pontos";
+      if (!ehPontos) desativaFiltros();
+      const nova = ehPontos ? await camadaPontos(estado) : await camadaPoligonos(estado);
       if (minha !== geracao) return; // outra seleção chegou antes
       escondeTooltip();
       if (camada) mapa.removeLayer(camada);
@@ -349,12 +400,23 @@
     const inicial = lerHash();
     if (inicial.vista) mapa.setView([inicial.vista[0], inicial.vista[1]], inicial.vista[2]);
     mapa.on("moveend", () => gravarHash());
+    Object.assign(filtro, { uf: inicial.uf, mun: inicial.mun, bairro: inicial.bairro });
     if (inicial.mapa && MAPAS[inicial.mapa]) el("sel-mapa").value = inicial.mapa;
     preencheSeletores({ mapa: el("sel-mapa").value, ano: inicial.ano, turno: inicial.turno, par: inicial.par });
 
     el("sel-mapa").addEventListener("change", desenha);
     el("sel-ano").addEventListener("change", desenha);
     el("sel-turno").addEventListener("change", desenha);
+    // Trocar um nível zera os de baixo; o recorte é enquadrado no mapa.
+    const aoFiltrar = (chave, filhos) => () => {
+      filtro[chave] = el("sel-" + (chave === "mun" ? "mun" : chave)).value;
+      for (const f of filhos) filtro[f] = "";
+      ajustarVista = true;
+      desenha();
+    };
+    el("sel-uf").addEventListener("change", aoFiltrar("uf", ["mun", "bairro"]));
+    el("sel-mun").addEventListener("change", aoFiltrar("mun", ["bairro"]));
+    el("sel-bairro").addEventListener("change", aoFiltrar("bairro", []));
     await desenha();
   }
 
