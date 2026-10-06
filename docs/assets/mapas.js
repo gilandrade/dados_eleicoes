@@ -46,10 +46,10 @@
   const escapa = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   let config, mapa, camada, legenda, tooltip, geracao = 0;
-  // Filtros dos mapas de pontos. Guardam nomes (não índices): os índices mudam de
-  // um ano para outro, os nomes não.
+  // Filtros de território (bairro só nos mapas de pontos). Guardam nomes (não
+  // índices): os índices mudam de um ano para outro, os nomes não.
   const filtro = { uf: "", mun: "", bairro: "" };
-  let ajustarVista = false; // enquadra os pontos filtrados só quando o usuário mexe no filtro
+  let ajustarVista = false; // enquadra o recorte filtrado só quando o usuário mexe no filtro
 
   // ==== Estado (seletores <-> #hash) =========================================
 
@@ -124,16 +124,18 @@
 
   // ==== Filtros (UF > município > bairro) ======================================
 
-  function preencheFiltros(geo) {
+  // `ufDe`, `munDe` e `bairroDe` devolvem o nome da feição `i`. Sem `bairroDe`
+  // (mapas de zonas) o seletor de bairro fica desativado.
+  function preencheFiltros(n, ufDe, munDe, bairroDe) {
     const ufs = new Set(), muns = new Set(), bairros = new Set();
-    for (let i = 0; i < geo.id.length; i++) {
-      const uf = geo.ufs[geo.uf[i]];
-      const mun = geo.municipios[geo.mun[i]];
+    for (let i = 0; i < n; i++) {
+      const uf = ufDe(i);
+      const mun = munDe(i);
       ufs.add(uf);
       if (filtro.uf && uf !== filtro.uf) continue;
       muns.add(mun);
       if (filtro.mun && mun !== filtro.mun) continue;
-      bairros.add(geo.bairros[geo.bairro[i]]);
+      if (bairroDe) bairros.add(bairroDe(i));
     }
     const ordena = (c) => [...c].filter(Boolean).sort((a, b) => a.localeCompare(b, "pt-BR"));
     const monta = (id, valores, chave, rotuloTodos) => {
@@ -145,11 +147,19 @@
     };
     monta("sel-uf", ordena(ufs), "uf", "Todas");
     monta("sel-mun", ordena(muns), "mun", "Todos");
-    monta("sel-bairro", ordena(bairros), "bairro", "Todos");
+    if (bairroDe) monta("sel-bairro", ordena(bairros), "bairro", "Todos");
+    else el("sel-bairro").disabled = true;
   }
 
-  function desativaFiltros() {
-    for (const id of ["sel-uf", "sel-mun", "sel-bairro"]) el(id).disabled = true;
+  // UF e município de cada zona, tirados do rótulo ("Município – UF · zona N") —
+  // os mesmos nomes dos filtros dos mapas de pontos.
+  function recorteZonas(geo) {
+    return (geo._recorte ??= geo.features.map((f) => {
+      const rot = f.properties.rot;
+      const mun = rot.slice(0, rot.lastIndexOf(" · zona "));
+      const corte = mun.lastIndexOf(" – ");
+      return { uf: corte < 0 ? "" : mun.slice(corte + 3), mun };
+    }));
   }
 
   const passaFiltro = (geo, i) =>
@@ -242,7 +252,9 @@
     const { ano, turno } = estado;
     const spec = MAPAS[estado.mapa];
     const [geo, res] = await Promise.all([carrega(`locais_${ano}.json`), carrega(`locais_${ano}_t${turno}.json`)]);
-    preencheFiltros(geo);
+    preencheFiltros(
+      geo.id.length, (i) => geo.ufs[geo.uf[i]], (i) => geo.municipios[geo.mun[i]], (i) => geo.bairros[geo.bairro[i]]
+    );
     const renderer = L.canvas({ padding: 0.5, tolerance: 3 });
     const grupo = L.featureGroup();
     const classes = res[spec.classe];
@@ -296,6 +308,13 @@
       : `zona_mun_${estado.ano}_t${estado.turno}.json`;
     const [geo, res] = await Promise.all([carrega(`zona_mun_${anoDepois}_geo.json`), carrega(arquivoDados)]);
     const dados = res.dados;
+    const recorte = recorteZonas(geo);
+    preencheFiltros(recorte.length, (i) => recorte[i].uf, (i) => recorte[i].mun, null);
+    const visiveis = !filtro.uf && !filtro.mun ? geo : {
+      type: "FeatureCollection",
+      features: geo.features.filter((_, i) =>
+        (!filtro.uf || recorte[i].uf === filtro.uf) && (!filtro.mun || recorte[i].mun === filtro.mun)),
+    };
 
     const estilo = (f) => {
       const d = dados[f.properties.id];
@@ -334,20 +353,22 @@
           d[0] > 10 ? `<br><b>${nomePt} e ${nomeBo} caíram</b>` :
           d[0] === 5 ? "<br><b>Cresceram igual</b>" :
           `<br>Cresceu mais: <b>${d[0] < 5 ? nomePt : nomeBo}</b>`;
-        html +=
-          `<span class="tt-nota">Sobre o eleitorado inscrito — inscritos ${anoAntes} → ${anoDepois}: ` +
-          `${seta(aptA, aptD)} (${fmtCresc(permil(dif(aptD, aptA), aptA))})</span>` +
-          `<br>${nomePt}: ${seta(ptA, ptD)} votos (<b>${fmtPp(d[6])}</b>)` +
-          `<br>${nomeBo}: ${seta(boA, boD)} votos (<b>${fmtPp(d[7])}</b>)` +
-          `<br>Abstenção, brancos e nulos${turnoMud === 1 ? " e outros candidatos" : ""}: ` +
-          `${seta(nvA, nvD)} (<b>${fmtPp(d[8])}</b>)` +
-          `<br><span class="tt-nota">Sobre os votos válidos — válidos ${anoAntes} → ${anoDepois}: ` +
-          `${seta(valA, valD)} (${fmtCresc(permil(dif(valD, valA), valA))})</span>` +
-          `<br>${nomePt}: ${seta(ptA, ptD)} votos ` +
-          `(${pctVal(ptA, valA)} → ${pctVal(ptD, valD)}; <b>${fmtPp(d[3])}</b>)` +
-          `<br>${nomeBo}: ${seta(boA, boD)} votos ` +
-          `(${pctVal(boA, valA)} → ${pctVal(boD, valD)}; <b>${fmtPp(dpBo)}</b>)` +
-          linhaTerceiro + cresceuMais +
+        // Cada mapa mostra só a base que dá a sua cor: inscritos no "de onde
+        // veio a mudança", votos válidos no de mudança entre eleições.
+        html += (estado.mapa === "mudanca_tipo"
+          ? `<span class="tt-nota">Sobre o eleitorado inscrito — inscritos ${anoAntes} → ${anoDepois}: ` +
+            `${seta(aptA, aptD)} (${fmtCresc(permil(dif(aptD, aptA), aptA))})</span>` +
+            `<br>${nomePt}: ${seta(ptA, ptD)} votos (<b>${fmtPp(d[6])}</b>)` +
+            `<br>${nomeBo}: ${seta(boA, boD)} votos (<b>${fmtPp(d[7])}</b>)` +
+            `<br>Abstenção, brancos e nulos${turnoMud === 1 ? " e outros candidatos" : ""}: ` +
+            `${seta(nvA, nvD)} (<b>${fmtPp(d[8])}</b>)`
+          : `<span class="tt-nota">Sobre os votos válidos — válidos ${anoAntes} → ${anoDepois}: ` +
+            `${seta(valA, valD)} (${fmtCresc(permil(dif(valD, valA), valA))})</span>` +
+            `<br>${nomePt}: ${seta(ptA, ptD)} votos ` +
+            `(${pctVal(ptA, valA)} → ${pctVal(ptD, valD)}; <b>${fmtPp(d[3])}</b>)` +
+            `<br>${nomeBo}: ${seta(boA, boD)} votos ` +
+            `(${pctVal(boA, valA)} → ${pctVal(boD, valD)}; <b>${fmtPp(dpBo)}</b>)` +
+            linhaTerceiro + cresceuMais) +
           (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "");
       } else {
         html += linhaPresidente(d[1], d[2], estado.ano) + maisVotado(d[5], res.candidatos, estado.ano) +
@@ -358,7 +379,9 @@
     };
 
     const renderer = L.canvas({ padding: 0.5 });
-    const camadaGeo = L.geoJSON(geo, { renderer, style: estilo });
+    const camadaGeo = L.geoJSON(visiveis, { renderer, style: estilo });
+    if (ajustarVista && visiveis.features.length) mapa.fitBounds(camadaGeo.getBounds(), { padding: [30, 30] });
+    ajustarVista = false;
     camadaGeo.on("mouseover", (e) => {
       e.layer.setStyle({ weight: 2.2, color: "#1f1f1f" });
       mostraTooltip(e.latlng, texto(e.layer.feature.properties));
@@ -380,7 +403,6 @@
     el("mapa-carregando").hidden = false;
     try {
       const ehPontos = MAPAS[estado.mapa].tipo === "pontos";
-      if (!ehPontos) desativaFiltros();
       const nova = ehPontos ? await camadaPontos(estado) : await camadaPoligonos(estado);
       if (minha !== geracao) return; // outra seleção chegou antes
       escondeTooltip();
