@@ -394,6 +394,15 @@ the full data model (geometry files vs. result files joined by a shared id).
   `tipo_mudanca` descreve o saldo agregado da zona, nunca eleitores que trocaram
   de lado. `mudanca_votacao` só gera as colunas novas se receber
   `nr_bolsonaro_antes/depois`.
+- **A cor do mapa de mudança é de quem cresceu mais nos válidos (06/10/2026),
+  não a variação de Lula/Haddad.** No 1º turno `var_pc_validos_pt` não espelha o
+  bolsonarista: em 2022→2026, 112 zonas saíam vermelhas com Flávio crescendo mais
+  (ex.: Osasco 213, Lula +0,6 p.p., Flávio +3,1). Regra (`cresceu_mais_validos`,
+  `var_pc_validos_maior`, `cores.classifica_crescimento`): cor de quem cresceu
+  mais, tom = o crescimento dele; se os dois caíram (76 zonas), vai para o 3º
+  lugar (amarelo/ocre, corte em 5 p.p.) — o mais votado fora os dois em cada ano,
+  mesmo não sendo a mesma pessoa. Legenda sempre "X ganhou", nunca "perdeu". No 2º
+  turno o mapa é idêntico ao anterior.
 - **Zonas 2018 × 2022 quase idênticas** (medido em 29/09/2026): mesmo
   conjunto de zonas nos 189 municípios com várias; 99,84% dos locais na mesma
   zona. Só 36 municípios de zona única trocaram o número —

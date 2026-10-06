@@ -21,7 +21,7 @@
       tipo: "pontos", classe: "c_abst", cores: "seq", tamanho: "aptos", rotuloTamanho: "inscritos",
     },
     zona_mun_presidente: { tipo: "zona_mun", cores: "div", legendaPorAno: true },
-    mudanca: { tipo: "mudanca", cores: "div" },
+    mudanca: { tipo: "mudanca", cores: "mud" },
     mudanca_tipo: { tipo: "mudanca", cores: "tipo", posClasse: 5 },
   };
   const ehMapaMudanca = (chave) => MAPAS[chave].tipo === "mudanca";
@@ -195,7 +195,8 @@
 
   function corDaClasse(classe, paleta) {
     const cores = paleta === "seq" ? config.cores_sequenciais
-      : paleta === "tipo" ? config.cores_tipo_mudanca : config.cores_divergentes;
+      : paleta === "tipo" ? config.cores_tipo_mudanca
+      : paleta === "mud" ? config.cores_mudanca : config.cores_divergentes;
     return classe >= 0 ? cores[classe] : config.cor_sem_dado;
   }
 
@@ -322,6 +323,17 @@
         const nvD = dif(aptD, ptD == null || boD == null ? null : ptD + boD);
         const pctVal = (n, v) => fmtPct(permil(n, v));
         const dpBo = dif(permil(boD, valD), permil(boA, valA));
+        // 3º lugar (só no 1º turno): o mais votado fora os dois, em cada ano.
+        const [nr3A, nr3D, pc3A, pc3D] = d.slice(19, 23);
+        const nome3 = (ano, nr) => escapa((res.candidatos[String(ano)] || {})[String(nr)] || nr);
+        const linhaTerceiro = nr3A == null || nr3D == null ? "" :
+          `<br>3º lugar: ${nome3(anoAntes, nr3A)} ${fmtPct(pc3A)} → ${nome3(anoDepois, nr3D)} ${fmtPct(pc3D)} ` +
+          `(<b>${fmtPp(dif(pc3D, pc3A))}</b>)`;
+        // d[0] é a classe em `cores_mudanca`: 0–4 Lula/Haddad, 5 empate, 6–10 Bolsonaro, 11–12 3º lugar.
+        const cresceuMais = d[0] < 0 ? "" :
+          d[0] > 10 ? `<br><b>${nomePt} e ${nomeBo} caíram</b>` :
+          d[0] === 5 ? "<br><b>Cresceram igual</b>" :
+          `<br>Cresceu mais: <b>${d[0] < 5 ? nomePt : nomeBo}</b>`;
         html +=
           `<span class="tt-nota">Sobre o eleitorado inscrito — inscritos ${anoAntes} → ${anoDepois}: ` +
           `${seta(aptA, aptD)} (${fmtCresc(permil(dif(aptD, aptA), aptA))})</span>` +
@@ -335,6 +347,7 @@
           `(${pctVal(ptA, valA)} → ${pctVal(ptD, valD)}; <b>${fmtPp(d[3])}</b>)` +
           `<br>${nomeBo}: ${seta(boA, boD)} votos ` +
           `(${pctVal(boA, valA)} → ${pctVal(boD, valD)}; <b>${fmtPp(dpBo)}</b>)` +
+          linhaTerceiro + cresceuMais +
           (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "");
       } else {
         html += linhaPresidente(d[1], d[2], estado.ano) + maisVotado(d[5], res.candidatos, estado.ano) +

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 import pandas as pd
 
-from eleicoes import resultados
+from eleicoes import cores, resultados
 
 CD_MUN = "999999"
 
@@ -237,6 +237,38 @@ assert "tipo_mudanca" not in resultados.mudanca_votacao(
     ap_2018, ap_2022, ano_antes=2018, ano_depois=2022, nr_pt=13, chave="id_zona_mun"
 ).columns
 print("Mudança sobre aptos: OK")
+
+# ---- 6d. quem cresceu mais nos votos válidos ----------------------------------
+# Com dois candidatos (acima) é o espelho: a magnitude é |Δ de Lula/Haddad| e não há 3º.
+assert list(m_ap["cresceu_mais_validos"]) == ["bolsonaro", "pt", "empate"]
+assert np.isclose(a["var_pc_validos_maior"], 0.10)
+assert m_ap["nr_terceiro_2022"].isna().all()
+
+# 1º turno, 100 válidos por zona. Zona A: Lula +1, bolsonarista +3 (outros encolhem)
+# -> bolsonarista. Zona B: os dois caem e o 3º troca de candidato (15 com 10% ->
+# 55 com 18%) -> terceiro, +8 p.p. Zona C: Lula +2, bolsonarista -5 -> Lula.
+def _res_t1(votos: dict[int, list[int]]) -> pd.DataFrame:
+    df = pd.DataFrame({"id_zona_mun": ["10000000001", "20000000001", "30000000001"], "qt_aptos": 200})
+    for nr, v in votos.items():
+        df[f"qt_votos_{nr}"] = v
+    df["qt_votos_95"] = 5  # branco: fora dos válidos e do 3º lugar
+    df["pc_validos_13"] = df["qt_votos_13"] / 100
+    df["nr_vencedor"] = 13
+    return df
+
+t1_2022 = _res_t1({13: [40, 45, 40], 22: [45, 40, 40], 15: [10, 10, 12], 12: [5, 5, 8]})
+t1_2026 = _res_t1({13: [41, 42, 43], 22: [48, 37, 35], 55: [6, 18, 13], 70: [5, 3, 9]})
+m_t1 = resultados.mudanca_votacao(
+    t1_2022, t1_2026, ano_antes=2022, ano_depois=2026, nr_pt=13, chave="id_zona_mun",
+    nr_bolsonaro_antes=22, nr_bolsonaro_depois=22,
+).set_index("id_zona_mun")
+print("\nquem cresceu mais (1º turno):\n", m_t1[["cresceu_mais_validos", "var_pc_validos_maior", "nr_terceiro_2022", "nr_terceiro_2026"]])
+assert list(m_t1["cresceu_mais_validos"]) == ["bolsonaro", "terceiro", "pt"]
+assert np.allclose(m_t1["var_pc_validos_maior"], [0.03, 0.08, 0.03])
+assert (m_t1.loc["20000000001", "nr_terceiro_2022"], m_t1.loc["20000000001", "nr_terceiro_2026"]) == (15, 55)
+classes = cores.classifica_crescimento(m_t1["cresceu_mais_validos"], m_t1["var_pc_validos_maior"])
+assert list(classes) == [7, 12, 3], classes  # Bolsonaro 2–5 p.p., 3º > 5 p.p., Lula 2–5 p.p.
+print("Quem cresceu mais: OK")
 
 # ---- 7. município direto da seção (agrega_secao_por_municipio) -------------
 # Simula um ano sem locais processados (o caso de 2018): agrega direto de

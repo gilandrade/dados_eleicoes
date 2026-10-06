@@ -328,12 +328,16 @@ def mudanca_votacao(
     Bolsonaro (que muda de partido a cada eleição) não entra nessa parte.
 
     Duas bases de comparação:
-      - **votos válidos** (`var_pc_validos_pt`): o swing de Butler, quem ganhou
-        terreno relativo. Não vê mudança no tamanho do bolo (abstenção, brancos
-        e nulos).
+      - **votos válidos** (`var_pc_validos_pt`): a variação de Lula/Haddad. Só é
+        o swing de Butler com dois candidatos; no 1º turno os dois podem subir
+        juntos. Não vê mudança no tamanho do bolo (abstenção, brancos e nulos).
       - **eleitorado apto** (só se `nr_bolsonaro_*` forem passados): Lula/Haddad,
         Bolsonaro e não-voto somam 100% dos aptos, então as três variações
         somam zero e mostram de onde veio o movimento.
+
+    Com `nr_bolsonaro_*` vêm também `cresceu_mais_validos` (`pt`, `bolsonaro`,
+    `terceiro` se os dois caíram, ou `empate`) e `var_pc_validos_maior` (a
+    variação de quem cresceu mais) — é o que pinta o mapa de mudança.
 
     Com `chave="id_zona_mun"`, passar `res_antes` por `alinha_zona_mun`
     antes. O exterior (`SENTINELA_EXTERIOR`) é descartado: não é território,
@@ -401,12 +405,29 @@ def _acrescenta_base_aptos(
             if c.startswith("qt_votos_") and c[len("qt_votos_"):].isdigit()
             and int(c[len("qt_votos_"):]) not in CODIGOS_NAO_CANDIDATO
         ]
+        # 3º lugar: o mais votado fora Lula/Haddad e o bolsonarista, em cada ano
+        # (não precisa ser a mesma pessoa nos dois). Sem outros candidatos (2º
+        # turno) ou sem voto neles, fica NA.
+        cols_outros = [
+            c for c in cols_candidatos
+            if c not in (f"qt_votos_{nr_pt}", f"qt_votos_{nr_bolsonaro[ano]}")
+        ]
+        if cols_outros:
+            votos_outros = base[cols_outros].fillna(0)
+            qt_terceiro = votos_outros.max(axis=1).where(lambda v: v > 0)
+            nr_terceiro = pd.to_numeric(
+                votos_outros.idxmax(axis=1).str[len("qt_votos_"):]
+            ).where(qt_terceiro.notna())
+        else:
+            qt_terceiro = nr_terceiro = pd.Series(np.nan, index=base.index)
         return pd.DataFrame({
             chave: base[chave],
             f"qt_votos_pt_{ano}": base[f"qt_votos_{nr_pt}"],
             f"qt_votos_bolsonaro_{ano}": base[f"qt_votos_{nr_bolsonaro[ano]}"],
             f"qt_validos_{ano}": base[cols_candidatos].sum(axis=1),
             f"qt_aptos_{ano}": aptos,
+            f"nr_terceiro_{ano}": nr_terceiro.astype("Int64"),
+            f"qt_votos_terceiro_{ano}": qt_terceiro,
         })
 
     df = df.merge(prepara(res_antes, ano_antes), on=chave, how="left").merge(
@@ -441,6 +462,22 @@ def _acrescenta_base_aptos(
         default="ambos_cairam",
     )
     df["tipo_mudanca"] = np.where(d_pt.isna() | d_bo.isna(), None, pd.Series(saldo).str.cat(pd.Series(mecanismo), sep="_"))
+
+    # Quem cresceu mais nos votos válidos. No 1º turno a variação de Lula/Haddad
+    # não é o espelho da do bolsonarista: os dois podem subir (ou cair) juntos.
+    # Se os dois caíram, quem cresceu foi o resto — entra o 3º lugar.
+    for ano in (ano_antes, ano_depois):
+        validos = df[f"qt_validos_{ano}"].replace(0, np.nan)
+        df[f"pc_validos_bolsonaro_{ano}"] = df[f"qt_votos_bolsonaro_{ano}"] / validos
+        df[f"pc_validos_terceiro_{ano}"] = df[f"qt_votos_terceiro_{ano}"] / validos
+    for parte in ("bolsonaro", "terceiro"):
+        df[f"var_pc_validos_{parte}"] = (
+            df[f"pc_validos_{parte}_{ano_depois}"] - df[f"pc_validos_{parte}_{ano_antes}"]
+        )
+    v_pt, v_bo, v_3 = df["var_pc_validos_pt"], df["var_pc_validos_bolsonaro"], df["var_pc_validos_terceiro"]
+    condicoes = [v_pt.isna() | v_bo.isna(), (v_pt < 0) & (v_bo < 0) & v_3.notna(), v_pt > v_bo, v_bo > v_pt]
+    df["cresceu_mais_validos"] = np.select(condicoes, [None, "terceiro", "pt", "bolsonaro"], default="empate")
+    df["var_pc_validos_maior"] = np.select(condicoes, [np.nan, v_3, v_pt, v_bo], default=v_pt)
     return df
 
 

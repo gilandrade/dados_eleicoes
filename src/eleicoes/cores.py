@@ -50,6 +50,36 @@ def cores_divergentes() -> list[str]:
     return [*reversed(RAMPA_PT), COR_EMPATE, *RAMPA_BOLSONARO]
 
 
+# Mapa de mudança no 1º turno: zonas em que Lula/Haddad e o bolsonarista caíram
+# vão para o 3º lugar. Amarelo/ocre (matiz OKLCH 95, L 0,84 e 0,66): a violeta
+# ficaria entre o vermelho e o azul e leria como mistura dos dois. Distância
+# OKLab mínima para as outras cores do mapa conferida com simulação de
+# deuteranopia/protanopia/tritanopia (06/10/2026); não passou pelo
+# `validate_palette.js`.
+RAMPA_TERCEIRO = ["#e7c952", "#ab9017"]
+QUEBRA_TERCEIRO = 0.05
+
+
+def cores_mudanca() -> list[str]:
+    """`cores_divergentes()` + as duas classes do 3º lugar."""
+    return [*cores_divergentes(), *RAMPA_TERCEIRO]
+
+
+def classifica_crescimento(lado: pd.Series, magnitude: pd.Series) -> np.ndarray:
+    """Índice em `cores_mudanca()`. `lado` é quem cresceu mais (`pt`, `bolsonaro`,
+    `terceiro`, `empate`; outro valor = `SEM_DADO`) e `magnitude`, o quanto
+    (fração). Crescimento <= 0 de Lula/Haddad ou Bolsonaro cai na classe mais clara."""
+    v = pd.to_numeric(magnitude, errors="coerce").fillna(0).to_numpy(dtype=float)
+    n = len(QUEBRAS_MUDANCA) + 1
+    passo = np.digitize(np.clip(v, 0, None), QUEBRAS_MUDANCA)
+    lado = lado.to_numpy(dtype=object)
+    return np.select(
+        [lado == "pt", lado == "bolsonaro", lado == "empate", lado == "terceiro"],
+        [n - 1 - passo, n + 1 + passo, n, 2 * n + 1 + (v > QUEBRA_TERCEIRO)],
+        default=SEM_DADO,
+    ).astype(int)
+
+
 # Mapa "de onde veio a mudança" (sobre o eleitorado apto): cor = quem teve o
 # saldo, tom = mecanismo. Mesmo valor de `tipo_mudanca` em `resultados.py`.
 # Escuro: um sobe e o outro cai; médio: os dois sobem (não-voto diminuiu);
@@ -124,14 +154,23 @@ def legenda_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict:
     nome_pt = nome_pt_par(ano_antes, ano_depois)
     rotulos = [
         *(f"{nome_pt} ganhou {f}" for f in reversed(faixas)),
-        "Sem variação",
-        *(f"{nome_pt} perdeu {f}" for f in faixas),
+        "Cresceram igual",
+        *(f"Bolsonaro ganhou {f}" for f in faixas),
     ]
+    nota = "A cor é de quem mais cresceu em p.p. dos votos válidos. Contorno escuro: a zona trocou de vencedor."
+    # No 2º turno não há 3º lugar: um sobe exatamente o que o outro cai.
+    if turno == 1:
+        corte = f"{100 * QUEBRA_TERCEIRO:g}".replace(".", ",")
+        rotulos += [f"O 3º lugar ganhou até {corte} p.p.", f"O 3º lugar ganhou mais de {corte} p.p."]
+        nota += (
+            f" 3º lugar: zonas em que {nome_pt} e Bolsonaro caíram; compara o mais votado "
+            "fora os dois em cada eleição, mesmo que não seja o mesmo candidato."
+        )
     return _legenda(
-        f"Variação de {nome_pt} nos votos válidos, {ano_antes} → {ano_depois} ({turno}º turno)",
-        cores_divergentes(),
+        f"Quem cresceu mais nos votos válidos, {ano_antes} → {ano_depois} ({turno}º turno)",
+        cores_mudanca(),
         rotulos,
-        nota="Contorno escuro: a zona trocou de vencedor.",
+        nota=nota,
     )
 
 

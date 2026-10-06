@@ -261,17 +261,21 @@ def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
     `{id: [classe, pt_antes, pt_depois, delta, virou, classe_tipo, d_pt_aptos,
     d_bolsonaro_aptos, d_nao_voto_aptos, cresc_votos_pt, cresc_votos_bolsonaro,
     aptos_antes, aptos_depois, pt_antes, pt_depois, bolsonaro_antes,
-    bolsonaro_depois, validos_antes, validos_depois]}`.
+    bolsonaro_depois, validos_antes, validos_depois, nr_terceiro_antes,
+    nr_terceiro_depois, terceiro_antes, terceiro_depois]}`.
 
-    As posições 0–4 são o swing nos votos válidos; 5–10, a mudança sobre o
+    As posições 0–4 são a mudança nos votos válidos (0 = classe de quem cresceu
+    mais, `cores.cores_mudanca()`; 1–3 = Lula/Haddad); 5–10, a mudança sobre o
     eleitorado apto (por mil; crescimentos também por mil, 667 = +66,7%);
     11–18, as contagens absolutas (inscritos, votos de cada candidato e votos
-    válidos, antes e depois) que o tooltip mostra."""
+    válidos, antes e depois) que o tooltip mostra; 19–22, o 3º lugar de cada
+    ano (número e fatia dos válidos por mil; `null` no 2º turno).
+    `candidatos` traz `{ano: {nr: nome}}` para o tooltip nomear o 3º lugar."""
     mud = pd.read_parquet(
         RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
     )
     colunas = zip(
-        cores.classifica_divergente(mud["var_pc_validos_pt"], cores.QUEBRAS_MUDANCA).tolist(),
+        cores.classifica_crescimento(mud["cresceu_mais_validos"], mud["var_pc_validos_maior"]).tolist(),
         _por_mil(mud[f"pc_validos_pt_{ano_antes}"]),
         _por_mil(mud[f"pc_validos_pt_{ano_depois}"]),
         _por_mil(mud["var_pc_validos_pt"]),
@@ -290,9 +294,16 @@ def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
         _inteiro(mud[f"qt_votos_bolsonaro_{ano_depois}"]),
         _inteiro(mud[f"qt_validos_{ano_antes}"]),
         _inteiro(mud[f"qt_validos_{ano_depois}"]),
+        _inteiro(mud[f"nr_terceiro_{ano_antes}"]),
+        _inteiro(mud[f"nr_terceiro_{ano_depois}"]),
+        _por_mil(mud[f"pc_validos_terceiro_{ano_antes}"]),
+        _por_mil(mud[f"pc_validos_terceiro_{ano_depois}"]),
     )
     return _escreve_json(
-        {"dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas)))},
+        {
+            "dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas))),
+            "candidatos": {str(a): nomes_candidatos(a, turno) for a in (ano_antes, ano_depois)},
+        },
         DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t{turno}.json",
     )
 
@@ -321,6 +332,7 @@ def exporta_config(
             "nr_bolsonaro": {str(a): NR_BOLSONARO_POR_ANO[a] for a in anos},
             "cor_sem_dado": cores.COR_SEM_DADO,
             "cores_divergentes": cores.cores_divergentes(),
+            "cores_mudanca": cores.cores_mudanca(),
             "cores_sequenciais": cores.RAMPA_SEQUENCIAL,
             "legendas": {
                 "pontos_presidente": legenda_presidente,
