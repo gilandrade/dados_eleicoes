@@ -59,15 +59,16 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
   2022 → 2026. No 1º turno os demais candidatos entram em "abstenção, brancos,
   nulos e outros". Entre as duas eleições as
   zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor
-  mede o ganho de Lula/Haddad *nos votos válidos*; não enxerga mudança na abstenção,
-  nos brancos e nos nulos.
+  é de quem mais cresceu *nos votos válidos*, e o tom, o quanto ele cresceu; se os
+  dois caíram (só acontece no 1º turno), a zona vai para o 3º lugar, o mais votado
+  fora os dois em cada eleição. Não enxerga mudança na abstenção, nos brancos e nos nulos.
 - **De onde veio a mudança** repete a comparação sobre o *eleitorado inscrito*:
   Lula/Haddad, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem
   teve o saldo e se o movimento veio de um candidato crescer enquanto o outro
   cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da
   zona, não eleitores que trocaram de lado.
-- Os filtros de **UF, município e bairro** valem só para os mapas de pontos
-  (ficam desativados nos mapas de áreas). O bairro é o campo preenchido pelos
+- Os filtros de **UF e município** valem para todos os mapas; o de **bairro**,
+  só para os mapas de pontos (fica desativado nos mapas de áreas). O bairro é o campo preenchido pelos
   cartórios no cadastro do TSE: os nomes são informais e um mesmo bairro pode
   aparecer com grafias diferentes.
 - Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome
