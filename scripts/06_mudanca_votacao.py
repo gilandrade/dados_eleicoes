@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Mudança de votação entre dois anos, por zona × município, no mesmo turno.
 
-Pensado para o 2º turno (2 candidatos). No 1º turno funciona com PT × bolsonarista,
+Pensado para o 2º turno (2 candidatos). No 1º turno funciona com Lula/Haddad × bolsonarista,
 e os demais candidatos entram no "não-voto" da base do eleitorado apto; o vencedor
-da zona pode ser um terceiro candidato (conta como "não PT").
+da zona pode ser um terceiro candidato (conta como "não Lula/Haddad").
 
 Lê os dois `res_presidente_{ano}_t{turno}_zona_mun.parquet` (`processa_turno.py`),
 alinha os ids dos municípios de zona única cujo número de zona mudou

@@ -62,13 +62,13 @@ CODIGO_NULO = 96
 CODIGO_ANULADO_APURADO_SEPARADO = 97
 CODIGOS_NAO_CANDIDATO = (CODIGO_BRANCO, CODIGO_NULO, CODIGO_ANULADO_APURADO_SEPARADO)
 
-# 2º turno: PT contra Bolsonaro, que troca de número (partido) a cada eleição.
+# 2º turno: Lula/Haddad contra Bolsonaro, que troca de número (partido) a cada eleição.
 # Em 2026 o "bolsonarista" é Flávio Bolsonaro (PL, 22), não o próprio Jair.
 NR_BOLSONARO_POR_ANO = {2018: 17, 2022: 22, 2026: 22}
 NOME_PT_POR_ANO = {2018: "Haddad", 2022: "Lula", 2026: "Lula"}
 NOME_BOLSONARO_POR_ANO = {2018: "Bolsonaro", 2022: "Bolsonaro", 2026: "Flávio Bolsonaro"}
 
-# Número do PT no 2º turno — usado em `resultados.mudanca_votacao` para achar
+# Número de Lula/Haddad (PT, 13) no 2º turno — usado em `resultados.mudanca_votacao` para achar
 # quem venceu (o do Bolsonaro muda de partido a cada eleição: 17 em 2018,
 # 22 em 2022, então não dá para fixar um "número do opositor").
 NR_PT = 13

@@ -19,7 +19,7 @@ os resultados no território (locais → setores censitários) e o cronograma.
   - por **município** (observado, soma da zona×município);
   - por **setor censitário 2022** (estimado, por distribuição dasimétrica usando o
     CNEFE como dado auxiliar).
-- **Mudança de votação entre anos** (2º turno, Δ p.p. do PT + virada), por zona ×
+- **Mudança de votação entre anos** (2º turno, Δ p.p. de Lula/Haddad + virada), por zona ×
   município.
 - **Visualizador de mapas** no site (página `mapas.qmd`): pontos por local e
   zona × município, 2018 e 2022, com legenda e seletor de mapa/ano/turno.

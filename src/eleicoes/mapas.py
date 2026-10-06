@@ -7,7 +7,7 @@ O site publica os mapas pelo visualizador (`mapas.qmd`, dados de
 os nacionais por município e por zona×município.
 
 Cor: as mesmas classes discretas do visualizador (`cores.py`), sobre a
-margem assinada PT − Bolsonaro dos votos válidos.
+margem assinada Lula/Haddad − Bolsonaro dos votos válidos.
 """
 
 from __future__ import annotations

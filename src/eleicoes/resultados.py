@@ -322,7 +322,7 @@ def mudanca_votacao(
 ) -> pd.DataFrame:
     """Compara dois resultados (já com `calcula_indicadores`) pela coluna `chave`.
 
-    Pensado para o 2º turno, com só dois candidatos — o Δ do PT é o espelho
+    Pensado para o 2º turno, com só dois candidatos — o Δ de Lula/Haddad é o espelho
     exato do Δ de Bolsonaro nesse caso. `nr_vencedor` (já calculado por
     `calcula_indicadores`) é o que decide a virada, então o número do
     Bolsonaro (que muda de partido a cada eleição) não entra nessa parte.
@@ -331,7 +331,7 @@ def mudanca_votacao(
       - **votos válidos** (`var_pc_validos_pt`): o swing de Butler, quem ganhou
         terreno relativo. Não vê mudança no tamanho do bolo (abstenção, brancos
         e nulos).
-      - **eleitorado apto** (só se `nr_bolsonaro_*` forem passados): PT,
+      - **eleitorado apto** (só se `nr_bolsonaro_*` forem passados): Lula/Haddad,
         Bolsonaro e não-voto somam 100% dos aptos, então as três variações
         somam zero e mostram de onde veio o movimento.
 
@@ -356,7 +356,7 @@ def mudanca_votacao(
     df = prepara(res_antes, ano_antes).merge(prepara(res_depois, ano_depois), on=chave, how="inner")
     df["var_pc_validos_pt"] = df[f"pc_validos_pt_{ano_depois}"] - df[f"pc_validos_pt_{ano_antes}"]
 
-    # A virada é decidida por "o PT venceu?" nos dois anos, nunca comparando
+    # A virada é decidida por "Lula/Haddad venceu?" nos dois anos, nunca comparando
     # os números dos vencedores: o do Bolsonaro muda (17 -> 22), e a
     # comparação direta marcaria como virada todo lugar que ele venceu duas vezes.
     pt_antes = df[f"nr_vencedor_{ano_antes}"] == nr_pt

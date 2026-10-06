@@ -260,14 +260,14 @@ def linha_mudanca(ano_antes: int, ano_depois: int) -> dict[str, str]:
         preset=PRESET_POLIGONOS,
         path=f"Eleições / {ano_depois} / {TURNO_MUDANCA}º turno / Zona eleitoral × município",
         label=f"Mudança de votação {ano_antes} → {ano_depois}",
-        descricao=f"Variação do PT nos votos válidos entre {ano_antes} e {ano_depois}, por zona eleitoral.",
+        descricao=f"Variação de {NOME_PT_POR_ANO[ano_depois]} nos votos válidos entre {ano_antes} e {ano_depois}, por zona eleitoral.",
         style=estilo_poligonos("classe_mudanca", cores.legenda_mudanca()),
         tooltip={
             "title": TITULO_ZONA,
             "entries": [
                 {
                     "key": f"pc_validos_pt_{ano}",
-                    "label": f"PT em {ano} ({NOME_PT_POR_ANO[ano]})",
+                    "label": f"{NOME_PT_POR_ANO[ano]} em {ano}",
                     "format": FORMATO_PCT,
                 }
                 for ano in (ano_antes, ano_depois)

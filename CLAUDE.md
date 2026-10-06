@@ -386,9 +386,9 @@ the full data model (geometry files vs. result files joined by a shared id).
   todo lugar que ele venceu duas vezes.
 - **Mudança de votação tem duas bases (05/10/2026).** `var_pc_validos_pt` é o
   swing de Butler: com dois candidatos mostra quem ganhou terreno relativo, mas
-  não vê mudança no tamanho do bolo (30×20 → 50×50 dá −10 p.p. embora o PT tenha
+  não vê mudança no tamanho do bolo (30×20 → 50×50 dá −10 p.p. embora Lula/Haddad tenha
   +66,7% de votos). As colunas sobre o **eleitorado apto** (`pc_aptos_*`,
-  `var_pc_aptos_*`, `tipo_mudanca`; PT + Bolsonaro + não-voto = 100%, variações
+  `var_pc_aptos_*`, `tipo_mudanca`; Lula/Haddad + Bolsonaro + não-voto = 100%, variações
   somam 0) mostram de onde veio o movimento. Os dois mapas ficam no site
   (`mudanca` e `mudanca_tipo`); a GeoReDUS ainda só tem a classe do swing.
   `tipo_mudanca` descreve o saldo agregado da zona, nunca eleitores que trocaram
@@ -407,5 +407,5 @@ the full data model (geometry files vs. result files joined by a shared id).
   (22). Etapas 01–04 de 2026 rodaram aqui (T1: Lula 53.879.538, Flávio
   56.104.503, bate com o `votacao_secao`; 98,4% das coordenadas do TSE; 03 leva
   ~55 min, 44 só na alocação dos domicílios). `06_mudanca_votacao.py` aceita
-  `--turno` (2022→2026 no 1º turno: PT × bolsonarista, demais candidatos no
+  `--turno` (2022→2026 no 1º turno: Lula × bolsonarista, demais candidatos no
   "não-voto" da base dos aptos).

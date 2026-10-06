@@ -18,6 +18,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .config import NOME_PT_POR_ANO
+
 SEM_DADO = -1
 COR_SEM_DADO = "#c3c2b7"
 COR_EMPATE = "#f0efec"
@@ -44,21 +46,29 @@ QUEBRAS_ABSTENCAO = (0.15, 0.18, 0.21, 0.25)
 
 
 def cores_divergentes() -> list[str]:
-    """PT forte -> PT fraco, empate, Bolsonaro fraco -> Bolsonaro forte."""
+    """Lula/Haddad forte -> Lula/Haddad fraco, empate, Bolsonaro fraco -> Bolsonaro forte."""
     return [*reversed(RAMPA_PT), COR_EMPATE, *RAMPA_BOLSONARO]
 
 
 # Mapa "de onde veio a mudança" (sobre o eleitorado apto): cor = quem teve o
 # saldo, tom = mecanismo. Mesmo valor de `tipo_mudanca` em `resultados.py`.
-# Escuro: um sobe e o outro cai; médio: os dois sobem; claro: os dois caem.
+# Escuro: um sobe e o outro cai; médio: os dois sobem (não-voto diminuiu);
+# claro: os dois caem (não-voto aumentou).
 TIPOS_MUDANCA = [
-    ("pt_troca", "PT cresceu, Bolsonaro caiu", RAMPA_PT[4]),
-    ("pt_ambos_cresceram", "Os dois cresceram, PT mais", RAMPA_PT[2]),
-    ("pt_ambos_cairam", "Os dois caíram, PT menos", RAMPA_PT[0]),
-    ("bolsonaro_ambos_cairam", "Os dois caíram, Bolsonaro menos", RAMPA_BOLSONARO[0]),
-    ("bolsonaro_ambos_cresceram", "Os dois cresceram, Bolsonaro mais", RAMPA_BOLSONARO[2]),
-    ("bolsonaro_troca", "Bolsonaro cresceu, PT caiu", RAMPA_BOLSONARO[4]),
+# `{pt}` vira o nome do candidato (ver `nome_pt_par`).
+    ("pt_troca", "{pt} cresceu, Bolsonaro caiu", RAMPA_PT[4]),
+    ("pt_ambos_cresceram", "Abst./brancos/nulos diminuíram; {pt} e Bolsonaro aumentaram, {pt} mais", RAMPA_PT[2]),
+    ("pt_ambos_cairam", "Abst./brancos/nulos aumentaram; {pt} e Bolsonaro diminuíram, {pt} menos", RAMPA_PT[0]),
+    ("bolsonaro_ambos_cairam", "Abst./brancos/nulos aumentaram; {pt} e Bolsonaro diminuíram, Bolsonaro menos", RAMPA_BOLSONARO[0]),
+    ("bolsonaro_ambos_cresceram", "Abst./brancos/nulos diminuíram; {pt} e Bolsonaro aumentaram, Bolsonaro mais", RAMPA_BOLSONARO[2]),
+    ("bolsonaro_troca", "Bolsonaro cresceu, {pt} caiu", RAMPA_BOLSONARO[4]),
 ]
+
+
+def nome_pt_par(ano_antes: int, ano_depois: int) -> str:
+    """Candidato do PT nos dois anos: "Lula", ou "Haddad/Lula" se mudou."""
+    nomes = dict.fromkeys(NOME_PT_POR_ANO[a] for a in (ano_antes, ano_depois))
+    return "/".join(nomes)
 
 
 def cores_tipo_mudanca() -> list[str]:
@@ -72,7 +82,7 @@ def classifica_tipo_mudanca(tipos: pd.Series) -> np.ndarray:
 
 
 def classifica_divergente(valores: pd.Series, quebras: tuple[float, ...]) -> np.ndarray:
-    """Índice em `cores_divergentes()`. Positivo = PT, negativo = Bolsonaro,
+    """Índice em `cores_divergentes()`. Positivo = Lula/Haddad, negativo = Bolsonaro,
     exatamente 0 = empate, NaN = `SEM_DADO`."""
     v = pd.to_numeric(valores, errors="coerce").to_numpy(dtype=float)
     n = len(quebras) + 1
@@ -111,13 +121,14 @@ def legenda_margem(nome_pt: str) -> dict:
 
 def legenda_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict:
     faixas = _faixas(QUEBRAS_MUDANCA, " p.p.")
+    nome_pt = nome_pt_par(ano_antes, ano_depois)
     rotulos = [
-        *(f"PT ganhou {f}" for f in reversed(faixas)),
+        *(f"{nome_pt} ganhou {f}" for f in reversed(faixas)),
         "Sem variação",
-        *(f"PT perdeu {f}" for f in faixas),
+        *(f"{nome_pt} perdeu {f}" for f in faixas),
     ]
     return _legenda(
-        f"Variação do PT nos votos válidos, {ano_antes} → {ano_depois} ({turno}º turno)",
+        f"Variação de {nome_pt} nos votos válidos, {ano_antes} → {ano_depois} ({turno}º turno)",
         cores_divergentes(),
         rotulos,
         nota="Contorno escuro: a zona trocou de vencedor.",
@@ -128,11 +139,11 @@ def legenda_tipo_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict:
     return _legenda(
         f"De onde veio a mudança, {ano_antes} → {ano_depois}, {turno}º turno (% do eleitorado)",
         cores_tipo_mudanca(),
-        [rotulo for _, rotulo, _ in TIPOS_MUDANCA],
+        [rotulo.format(pt=nome_pt_par(ano_antes, ano_depois)) for _, rotulo, _ in TIPOS_MUDANCA],
         nota=(
-            "Saldo da zona em votos sobre os inscritos; \"cresceram\" significa que a "
-            "abstenção, os brancos e os nulos encolheram. Não indica eleitores que "
-            "trocaram de lado."
+            "Saldo da zona em votos sobre os inscritos. Abst./brancos/nulos incluem, no "
+            "1º turno, os demais candidatos. Nas trocas diretas (um sobe e o outro cai) "
+            "eles podem ter subido ou descido. Não indica eleitores que trocaram de lado."
         ),
     )
 

@@ -116,7 +116,7 @@ Combina os três achados. A unidade de alocação é o **endereço residencial d
 | `res_presidente_{ano}_t{t}_zona_mun.parquet` | `id_zona_mun` → zona × município (valores observados; soma dos locais, incluindo os especiais) |
 | `res_presidente_{ano}_t{t}_municipio.parquet` | `cd_mun` → município do IBGE (valores observados; soma de zona×município. Para anos sem locais processados — ex. 2018 — sai direto da seção via `resultados.agrega_secao_por_municipio`, sem depender de `secao_local`/`locais`) |
 | `res_presidente_{ano}_t{t}_setor.parquet` | `cd_setor` → malha de setores (valores estimados) |
-| `mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet` | `id_zona_mun` (ids do ano mais recente) → só 2º turno (2 candidatos): `var_pc_validos_pt` (Δ p.p. do PT entre os dois anos, swing nos válidos), `mudou_vencedor` e `sentido_virada`; mais a mudança sobre o eleitorado apto: `pc_aptos_{pt,bolsonaro,nao_voto}_{ano}`, `var_pc_aptos_*` (somam 0), `var_rel_votos_*` e `tipo_mudanca` |
+| `mudanca_presidente_{ano_antes}_{ano_depois}_t2_zona_mun.parquet` | `id_zona_mun` (ids do ano mais recente) → só 2º turno (2 candidatos): `var_pc_validos_pt` (Δ p.p. de Lula/Haddad entre os dois anos, swing nos válidos), `mudou_vencedor` e `sentido_virada`; mais a mudança sobre o eleitorado apto: `pc_aptos_{pt,bolsonaro,nao_voto}_{ano}`, `var_pc_aptos_*` (somam 0), `var_rel_votos_*` e `tipo_mudanca` |
 | `pesos_local_setor_{ano}.parquet` | `id_local`, `cd_setor`, `n_dom`, `adultos`, `peso`; publicado por transparência/reuso |
 | `secao_local_{ano}.parquet` | `id_secao` → `id_local` |
 
@@ -133,7 +133,7 @@ no lugar de um HTML Folium por mapa (~30 MB cada; com 2018, 2022 e 2026 o site
 estouraria o limite de 1 GB do GitHub Pages). Cinco mapas, 2018 e 2022, nos
 dois turnos:
 
-- locais de votação (pontos): Presidente (`pc_validos`, margem PT − Bolsonaro),
+- locais de votação (pontos): Presidente (`pc_validos`, margem Lula/Haddad − Bolsonaro),
   brancos e nulos (`pc_brancos_nulos`, sobre o total de votos) e abstenção
   (`pc_abstencao`, sobre os inscritos);
 - zona × município: Presidente e a mudança 2018 → 2022 (2º turno).
@@ -346,7 +346,7 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   (soma de zona×mun; para anos sem locais processados, `resultados.
   agrega_secao_por_municipio` agrega direto da seção via crosswalk) e
   `mudanca_presidente_{a}_{b}_t2_municipio.parquet` (`resultados.mudanca_votacao`,
-  Δ p.p. do PT + `sentido_virada`) são as duas tabelas novas. Validado: o
+  Δ p.p. de Lula/Haddad + `sentido_virada`) são as duas tabelas novas. Validado: o
   caminho "direto da seção" bate voto a voto com o caminho "via zona×mun" para
   2022 t2 (diferença zero em todos os 5.571 `cd_mun`), e os totais de
   `_municipio` continuam batendo exato com o TSE nos dois turnos de 2022 (t1:
@@ -392,7 +392,7 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
     2018 t2 bate voto a voto com o caminho direto da seção.
   - **Bug em `mudou_vencedor`:** comparava os números dos vencedores, e o do
     Bolsonaro muda (17 → 22) — todo lugar que ele venceu duas vezes contava
-    como virada. Agora sai de "o PT venceu?" nos dois anos.
+    como virada. Agora sai de "Lula/Haddad venceu?" nos dois anos.
   - **Mudança por zona × município**, a pedido do Gil (mesmo nível do mapa de
     votação). Medido que as zonas quase não mudaram entre 2018 e 2022: 6.102
     unidades nos dois anos; os 189 municípios com mais de uma zona têm o

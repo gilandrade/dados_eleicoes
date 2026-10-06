@@ -155,7 +155,7 @@ def sql_pc_brancos_nulos(colunas: dict[str, str]) -> str:
 
 
 def colunas_margem(ano: int, colunas: dict[str, str]) -> list[str]:
-    """`margem_pt_bolsonaro` (PT − Bolsonaro nos votos válidos) e `classe_margem`."""
+    """`margem_pt_bolsonaro` (Lula/Haddad − Bolsonaro nos votos válidos) e `classe_margem`."""
     if ano not in NR_BOLSONARO_POR_ANO:
         logger.warning("%d: sem número de Bolsonaro — views sem margem e classe_margem", ano)
         return []

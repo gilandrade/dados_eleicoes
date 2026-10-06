@@ -202,8 +202,8 @@ assert not mudanca_zm.set_index("id_zona_mun").loc["20000000002", "mudou_vencedo
 
 # ---- 6c. mudança sobre o eleitorado apto -------------------------------------
 # Zona A: o exemplo 30 x 20 -> 50 x 50 (100 aptos nos dois anos). O swing nos
-# válidos cai 10 p.p., mas o PT ganha 20 p.p. do eleitorado (+66,7% de votos).
-# Zona B: PT sobe e Bolsonaro cai (troca). Zona C: os dois caem (não-voto cresce).
+# válidos cai 10 p.p., mas Lula/Haddad ganha 20 p.p. do eleitorado (+66,7% de votos).
+# Zona B: Lula/Haddad sobe e Bolsonaro cai (troca). Zona C: os dois caem (não-voto cresce).
 
 def _res_aptos(votos_pt, votos_bo, aptos, nr_bo):
     df = pd.DataFrame({

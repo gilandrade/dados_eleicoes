@@ -54,16 +54,15 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
 - Nas cidades com mais de uma zona eleitoral, a fronteira *entre* as zonas é
   estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando
   for o caso.
-- A **mudança de votação** compara o candidato do PT (Haddad em 2018, Lula em
-  2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio
+- A **mudança de votação** compara Haddad (2018) e Lula (2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio
   Bolsonaro em 2026), zona a zona, no mesmo turno: 2º turno 2018 → 2022 e 1º turno
   2022 → 2026. No 1º turno os demais candidatos entram em "abstenção, brancos,
   nulos e outros". Entre as duas eleições as
   zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor
-  mede o ganho do PT *nos votos válidos*; não enxerga mudança na abstenção,
+  mede o ganho de Lula/Haddad *nos votos válidos*; não enxerga mudança na abstenção,
   nos brancos e nos nulos.
 - **De onde veio a mudança** repete a comparação sobre o *eleitorado inscrito*:
-  PT, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem
+  Lula/Haddad, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem
   teve o saldo e se o movimento veio de um candidato crescer enquanto o outro
   cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da
   zona, não eleitores que trocaram de lado.
