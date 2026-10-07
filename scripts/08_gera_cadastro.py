@@ -16,7 +16,7 @@ O arquivo sai em `dados/03_georedus/carga/cadastro_georedus.csv`, pronto para
 colar na planilha.
 
 Uso:
-    python scripts/08_gera_cadastro.py --anos 2018 2022
+    python scripts/08_gera_cadastro.py --anos 2018 2022 2026
 """
 
 from __future__ import annotations
@@ -28,9 +28,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import pyarrow.parquet as pq
+
 from eleicoes import cores, exporta
 from eleicoes.config import (
     CARGA_DIR,
+    NOME_BOLSONARO_POR_ANO,
     NOME_PT_POR_ANO,
     NR_BOLSONARO_POR_ANO,
     NR_PT,
@@ -40,7 +43,6 @@ from eleicoes.config import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-TURNO_MUDANCA = 2
 COLLECTION_ID = "Eleicoes / Presidente"
 INDICATOR_ID = "eleicoes_presidente"
 
@@ -129,10 +131,14 @@ def estilo_poligonos(coluna_classe: str, legenda: dict) -> dict:
 def entradas_presidente(ano: int) -> list[dict]:
     return [
         {"key": f"pc_validos_{NR_PT}", "label": NOME_PT_POR_ANO[ano], "format": FORMATO_PCT},
-        {"key": f"pc_validos_{NR_BOLSONARO_POR_ANO[ano]}", "label": "Bolsonaro", "format": FORMATO_PCT},
+        {
+            "key": f"pc_validos_{NR_BOLSONARO_POR_ANO[ano]}",
+            "label": NOME_BOLSONARO_POR_ANO[ano],
+            "format": FORMATO_PCT,
+        },
         {
             "key": "margem_pt_bolsonaro",
-            "label": f"Diferença ({NOME_PT_POR_ANO[ano]} − Bolsonaro)",
+            "label": f"Diferença ({NOME_PT_POR_ANO[ano]} − {NOME_BOLSONARO_POR_ANO[ano]})",
             "format": FORMATO_PP,
         },
     ]
@@ -208,6 +214,8 @@ def linhas_turno(ano: int, turno: int) -> list[dict[str, str]]:
         return linhas
 
     nome_pt = NOME_PT_POR_ANO[ano]
+    nome_bolsonaro = NOME_BOLSONARO_POR_ANO[ano]
+    # A legenda é a do site, que chama o polo azul de "Bolsonaro" em todos os anos.
     legenda = cores.legenda_margem(nome_pt)
     rotulo = "Votos válidos - Presidente"
     linhas_presidente = [
@@ -217,7 +225,7 @@ def linhas_turno(ano: int, turno: int) -> list[dict[str, str]]:
             preset=PRESET_PONTOS,
             path=f"{caminho} / Locais de votação",
             label=rotulo,
-            descricao=f"Diferença entre {nome_pt} e Bolsonaro nos votos válidos. Tamanho: votos válidos.",
+            descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos. Tamanho: votos válidos.",
             style=estilo_pontos("classe_margem", legenda, "qt_validos"),
             tooltip={
                 "title": "nm_local_votacao",
@@ -235,7 +243,7 @@ def linhas_turno(ano: int, turno: int) -> list[dict[str, str]]:
             preset=PRESET_POLIGONOS,
             path=f"{caminho} / Zona eleitoral × município",
             label=rotulo,
-            descricao=f"Diferença entre {nome_pt} e Bolsonaro nos votos válidos, por zona eleitoral.",
+            descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos, por zona eleitoral.",
             style=estilo_poligonos("classe_margem", legenda),
             tooltip={
                 "title": TITULO_ZONA,
@@ -252,28 +260,82 @@ def linhas_turno(ano: int, turno: int) -> list[dict[str, str]]:
     return [linhas_presidente[0], *linhas, linhas_presidente[1]]
 
 
-def linha_mudanca(ano_antes: int, ano_depois: int) -> dict[str, str]:
-    view = f"tse_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{TURNO_MUDANCA}"
+def parquet_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
+    return RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+
+
+def linha_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict[str, str]:
+    """Mapa "quem cresceu mais nos votos válidos" entre dois anos, no mesmo turno.
+
+    No 2º turno são 11 classes; o 3º lugar (mais duas) só existe no 1º turno.
+    """
+    view = f"tse_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}"
+    nome_pt = {ano: NOME_PT_POR_ANO[ano] for ano in (ano_antes, ano_depois)}
+    nome_bolsonaro = {ano: NOME_BOLSONARO_POR_ANO[ano] for ano in (ano_antes, ano_depois)}
+    entradas = [
+        {"key": f"pc_validos_pt_{ano}", "label": f"{nome_pt[ano]} em {ano}", "format": FORMATO_PCT}
+        for ano in (ano_antes, ano_depois)
+    ]
+
+    # Tabelas anteriores a `cresceu_mais_validos` (2018 → 2022) só têm a variação
+    # de Lula/Haddad; o id e o texto delas ficam como já estão cadastrados.
+    if "cresceu_mais_validos" not in pq.read_schema(parquet_mudanca(ano_antes, ano_depois, turno)).names:
+        coluna_id = "var_pc_validos_pt"
+        descricao = (
+            f"Variação de {cores.nome_pt_par(ano_antes, ano_depois)} nos votos válidos entre {ano_antes} e {ano_depois},"
+            " por zona eleitoral."
+        )
+        entradas.append({"key": "var_pc_validos_pt", "label": "Variação (p.p.)", "format": FORMATO_PP})
+    else:
+        coluna_id = "var_pc_validos_maior"
+        descricao = (
+            f"Quem cresceu mais nos votos válidos entre {ano_antes} e {ano_depois}"
+            f" ({turno}º turno), em pontos percentuais, por zona eleitoral."
+        )
+        entradas.append(
+            {"key": "var_pc_validos_pt", "label": f"Variação de {nome_pt[ano_depois]} (p.p.)", "format": FORMATO_PP}
+        )
+        entradas += [
+            {
+                "key": f"pc_validos_bolsonaro_{ano}",
+                "label": f"{nome_bolsonaro[ano]} em {ano}",
+                "format": FORMATO_PCT,
+            }
+            for ano in (ano_antes, ano_depois)
+        ]
+        entradas.append(
+            {
+                "key": "var_pc_validos_bolsonaro",
+                "label": f"Variação de {nome_bolsonaro[ano_depois]} (p.p.)",
+                "format": FORMATO_PP,
+            }
+        )
+        if turno == 1:
+            descricao += (
+                f" 3º lugar: zonas em que {nome_pt[ano_depois]} e {nome_bolsonaro[ano_depois]}"
+                " caíram; compara o mais votado fora os dois em cada eleição, mesmo que"
+                " não seja o mesmo candidato."
+            )
+            entradas += [
+                {"key": f"pc_validos_terceiro_{ano}", "label": f"3º lugar em {ano}", "format": FORMATO_PCT}
+                for ano in (ano_antes, ano_depois)
+            ]
+            entradas.append(
+                {"key": "var_pc_validos_terceiro", "label": "Variação do 3º lugar (p.p.)", "format": FORMATO_PP}
+            )
+
     return exporta.linha_cadastro(
-        id_camada=f"{view}.var_pc_validos_pt",
+        id_camada=f"{view}.{coluna_id}",
         view=view,
         preset=PRESET_POLIGONOS,
-        path=f"Eleições / {ano_depois} / {TURNO_MUDANCA}º turno / Zona eleitoral × município",
+        path=f"Eleições / {ano_depois} / {turno}º turno / Zona eleitoral × município",
         label=f"Mudança de votação {ano_antes} → {ano_depois}",
-        descricao=f"Variação de {NOME_PT_POR_ANO[ano_depois]} nos votos válidos entre {ano_antes} e {ano_depois}, por zona eleitoral.",
-        style=estilo_poligonos("classe_mudanca", cores.legenda_mudanca()),
+        descricao=descricao,
+        style=estilo_poligonos("classe_mudanca", cores.legenda_mudanca(ano_antes, ano_depois, turno)),
         tooltip={
             "title": TITULO_ZONA,
             "entries": [
-                {
-                    "key": f"pc_validos_pt_{ano}",
-                    "label": f"{NOME_PT_POR_ANO[ano]} em {ano}",
-                    "format": FORMATO_PCT,
-                }
-                for ano in (ano_antes, ano_depois)
-            ]
-            + [
-                {"key": "var_pc_validos_pt", "label": "Variação (p.p.)", "format": FORMATO_PP},
+                *entradas,
                 {"key": "mudou_vencedor", "label": "Trocou de vencedor", "format": FORMATO_SIM_NAO},
                 ENTRADA_FRONTEIRA,
             ],
@@ -285,7 +347,7 @@ def linha_mudanca(ano_antes: int, ano_depois: int) -> dict[str, str]:
 
 def main(anos: list[int], turnos: list[int], saida: Path) -> None:
     """Ordem das linhas (a do menu): do ano mais recente ao mais antigo, 1º e
-    2º turno, e a mudança de votação logo depois do 2º turno do ano a que chega."""
+    2º turno, e a mudança de votação logo depois das camadas do turno a que chega."""
     linhas: list[dict[str, str]] = []
     anos = sorted(anos, reverse=True)
     for ano, ano_anterior in zip(anos, [*anos[1:], None]):
@@ -294,12 +356,8 @@ def main(anos: list[int], turnos: list[int], saida: Path) -> None:
                 logger.warning("%d, turno %d: sem resultados — fora do cadastro", ano, turno)
                 continue
             linhas += linhas_turno(ano, turno)
-
-        if ano_anterior is None or TURNO_MUDANCA not in turnos:
-            continue
-        nome = f"mudanca_presidente_{ano_anterior}_{ano}_t{TURNO_MUDANCA}_zona_mun.parquet"
-        if (RESULTADOS_DIR / nome).exists():
-            linhas.append(linha_mudanca(ano_anterior, ano))
+            if ano_anterior is not None and parquet_mudanca(ano_anterior, ano, turno).exists():
+                linhas.append(linha_mudanca(ano_anterior, ano, turno))
 
     caminho = exporta.escreve_cadastro(linhas, saida)
     logger.info("%d camadas em %s", len(linhas), caminho)

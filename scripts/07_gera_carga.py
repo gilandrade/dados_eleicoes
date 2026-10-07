@@ -10,7 +10,7 @@ A camada por setor não entra aqui: ela reaproveita a malha de setores e a RPC
 `cem_censo_2022_data_tile` que já existem no banco.
 
 Uso:
-    python scripts/07_gera_carga.py --anos 2018 2022 \
+    python scripts/07_gera_carga.py --anos 2018 2022 2026 \
         --saida ../redus-geo-api/packages/db-manager
 """
 
@@ -44,7 +44,10 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PG = "tse"
 FONTE_RAIZ = "tse/eleicoes"  # dentro de data-src (local e S3)
-TURNO_MUDANCA = 2  # a tabela de mudança só existe para o 2º turno
+
+# Colunas do parquet de mudança que não vão para o banco: são do mapa "de onde
+# veio a mudança" (sobre o eleitorado apto), que ainda não foi validado.
+PREFIXOS_FORA_DA_MUDANCA = ("tipo_mudanca", "pc_aptos_", "var_pc_aptos_", "var_rel_")
 
 # Nome do município e UF para os tooltips (o schema `tse` só guarda `cd_mun`).
 TABELA_MUNICIPIO = "ibge.malha_br_municipio_2024"
@@ -111,6 +114,21 @@ def sql_classe_divergente(expr: str, quebras: tuple[float, ...]) -> str:
         f"CASE\n    WHEN {expr} > 0 THEN {n - 1} - {passo}\n"
         f"    WHEN {expr} < 0 THEN {n + 1} + {passo}\n"
         f"    WHEN {expr} = 0 THEN {n}\n  END"
+    )
+
+
+def sql_classe_crescimento(lado: str, magnitude: str) -> str:
+    """Equivalente SQL de `cores.classifica_crescimento`; sem dado fica `NULL`."""
+    n = len(cores.QUEBRAS_MUDANCA) + 1
+    # `greatest` ignora NULL: magnitude ausente ou negativa cai na classe mais clara.
+    passo = f"width_bucket(greatest({magnitude}, 0), {sql_cortes(cores.QUEBRAS_MUDANCA)})"
+    return (
+        f"CASE {lado}\n    WHEN 'pt' THEN {n - 1} - {passo}\n"
+        f"    WHEN 'bolsonaro' THEN {n + 1} + {passo}\n"
+        f"    WHEN 'empate' THEN {n}\n"
+        f"    WHEN 'terceiro' THEN {2 * n + 1}"
+        f" + (coalesce({magnitude}, 0) > {cores.QUEBRA_TERCEIRO})::int\n"
+        "  END"
     )
 
 
@@ -263,6 +281,9 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
     schema_municipio = saida / "collections" / SCHEMA_MUNICIPIO
     for turno in turnos:
         eleicao = f"presidente_{ano}_t{turno}"
+        if not (RESULTADOS_DIR / f"res_{eleicao}_local.parquet").exists():
+            logger.warning("%d, turno %d: sem resultados — fora da carga", ano, turno)
+            continue
         schemas_res: dict[str, Path] = {}
         colunas_res: dict[str, list[str]] = {}
         tipos_res: dict[str, dict[str, str]] = {}
@@ -368,21 +389,26 @@ def gera_ano(ano: int, turnos: list[int], saida: Path, schema_raiz: Path) -> dic
 
 
 def gera_mudanca(
-    ano_antes: int, ano_depois: int, saida: Path, schema_raiz: Path, schema_zona: Path
+    ano_antes: int, ano_depois: int, turno: int, saida: Path, schema_raiz: Path, schema_zona: Path
 ) -> None:
-    """Tabela e view da mudança de votação (ids e malha do ano mais recente)."""
+    """Tabela e view da mudança de votação entre dois anos, no mesmo turno (ids
+    e malha do ano mais recente). A cor é de quem cresceu mais nos votos válidos."""
     dir_tse = saida / "collections" / SCHEMA_PG
     dir_api = saida / "collections" / "public_read_api"
-    nome = f"presidente_mudanca_{ano_antes}_{ano_depois}_t{TURNO_MUDANCA}"
+    nome = f"presidente_mudanca_{ano_antes}_{ano_depois}_t{turno}"
 
     parquet = RESULTADOS_DIR / (
-        f"mudanca_presidente_{ano_antes}_{ano_depois}_t{TURNO_MUDANCA}_zona_mun.parquet"
+        f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
     )
     if not parquet.exists():
-        logger.warning("%s não existe — mudança %d -> %d fora da carga", parquet.name, ano_antes, ano_depois)
+        logger.warning("%s não existe — fora da carga", parquet.name)
         return
 
-    colunas = colunas_parquet(parquet)
+    todas = colunas_parquet(parquet)
+    colunas = {c: t for c, t in todas.items() if not c.startswith(PREFIXOS_FORA_DA_MUDANCA)}
+    opcoes = {}
+    if len(colunas) < len(todas):
+        opcoes["src_sql"] = f"SELECT {', '.join(colunas)} FROM {parquet.stem}"
     schema_mudanca = gera_tabela(
         f"{nome}_zona_mun",
         dir_tse / nome / "zona_mun",
@@ -390,11 +416,19 @@ def gera_mudanca(
         caminho_fonte=copia_fonte(parquet, saida, str(ano_depois)),
         chave="id_zona_mun",
         schema_raiz=schema_raiz,
+        **opcoes,
     )
 
-    pasta = dir_api / SCHEMA_PG / f"malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{TURNO_MUDANCA}"
+    # Parquets anteriores a `cresceu_mais_validos` (só 2º turno) usam a variação
+    # de Lula/Haddad: com dois candidatos um sobe o que o outro cai, e a classe é a mesma.
+    if "cresceu_mais_validos" in colunas:
+        classe = sql_classe_crescimento("res.cresceu_mais_validos", "res.var_pc_validos_maior")
+    else:
+        classe = sql_classe_divergente("res.var_pc_validos_pt", cores.QUEBRAS_MUDANCA)
+
+    pasta = dir_api / SCHEMA_PG / f"malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}"
     exporta.gera_view_publica(
-        f"{SCHEMA_PG}_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{TURNO_MUDANCA}",
+        f"{SCHEMA_PG}_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}",
         [
             "malha.id_zona_mun AS id",
             "malha.id_zona_mun",
@@ -406,8 +440,7 @@ def gera_mudanca(
             "malha.geom_estimada",
             "malha.geom",
             *[f"res.{col}" for col in colunas if col != "id_zona_mun"],
-            f"{sql_classe_divergente('res.var_pc_validos_pt', cores.QUEBRAS_MUDANCA)}"
-            " AS classe_mudanca",
+            f"{classe} AS classe_mudanca",
         ],
         from_sql=(
             f"FROM\n  {SCHEMA_PG}.malha_zona_mun_{ano_depois} AS malha\n"
@@ -424,7 +457,7 @@ def gera_mudanca(
             saida / "collections" / SCHEMA_MUNICIPIO,
         ),
     )
-    logger.info("Mudança %d -> %d: tabela e view geradas", ano_antes, ano_depois)
+    logger.info("Mudança %d -> %d, turno %d: tabela e view geradas", ano_antes, ano_depois, turno)
 
 
 def main(anos: list[int], turnos: list[int], saida: Path) -> None:
@@ -442,9 +475,9 @@ def main(anos: list[int], turnos: list[int], saida: Path) -> None:
 
     schemas_zona = {ano: gera_ano(ano, turnos, saida, schema_raiz)["zona_mun"] for ano in anos}
 
-    if TURNO_MUDANCA in turnos:
-        for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
-            gera_mudanca(ano_antes, ano_depois, saida, schema_raiz, schemas_zona[ano_depois])
+    for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
+        for turno in turnos:
+            gera_mudanca(ano_antes, ano_depois, turno, saida, schema_raiz, schemas_zona[ano_depois])
 
     logger.info("Concluído.")
 
