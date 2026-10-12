@@ -1,5 +1,5 @@
 // Visualizador de mapas da página mapas.qmd.
-// Lê os JSON gerados por scripts/05_exporta_visualizador.py (docs/mapas/dados/).
+// Lê os JSON gerados por 06_exporta_visualizador.qmd (docs/mapas/dados/).
 // A classe de cor de cada feição já vem calculada em Python (src/eleicoes/cores.py);
 // aqui só se pinta, monta a legenda e o tooltip.
 (function () {

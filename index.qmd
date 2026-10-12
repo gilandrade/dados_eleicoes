@@ -21,6 +21,6 @@ Presidente em 2018 e 2022, nos dois turnos, num só visualizador:
 - [02 · Geocodificação](02_geocodificacao_locais.qmd) — validação e fallback de coordenada (2022;
   [2018](02_geocodificacao_locais_2018.html)).
 
-As etapas 03–06 (distribuição espacial, resultados, mudança entre anos e
-exportação) são em Python, em `src/eleicoes/` e `scripts/` — ver o README do
-repositório.
+As etapas 03–08 (distribuição espacial, resultados, mudança entre anos,
+exportação e carga) são notebooks Quarto em Python, de execução local, com as
+funções em `src/eleicoes/` — ver o README do repositório.

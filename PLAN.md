@@ -128,7 +128,7 @@ Combina os três achados. A unidade de alocação é o **endereço residencial d
 - no setor, também `qualidade_alocacao`.
 
 **Mapas do site (`mapas.qmd`).** Um visualizador Leaflet único (`assets/mapas.js`)
-lê JSON compactos de `docs/mapas/dados/` (`scripts/05_exporta_visualizador.py`),
+lê JSON compactos de `docs/mapas/dados/` (`06_exporta_visualizador.qmd`),
 no lugar de um HTML Folium por mapa (~30 MB cada; com 2018, 2022 e 2026 o site
 estouraria o limite de 1 GB do GitHub Pages). Cinco mapas, 2018 e 2022, nos
 dois turnos:
@@ -171,20 +171,35 @@ CDN do TSE: `https://cdn.tse.jus.br/estatistica/sead/odsele/`. Os arquivos são 
 ```
 dados_eleicoes/
 ├── README.md  PLAN.md  .gitignore  _quarto.yml  .Rprofile  renv.lock
+├── index.qmd  mapas.qmd           # páginas do site (com 00–02)
 ├── 00_auxiliares.qmd              # R: crosswalk, malhas, pop18 por setor
+├── 00b_insumos_brasil.qmd         # R: malha de setores e CNEFE do Brasil
 ├── 01_locais_votacao.qmd          # R: locais e seções por ano, chaves
 ├── 02_geocodificacao_locais.qmd   # R: validação + fallbacks
-├── src/eleicoes/                  # Python
-│   ├── config.py   download.py   fontes.py   resultados.py
+├── 03_pesos_alocacao.qmd          # Py: 1× por ano (antes da eleição)
+├── 04_resultados_turno.qmd        # Py: noite da eleição: resultados → local → zona → setor
+├── 04b_resultados_municipio.qmd   # Py: por município direto da seção (validação cruzada)
+├── 05_mudanca_votacao.qmd         # Py: mudança entre dois anos, zona × município
+├── 06_exporta_visualizador.qmd    # Py: JSON do visualizador (docs/mapas/dados/)
+├── 06b_mapas_folium.qmd           # Py: mapas Folium, só uso local
+├── 07_carga_georedus.qmd          # Py: table.sh / schema.sql / views
+├── 08_cadastro_georedus.qmd       # Py: linhas de cadastro das camadas
+├── 09_insumos_municipio.qmd       # R: insumos de um município (perfil × voto)
+├── src/eleicoes/                  # Python: só funções chamadas pelos notebooks
+│   ├── config.py   download.py   fontes.py   resultados.py   cores.py
 │   ├── alocacao.py   # CNEFE → local mais próximo, pesos, Voronoi, diagnóstico
-│   └── exporta.py    # arquivos de geometria/resultados, SQL de carga, cadastro
-├── scripts/
-│   ├── 03_pesos_alocacao.py       # 1× por ano (antes da eleição)
-│   └── processa_turno.py          # noite da eleição: resultados → local → setor → export
-├── notebooks/                     # exploração, mapas, sensibilidade v1×v2
+│   ├── exporta.py  carga.py  cadastro.py   # arquivos, SQL de carga, cadastro
+│   └── visualizador.py  mapas.py           # JSON do site, mapas Folium
+├── assets/                        # mapas.js, mapas.css (visualizador)
+├── notebooks/                     # diagnósticos avulsos
 ├── dados/01_bruto/  dados/02_processado/  dados/03_georedus/{geometrias,resultados,carga}/
-└── docs/                          # site Quarto + mapas Folium
+└── docs/                          # site Quarto (00–02, índice, mapas)
 ```
+
+O processamento fica nos `.qmd`, um por etapa, na ordem de execução. Só
+`index`, `00`, `01`, `02` e `mapas` são páginas do site (`project: render:` no
+`_quarto.yml`); as demais etapas são de execução local e recebem os parâmetros
+por `-P` (ex.: `quarto render 04_resultados_turno.qmd -P ano:2026 -P turno:1`).
 
 `.gitignore`: `dados/`, `venv/`, `renv/library/`, `/.quarto/`, `*_files/`, `*_cache/`, `__pycache__/`, `.claude`.
 
@@ -227,7 +242,7 @@ dados_eleicoes/
     - `geom_estimada` e `n_zonas_mun` preenchidos.
 - Rodar para 2022 e 2026 antes de 04/10; 2018 depois.
 
-**04 — Resultados (Python, `processa_turno.py`).**
+**04 — Resultados (Python, `04_resultados_turno.qmd`).**
 - Adaptadores `ler_bweb()` e `ler_votacao_secao()` que devolvem o mesmo esquema longo, filtrando Presidente na leitura. Leitura com DuckDB `read_csv(encoding='latin-1', delim=';', all_varchar=true)`.
 - Join com `secao_local` → `res_..._local` → soma por `id_zona_mun` → `res_..._zona_mun`; `W ×` → `res_..._setor`.
 
@@ -244,14 +259,14 @@ dados_eleicoes/
 ## Noite da eleição
 
 ```bash
-python scripts/processa_turno.py --ano 2026 --turno 1 --fonte bweb --baixar
+quarto render 04_resultados_turno.qmd -P ano:2026 -P turno:1 -P fonte:bweb -P baixar:true
 ```
 
 1. Baixar os `bweb_1t_*` das 27 UFs.
 2. Rodar 04 e 05. Os pesos de 2026 já estarão prontos. Meta: **< 1 h** do arquivo disponível à carga no banco.
 3. Conferir os totais contra `votacao_candidato_munzona` e o site de resultados.
 4. Subir no S3, carregar no banco e atualizar o cadastro.
-5. Quando sair o `votacao_secao` consolidado, reprocessar com `--fonte votacao_secao` e comparar.
+5. Quando sair o `votacao_secao` consolidado, reprocessar com `-P fonte:votacao_secao` e comparar.
 
 Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.br/oficial/ele2026/arquivo-urna/...` (~500 mil seções).
 
@@ -359,10 +374,10 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   com dados reais.** O Gil baixou `votacao_secao_2018_BR.zip` fora do sandbox
   (cabeçalho conferido contra `fontes.ESQUEMA_COLUNAS` antes de rodar —
   bateu sem surpresas). `res_presidente_2018_t2_municipio.parquet`
-  (`scripts/processa_municipio.py`) tem os totais nacionais **exatos**:
+  (`04b_resultados_municipio.qmd`) tem os totais nacionais **exatos**:
   Haddad 47.040.906, Bolsonaro 57.797.847, comparecimento 115.933.451.
   `mudanca_presidente_2018_2022_t2_municipio.parquet`
-  (`scripts/06_mudanca_votacao.py --de 2018 --para 2022`) classifica os
+  (`05_mudanca_votacao.qmd -P de:2018 -P para:2022`) classifica os
   5.570 municípios (exterior fora, por não ser território): 2.756
   `manteve_pt`, 2.391 `manteve_bolsonaro`, 369 `virou_pt`, 54
   `virou_bolsonaro`. Conferido à mão contra resultados conhecidos: São Paulo

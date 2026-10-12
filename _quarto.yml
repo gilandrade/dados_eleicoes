@@ -1,9 +1,17 @@
 project:
   type: website
   output-dir: docs
-  # docs/mapas/dados/ é gerado por scripts/05_exporta_visualizador.py, fora do
-  # motor do Quarto. Isso NÃO impede que um `quarto render` do projeto inteiro
-  # limpe docs/ — renderizar só os .qmd alterados (ver CLAUDE.md).
+  # Só estas páginas formam o site. As demais etapas (00b, 03 em diante) são
+  # notebooks de execução local: `quarto render 03_pesos_alocacao.qmd -P ano:2026`.
+  render:
+    - index.qmd
+    - 00_auxiliares.qmd
+    - 01_locais_votacao.qmd
+    - 02_geocodificacao_locais.qmd
+    - mapas.qmd
+  # docs/mapas/dados/ é gerado por 06_exporta_visualizador.qmd, fora do motor
+  # do site. Isso NÃO impede que um `quarto render` do projeto inteiro limpe
+  # docs/ — renderizar só os .qmd alterados (ver CLAUDE.md).
   resources:
     - assets/mapas.js
     - assets/mapas.css

@@ -5,6 +5,7 @@ bleach==6.4.0
 branca==0.8.2
 certifi==2026.7.22
 charset-normalizer==3.5.1
+click==8.5.0
 colorama==0.4.6
 comm==0.2.3
 contourpy==1.4.0
@@ -12,6 +13,7 @@ cycler==0.12.1
 debugpy==1.8.22
 defusedxml==0.7.1
 duckdb==1.5.5
+entrypoints==0.4
 executing==2.2.1
 fastjsonschema==2.22.2
 folium==0.20.0
@@ -41,6 +43,7 @@ numpy==2.5.3
 packaging==26.3
 pandas==3.0.6
 pandocfilters==1.5.1
+papermill==2.7.0
 parso==0.8.7
 pillow==12.3.0
 platformdirs==4.12.2
@@ -54,6 +57,7 @@ pyparsing==3.3.3
 pyproj==3.8.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
+PyYAML==6.0.3
 pyzmq==27.2.0
 referencing==0.37.0
 requests==2.34.2
@@ -63,6 +67,7 @@ shapely==2.1.2
 six==1.17.0
 soupsieve==2.10
 stack-data==0.6.3
+tenacity==9.2.1
 tinycss2==1.5.1
 tornado==6.5.10
 traitlets==5.16.1

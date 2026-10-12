@@ -1,35 +1,39 @@
-# Etapa 09 — insumos de um município para a análise perfil do eleitorado × voto.
-#
-# Reúne, só para o município pedido, o que as etapas seguintes precisam, sem
-# depender dos repos irmãos (cnefe-etl, cn22-pop, process_gtfs):
-#   - zips do TSE: perfil do eleitorado, votos por seção e candidatos;
-#   - domicílios do CNEFE (cnefetools);
-#   - renda do responsável e população por setor (censobr);
-#   - malha de setores 2022 (geobr);
-#   - pontos dos locais de votação, com a coordenada do TSE validada.
-#
-# Pré-requisito: 00_auxiliares.qmd e 01_locais_votacao.qmd (do mesmo ano) já
-# renderizados.
-#
-# Roda com: Rscript scripts/09_insumos_municipio.R 2211001 2022
+---
+title: "09 · Insumos de um município"
+search: false
+params:
+  cd_mun: ""
+  ano: 2022
+---
 
-suppressMessages({
-  library(dplyr)
-  library(stringr)
-  library(httr2)
-  library(arrow)
-  library(sf)
-})
+Reúne, só para o município pedido, os insumos da análise perfil do eleitorado ×
+voto, sem depender dos repos irmãos (cnefe-etl, cn22-pop, process_gtfs):
 
-# ---- Parâmetros --------------------------------------------------------------
+- zips do TSE: perfil do eleitorado, votos por seção e candidatos;
+- domicílios do CNEFE (cnefetools);
+- renda do responsável e população por setor (censobr);
+- malha de setores 2022 (geobr);
+- pontos dos locais de votação, com a coordenada do TSE validada.
 
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 1) {
-  stop("Uso: Rscript scripts/09_insumos_municipio.R <cd_mun IBGE> [ano]")
-}
-cd_mun <- args[1]
+Pré-requisito: `00_auxiliares.qmd` e `01_locais_votacao.qmd` (do mesmo ano) já
+renderizados.
+
+```bash
+quarto render 09_insumos_municipio.qmd -P cd_mun:2211001 -P ano:2022
+```
+
+```{r setup}
+#| message: false
+library(dplyr)
+library(stringr)
+library(httr2)
+library(arrow)
+library(sf)
+
+cd_mun <- as.character(params$cd_mun)
+if (!nzchar(cd_mun)) stop("Informe o município: -P cd_mun:<código IBGE de 7 dígitos>")
 cd_mun_int <- as.integer(cd_mun)
-ano <- if (length(args) >= 2) as.integer(args[2]) else 2022L
+ano <- as.integer(params$ano)
 
 BRUTO_DIR <- file.path("dados/01_bruto", ano)
 CNEFE_MUN_DIR <- "dados/01_bruto/cnefe"
@@ -47,21 +51,25 @@ BUFFER_MUNICIPIO_M <- 500
 # Acima disto, a validação simples daqui não basta: rodar a etapa 02, que tem
 # a cadeia de fallback (outro ano, Hidalgo, geocodebr).
 LIMITE_INSCRITOS_SEM_COORD <- 0.01
+```
 
+```{r municipio}
 crosswalk <- read_parquet(file.path(AUX_DIR, "crosswalk_mun_tse_ibge.parquet")) |>
   filter(cd_mun == !!cd_mun)
 if (nrow(crosswalk) != 1) stop("Município ", cd_mun, " não está no crosswalk TSE x IBGE.")
 sg_uf <- crosswalk$sg_uf
-message(sprintf(
-  "Município %s (%s/%s), código TSE %s, ano %d",
-  cd_mun, crosswalk$nm_mun_ibge, sg_uf, crosswalk$cd_mun_tse, ano
-))
 
-# ---- 1. Zips do TSE ----------------------------------------------------------
-# Baixados por aqui (httr2) porque o CDN devolve 403 para o Python. O
-# votacao_secao da UF tem os cargos da eleição estadual (deputado federal
-# entre eles); Presidente só existe no arquivo _BR.
+crosswalk
+```
 
+## 1. Zips do TSE
+
+Baixados por aqui (httr2) porque o CDN devolve 403 para o Python. O
+`votacao_secao` da UF tem os cargos da eleição estadual (deputado federal entre
+eles); Presidente só existe no arquivo `_BR`.
+
+```{r tse}
+#| message: false
 baixar_com_retry <- function(url, destino, tentativas = 3) {
   if (file.exists(destino)) {
     return(invisible(destino))
@@ -95,17 +103,19 @@ arquivos_tse <- c(
   sprintf("consulta_cand/consulta_cand_%d.zip", ano)
 )
 for (arquivo in arquivos_tse) {
-  message("TSE: ", basename(arquivo))
-  baixar_com_retry(
-    file.path(TSE_CDN_BASE, arquivo),
-    file.path(BRUTO_DIR, basename(arquivo))
-  )
+  baixar_com_retry(file.path(TSE_CDN_BASE, arquivo), file.path(BRUTO_DIR, basename(arquivo)))
 }
 
-# ---- 2. Domicílios do CNEFE --------------------------------------------------
-# COD_SETOR vem com um sufixo "P" (16 caracteres) que a malha de setores não
-# tem — conferido em Teresina em 03/10/2026, igual ao que o cnefe-etl guardava.
+file.info(file.path(BRUTO_DIR, basename(arquivos_tse)))["size"]
+```
 
+## 2. Domicílios do CNEFE
+
+`COD_SETOR` vem com um sufixo `"P"` (16 caracteres) que a malha de setores não
+tem — conferido em Teresina em 03/10/2026.
+
+```{r cnefe}
+#| message: false
 cnefe <- cnefetools::read_cnefe(
   code_muni = cd_mun_int, output = "arrow", verbose = FALSE
 ) |>
@@ -121,20 +131,23 @@ cnefe <- cnefetools::read_cnefe(
   )
 
 n_sem_coord_cnefe <- sum(is.na(cnefe$latitude) | is.na(cnefe$longitude))
-if (n_sem_coord_cnefe > 0) {
-  message(n_sem_coord_cnefe, " domicílios do CNEFE sem coordenada, descartados.")
-  cnefe <- cnefe |> filter(!is.na(latitude), !is.na(longitude))
-}
+cnefe <- cnefe |> filter(!is.na(latitude), !is.na(longitude))
 stopifnot("cd_setor do CNEFE deveria ter 15 dígitos" = all(nchar(cnefe$cd_setor) == 15))
 
 write_parquet(cnefe, file.path(CNEFE_MUN_DIR, sprintf("cnefe_%s.parquet", cd_mun)))
-message(nrow(cnefe), " domicílios do CNEFE.")
 
-# ---- 3. Censo 2022 por setor -------------------------------------------------
-# code_tract é double no censobr; vira texto com sprintf (ver 00_auxiliares.qmd).
-# V06004 e V06006 são a média e a mediana do rendimento nominal mensal dos
-# responsáveis com rendimento (dicionário do IBGE de 08/05/2026).
+c(domicilios = nrow(cnefe), descartados_sem_coordenada = n_sem_coord_cnefe)
+```
 
+## 3. Censo 2022 por setor
+
+`code_tract` é `double` no censobr; vira texto com `sprintf` (ver
+`00_auxiliares.qmd`). `V06004` e `V06006` são a média e a mediana do rendimento
+nominal mensal dos responsáveis com rendimento (dicionário do IBGE de
+08/05/2026).
+
+```{r censo}
+#| message: false
 basico <- censobr::read_tracts(year = 2022, dataset = "Basico", showProgress = FALSE) |>
   filter(code_muni == cd_mun_int) |>
   select(code_tract, pop_total = V0001) |>
@@ -156,14 +169,20 @@ censo_setor <- basico |>
   select(cd_setor, pop_total, n_resp, renda_media_resp, renda_mediana_resp)
 
 write_parquet(censo_setor, file.path(AUX_DIR, sprintf("censo_setor_%s.parquet", cd_mun)))
-message(sprintf(
-  "%d setores no Censo, %d com renda do responsável.",
-  nrow(censo_setor), sum(!is.na(censo_setor$renda_media_resp))
-))
 
-# ---- 4. Malha de setores -----------------------------------------------------
-# Gravada com os nomes que a etapa 03 já espera da malha do IBGE.
+c(setores = nrow(censo_setor), com_renda_do_responsavel = sum(!is.na(censo_setor$renda_media_resp)))
+```
 
+## 4. Malha de setores
+
+Gravada com os nomes que a etapa 03 espera (`CD_SETOR`, `CD_MUN`). Códigos de
+setor repetidos (um setor em mais de um polígono) são juntados na etapa 03.
+
+`showProgress` fica no padrão: com `FALSE`, o geobr devolve `NULL` em silêncio
+ao renderizar pelo Quarto (ver CLAUDE.md).
+
+```{r setores}
+#| message: false
 setores <- geobr::read_census_tract(
   year = 2022, code_tract = cd_mun_int, simplified = FALSE
 ) |>
@@ -173,22 +192,22 @@ setores <- geobr::read_census_tract(
   ) |>
   st_transform(4674)
 
-n_repetidos <- sum(duplicated(setores$CD_SETOR))
-if (n_repetidos > 0) {
-  message(n_repetidos, " códigos de setor repetidos na malha (a etapa 03 junta os pedaços).")
-}
-
 st_write(
   setores, file.path(SETORES_MUN_DIR, sprintf("setores_%s.gpkg", cd_mun)),
   delete_dsn = TRUE, quiet = TRUE
 )
-message(nrow(setores), " setores na malha.")
 
-# ---- 5. Pontos dos locais de votação ----------------------------------------
-# Mesmas regras de validação da etapa 02 (coordenada nula, sentinela, fora do
-# município, repetida em 3 ou mais locais), sem a cadeia de fallback: o local
-# reprovado vai para o centróide do município e fica fora da alocação.
+c(setores = nrow(setores), codigos_repetidos = sum(duplicated(setores$CD_SETOR)))
+```
 
+## 5. Pontos dos locais de votação
+
+Mesmas regras de validação da etapa 02 (coordenada nula, sentinela, fora do
+município, repetida em 3 ou mais locais), sem a cadeia de fallback: o local
+reprovado vai para o centróide do município e fica fora da alocação.
+
+```{r locais}
+#| message: false
 locais <- read_parquet(file.path(PROCESSADO_DIR, sprintf("locais_%d.parquet", ano))) |>
   filter(cd_mun == !!cd_mun)
 if (nrow(locais) == 0) stop("Nenhum local de votação do município em locais_", ano, ".parquet.")
@@ -234,13 +253,17 @@ locais <- locais |>
     precisao = fonte_coord
   )
 
+count(locais, fonte_coord)
+```
+
+Se mais de 1% dos inscritos dos locais elegíveis ficar sem coordenada válida, a
+validação simples daqui não basta e o notebook para.
+
+```{r locais-limite}
 elegiveis <- locais |> filter(!flag_especial)
 pc_inscritos_sem_coord <- sum(elegiveis$qt_eleitores[elegiveis$flag_sem_coord], na.rm = TRUE) /
   sum(elegiveis$qt_eleitores, na.rm = TRUE)
-message(sprintf(
-  "%d locais, %d com coordenada do TSE reprovada (%.2f%% dos inscritos dos locais elegíveis).",
-  nrow(locais), sum(locais$flag_sem_coord), 100 * pc_inscritos_sem_coord
-))
+
 if (pc_inscritos_sem_coord > LIMITE_INSCRITOS_SEM_COORD) {
   stop(
     "Mais de ", 100 * LIMITE_INSCRITOS_SEM_COORD, "% dos inscritos em locais sem ",
@@ -248,6 +271,10 @@ if (pc_inscritos_sem_coord > LIMITE_INSCRITOS_SEM_COORD) {
   )
 }
 
+sprintf("%.2f%% dos inscritos dos locais elegíveis sem coordenada válida", 100 * pc_inscritos_sem_coord)
+```
+
+```{r gravacao}
 geom_locais <- locais |>
   st_as_sf(coords = c("longitude", "latitude"), crs = 4674, remove = FALSE) |>
   select(id_local, cd_mun, nr_zona, fonte_coord, precisao, flag_especial, flag_sem_coord, qt_eleitores)
@@ -258,4 +285,5 @@ st_write(
   delete_dsn = TRUE, quiet = TRUE
 )
 
-message("Concluído.")
+nrow(geom_locais)
+```

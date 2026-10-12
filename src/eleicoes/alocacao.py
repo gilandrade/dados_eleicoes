@@ -11,7 +11,7 @@ Método "Voronoi dasimétrico sobre os domicílios do CNEFE" (ver PLAN.md > Pesq
    todo turno: `votos_setor = pesos @ votos_local` (ver `resultados.py`).
 
 A matriz é cara (calcula vizinho mais próximo para cada domicílio do Brasil) e
-por isso é calculada uma vez por ano, antes da eleição (`scripts/03_pesos_alocacao.py`),
+por isso é calculada uma vez por ano, antes da eleição (`03_pesos_alocacao.qmd`),
 nunca na noite da apuração.
 """
 
@@ -181,7 +181,7 @@ def pop18_por_setor(
     15–19 (3 dos 5 anos são maiores de idade).
 
     NÃO é o caminho usado pelo pipeline: `00_auxiliares.qmd` (R) já calcula e
-    grava `pop18_setor.parquet`, e `scripts/03_pesos_alocacao.py` só lê esse
+    grava `pop18_setor.parquet`, e `03_pesos_alocacao.qmd` só lê esse
     arquivo (`config.POP18_SETOR_PARQUET`) — ver CLAUDE.md. Esta função existe
     como referência da mesma conta em Python e para reuso fora do pipeline
     principal; mantida em sincronia com a versão em R.

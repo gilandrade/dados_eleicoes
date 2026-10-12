@@ -1,0 +1,109 @@
+---
+title: "06 · Dados do visualizador de mapas"
+search: false
+execute:
+  echo: true
+---
+
+Exporta para `docs/mapas/dados/` os JSON compactos que a página de mapas do
+site lê (`mapas.qmd` + `assets/mapas.js`). Exporta tudo o que já existir em
+disco: pontos (locais) e zona × município de cada ano × turno processado, e a
+mudança de votação entre anos. Não tem parâmetro.
+
+```bash
+quarto render 06_exporta_visualizador.qmd
+quarto render mapas.qmd      # só a página, nunca o projeto inteiro
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+
+from eleicoes import visualizador
+from eleicoes.config import ANOS, GEOMETRIAS_DIR, RESULTADOS_DIR
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+
+TURNOS = (1, 2)
+```
+
+## 1. Locais de votação (pontos)
+
+Um arquivo de coordenadas por ano e um de valores por ano × turno, na mesma
+ordem de ids.
+
+```{python}
+#| label: pontos
+pontos = []
+for ano in ANOS:
+    if not (GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg").exists():
+        continue
+    ids = visualizador.exporta_locais(ano)
+    for turno in TURNOS:
+        if (RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet").exists():
+            visualizador.exporta_locais_turno(ano, turno, ids)
+            pontos.append((ano, turno))
+pontos
+```
+
+## 2. Zona × município (áreas)
+
+A geometria simplificada por ano e os valores por ano × turno.
+
+```{python}
+#| label: zona-mun
+zona_mun = []
+for ano in ANOS:
+    if not (GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg").exists():
+        continue
+    visualizador.exporta_zona_mun_geom(ano)
+    for turno in TURNOS:
+        if (RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_zona_mun.parquet").exists():
+            visualizador.exporta_zona_mun_turno(ano, turno)
+            zona_mun.append((ano, turno))
+zona_mun
+```
+
+## 3. Mudança de votação
+
+Todo par de anos × turno com parquet de mudança (etapa 05).
+
+```{python}
+#| label: mudanca
+mudancas = []
+for ano_antes in ANOS:
+    for ano_depois in ANOS:
+        for turno in TURNOS:
+            nome = f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+            if (RESULTADOS_DIR / nome).exists():
+                visualizador.exporta_mudanca(ano_antes, ano_depois, turno)
+                mudancas.append((ano_antes, ano_depois, turno))
+mudancas
+```
+
+## 4. Configuração do visualizador
+
+`config.json` lista o que foi exportado, com as legendas e cores de `cores.py`.
+
+```{python}
+#| label: config
+#| output: false
+visualizador.exporta_config(pontos, zona_mun, mudancas)
+```
+
+## Conferência
+
+Arquivos publicados e o tamanho total (o GitHub Pages tem limite de 1 GB).
+
+```{python}
+#| label: conferencia
+arquivos = sorted(visualizador.DADOS_VISUALIZADOR_DIR.glob("*.json"))
+tamanhos = pd.Series({a.name: a.stat().st_size / 1e6 for a in arquivos}, name="MB").round(2)
+print(f"{len(arquivos)} arquivos, {tamanhos.sum():.1f} MB")
+tamanhos.to_frame()
+```

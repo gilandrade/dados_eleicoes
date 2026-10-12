@@ -27,18 +27,24 @@ quarto render 02_geocodificacao_locais.qmd
 
 `.Rprofile` sources `renv/activate.R`.
 
-Python (resultados, alocação, exportação, mapas):
+Python (resultados, alocação, exportação, mapas) — também em `.qmd`, com o
+kernel do venv; os parâmetros entram por `-P`:
 
 ```bash
 venv\Scripts\activate.bat        # PowerShell: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 cp .env.example .env             # preencher CARTO_API_KEY (ver Conventions abaixo)
-python scripts/03_pesos_alocacao.py --ano 2022
-python scripts/processa_turno.py --ano 2022 --turno 1 --fonte votacao_secao
-python scripts/06_mudanca_votacao.py --de 2018 --para 2022
-python scripts/05_exporta_visualizador.py   # dados do site (docs/mapas/dados/)
+export QUARTO_PYTHON="$PWD/venv/Scripts/python.exe"   # se o venv não estiver ativado
+quarto render 03_pesos_alocacao.qmd -P ano:2022
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
+quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
+quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
 ```
+
+As etapas 00b e 03–09 não fazem parte do site (`project: render:` no
+`_quarto.yml` lista só as páginas publicadas): o HTML delas sai na raiz, ao lado
+do `.qmd`, e é git-ignorado.
 
 Outro ano nas etapas R: `quarto render 01_locais_votacao.qmd -P ano:2018 --output
 01_locais_votacao_2018.html` (idem para 02) — o `--output` evita sobrescrever a
@@ -46,36 +52,47 @@ página de 2022 no site.
 
 ## Architecture
 
-Five stages, two languages, parquet/gpkg as the handoff format. See `PLAN.md` for
-the full data model (geometry files vs. result files joined by a shared id).
+One numbered `.qmd` per stage in the repo root, in execution order; two
+languages, parquet/gpkg as the handoff format. **The notebooks hold the
+processing, step by step; `src/eleicoes/` only has functions they call** (no
+CLI scripts — `scripts/` was removed on 11/10/2026). See `PLAN.md` for the full
+data model (geometry files vs. result files joined by a shared id).
 
 - **00–02 (R)**: crosswalk TSE↔IBGE, malhas, `pop18` por setor; download e chaves
-  dos locais/seções; validação e geocodificação das coordenadas.
-- **03 (Python, `scripts/03_pesos_alocacao.py`, roda 1× por ano)**: aloca cada
+  dos locais/seções; validação e geocodificação das coordenadas. `00b_insumos_brasil.qmd`
+  (R) baixa a malha de setores e o CNEFE do Brasil.
+- **03 (Python, `03_pesos_alocacao.qmd`, roda 1× por ano)**: aloca cada
   domicílio do CNEFE ao local de votação mais próximo do mesmo município,
   constrói a matriz de pesos `local → setor` (ponderada pela população adulta) e
   gera as geometrias derivadas (`geom_areas_locais`, `geom_zona_mun`).
-- **04 (Python, `scripts/processa_turno.py`)**: lê os resultados (boletim de urna
+- **04 (Python, `04_resultados_turno.qmd`)**: lê os resultados (boletim de urna
   ou `votacao_secao`), agrega por local, por zona × município e, multiplicando
-  pela matriz de pesos, por setor.
-- **05 (Python)**: exporta os arquivos no modelo GeoReDUS, os artefatos de carga
-  (`table.sh`/`schema.sql`/`down.sql`), a linha de cadastro (ainda não implementado)
-  e os dados do **visualizador de mapas do site** (`src/eleicoes/visualizador.py`,
-  `scripts/05_exporta_visualizador.py` → `docs/mapas/dados/*.json`, lidos por
-  `mapas.qmd` + `assets/mapas.js`). Cores e classes em `src/eleicoes/cores.py`.
-  Os mapas Folium (`mapas.py`, `scripts/05_gera_mapas.py`) são só para uso
-  local, em `dados/mapas_folium/` — não voltar a publicá-los (tamanho, ver abaixo).
-- **06 (Python, `scripts/06_mudanca_votacao.py`)**: mudança de votação entre
-  dois anos no 2º turno, por zona × município.
+  pela matriz de pesos, por setor. `04b_resultados_municipio.qmd` agrega por
+  município direto da seção (ano sem locais processados; validação cruzada).
+- **05 (Python, `05_mudanca_votacao.qmd`)**: mudança de votação entre
+  dois anos, no mesmo turno, por zona × município.
+- **06 (Python, `06_exporta_visualizador.qmd`)**: dados do **visualizador de
+  mapas do site** (`src/eleicoes/visualizador.py` → `docs/mapas/dados/*.json`,
+  lidos por `mapas.qmd` + `assets/mapas.js`). Cores e classes em
+  `src/eleicoes/cores.py`. Os mapas Folium (`mapas.py`, `06b_mapas_folium.qmd`)
+  são só para uso local, em `dados/mapas_folium/` — não voltar a publicá-los
+  (tamanho, ver abaixo).
+- **07–08 (Python)**: `07_carga_georedus.qmd` gera os artefatos de carga
+  (`table.sh`/`schema.sql`/`down.sql` e as views; helpers em `carga.py`) e
+  `08_cadastro_georedus.qmd` as linhas de cadastro das camadas (`cadastro.py`).
+- **09 (R, `09_insumos_municipio.qmd`)**: insumos de um município só, para a
+  análise perfil do eleitorado × voto.
 
 ## Conventions and gotchas
 
 - **CNEFE 2022 e malha de setores não vêm mais de repos irmãos** (05/10/2026):
-  `scripts/00b_insumos_brasil.R` gera `dados/01_bruto/cnefe/cnefe_{cd_mun}.parquet`
+  `00b_insumos_brasil.qmd` gera `dados/01_bruto/cnefe/cnefe_{cd_mun}.parquet`
   (cnefetools, 5.570 municípios, ~90,7 milhões de domicílios, `cd_setor` já sem o
   "P", lat/lon em EPSG:4674) e `dados/01_bruto/aux/setores/BR_setores_CD2022.gpkg`
-  (geobr 2.1.0, 468.097 setores). É retomável; rodar o CNEFE em vários processos
-  por UF (`Rscript scripts/00b_insumos_brasil.R cnefe 35`) leva ~1 h no total.
+  (geobr 2.1.0, 468.097 setores). É retomável e aceita `-P etapa:cnefe -P uf:35`.
+  Como script, o CNEFE levava ~1 h com vários processos por UF; como `.qmd` roda
+  em sequência (dois `quarto render` do mesmo arquivo ao mesmo tempo disputam os
+  intermediários do knitr).
   A malha do geobr tem ~1% menos setores que a do IBGE usada em 2022.
 - **CRS:** tudo em EPSG:4674 nas saídas para a GeoReDUS. Cálculos de distância usam
   EPSG:5880 (SIRGAS 2000 / Brazil Polyconic), métrico nacional.
@@ -90,16 +107,24 @@ the full data model (geometry files vs. result files joined by a shared id).
   `res_..._zona_mun` são valores publicados pelo TSE, exatos. `geom_areas_locais`,
   `geom_zona_mun` (quando `geom_estimada = TRUE`) e `res_..._setor` são estimativas
   do método de alocação — sempre expor a camada observada ao lado.
-- **A matriz de pesos é cara de calcular, barata de aplicar.** `scripts/03_pesos_alocacao.py`
-  roda uma vez por ano, antes da eleição. `processa_turno.py`, na noite da eleição,
+- **A matriz de pesos é cara de calcular, barata de aplicar.** `03_pesos_alocacao.qmd`
+  roda uma vez por ano, antes da eleição. `04_resultados_turno.qmd`, na noite da eleição,
   só multiplica — não recalcula a matriz.
 - **duckdb (Python) em `fontes.py`:** o método `con.read_csv(..., encoding="latin-1")`
   ignora o encoding e sempre exige UTF-8 nesta versão (1.5.x). Use a função SQL
   `read_csv(...)` (via `con.sql(...)`), que respeita o parâmetro — ver `_sql_read_csv()`.
-- **Testes manuais:** não há suíte formal (`scripts/_teste_manual_*.{py,R}`), mas
-  esses scripts validam a lógica central com dados sintéticos (conservação de
-  totais, alocação por vizinho mais próximo, validação de coordenada) e valem
-  a pena rodar de novo depois de qualquer mudança em `alocacao.py`/`resultados.py`.
+- **Não há testes** (os `_teste_manual_*` foram removidos em 11/10/2026). Cada
+  notebook termina numa seção "Conferência" com `assert` (pesos somando 1,
+  totais iguais entre local, zona × município e município, variações sobre
+  aptos somando zero). Depois de mexer em `alocacao.py`/`resultados.py`,
+  renderizar 03 num município (`-P cd_mun:2211001`) e 04 num turno e ler essas
+  seções.
+- **`-P` nos `.qmd` em Python exige `papermill` e `pyyaml` no venv** (já no
+  `requirements.txt`). O Quarto mantém um daemon do kernel por alguns minutos:
+  depois de instalar pacote, usar `--execute-daemon-restart`, senão o erro
+  antigo se repete. Valor de `-P` é lido como YAML (`-P cd_mun:2211001` chega
+  como inteiro) — os notebooks convertem para texto logo após a célula de
+  parâmetros.
 - **Chamadas de rede em R (httr2, `url()`) travam com "segmentation fault" no
   sandbox onde o repositório foi montado inicialmente** (confirmado até para
   `base::url()`, sem geobr envolvido) — não é o bug documentado do geobr 2.x.
@@ -179,7 +204,7 @@ the full data model (geometry files vs. result files joined by a shared id).
     reprovado mas confirmado a <800 m da referência, e 0,23% (208) ainda cai
     no centróide do município — fora do mapa de pontos (`flag_sem_coord`).
     Antes do passo `geocodebr` (29/09/2026) eram 0,56% no centróide.
-- **Etapas 03 (Python) e 04 (`processa_turno.py`) rodaram para o Brasil
+- **Etapas 03 (Python) e 04 (`04_resultados_turno.qmd`) rodaram para o Brasil
   inteiro com 2022** em 29/09/2026 — o resultado por candidato bate
   **exatamente** com os números oficiais reais (Lula 57.259.504, Bolsonaro
   51.072.345, comparecimento 123.682.372, aptos 156.451.515), depois de
@@ -214,7 +239,7 @@ the full data model (geometry files vs. result files joined by a shared id).
     join com `cd_setor` em silêncio — 0% de correspondência, sem erro).
   - **`qt_eleitores` nunca tinha sido extraído em `01_locais_votacao.qmd`** —
     soma de `QT_ELEITOR_SECAO` por `id_local` (turno 1), usado pelo
-    diagnóstico de alocação e, depois, como `qt_aptos` em `processa_turno.py`
+    diagnóstico de alocação e, depois, como `qt_aptos` em `04_resultados_turno.qmd`
     (ver abaixo). Precisa passar pela etapa 02 também (`select()` da saída).
 - **`detalhe_votacao_secao` existe, mas com nome diferente do que eu tinha
   chutado.** Eu tentei `detalhe_votacao_secao_{ano}_BR.zip` (copiando o
@@ -245,7 +270,7 @@ the full data model (geometry files vs. result files joined by a shared id).
   `eleitorado_local_votacao`). `resultados.agrega_por_local()`/
   `agrega_por_zona_mun()` preferem esse `qt_aptos` por seção quando
   presente, caindo em `locais.qt_eleitores` só onde ele faltar. O arquivo é
-  grande (243 MB) e opcional — `processa_turno.py` só usa se já estiver em
+  grande (243 MB) e opcional — `04_resultados_turno.qmd` só usa se já estiver em
   `dados/01_bruto/{ano}/detalhe_votacao_secao_{ano}.zip`, não baixa sozinho.
 - **`CD_MUNICIPIO` não tem o mesmo padding em todos os arquivos do TSE.**
   Confirmado real: `eleitorado_local_votacao` sempre tem 5 dígitos
@@ -275,7 +300,7 @@ the full data model (geometry files vs. result files joined by a shared id).
   nulos ficam de fora do setor (122.682.541 vs. 123.682.372 no zona_mun) —
   ordem de grandeza esperada, dado que ~262 locais são especiais e ~2.062
   ficaram sem nenhum domicílio alocado (de 91.923).
-- **Etapa 05, mapas (`src/eleicoes/mapas.py`, `scripts/05_gera_mapas.py`),
+- **Etapa 05, mapas (`src/eleicoes/mapas.py`, `06b_mapas_folium.qmd`),
   rodou pela primeira vez em 29/09/2026** — 27 mapas por UF (setor,
   `monta_setor_uf`), 1 nacional por município (`monta_municipios`) e 1
   nacional por zona×município (`monta_zona_mun`, a camada mais fiel — ver
@@ -333,9 +358,8 @@ the full data model (geometry files vs. result files joined by a shared id).
     mapas** na primeira tentativa, apesar de `project: resources: [mapas]`
     no `_quarto.yml` (isso só copia arquivos do projeto para o output-dir;
     não impede a limpeza de conteúdo que já está lá). O fix é `--no-clean`
-    no `quarto render` do projeto inteiro, ou simplesmente rodar
-    `scripts/05_gera_mapas.py` **depois** do render, nunca antes — ver
-    README.md.
+    no `quarto render` do projeto inteiro, ou simplesmente gerar os mapas
+    **depois** do render, nunca antes — ver README.md.
 - **`geocodebr` na etapa 02** (0.6.1, mesmo pin do `locais-nova-rfb-geocoding`).
   Instalar pelo renv: o `duckdb` mais recente do CRAN tenta compilar do fonte
   e falha no Windows — usar a versão que já está no cache do renv

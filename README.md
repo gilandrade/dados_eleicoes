@@ -29,8 +29,35 @@ os resultados no território (locais → setores censitários) e o cronograma.
 
 - **R + Quarto + renv** — locais de votação e geocodificação (`00_auxiliares.qmd`,
   `01_locais_votacao.qmd`, `02_geocodificacao_locais.qmd`).
-- **Python** — resultados, distribuição espacial e exportação
-  (`src/eleicoes/`, `scripts/`).
+- **Python + Quarto** — resultados, distribuição espacial e exportação
+  (`03_*.qmd` a `08_*.qmd`; as funções ficam em `src/eleicoes/`).
+
+## Organização
+
+Um notebook Quarto por etapa, na raiz, numerado na ordem de execução. O
+processamento fica nos notebooks; `src/eleicoes/` só tem as funções que eles
+chamam.
+
+| Notebook | Linguagem | O que faz | Parâmetros (`-P`) |
+|---|---|---|---|
+| `00_auxiliares.qmd` | R | crosswalk TSE↔IBGE, municípios, `pop18` por setor | — |
+| `00b_insumos_brasil.qmd` | R | malha de setores e CNEFE do Brasil | `etapa`, `uf` |
+| `01_locais_votacao.qmd` | R | locais e seções, chaves | `ano` |
+| `02_geocodificacao_locais.qmd` | R | validação e fallback de coordenada | `ano` |
+| `03_pesos_alocacao.qmd` | Python | matriz de pesos local → setor, zona × município | `ano`, `cd_mun` |
+| `04_resultados_turno.qmd` | Python | resultados por local, zona × município, município e setor | `ano`, `turno`, `fonte`, `baixar` |
+| `04b_resultados_municipio.qmd` | Python | resultado por município direto da seção | `ano`, `turno`, `fonte`, `baixar` |
+| `05_mudanca_votacao.qmd` | Python | mudança de votação entre dois anos | `de`, `para`, `turno` |
+| `06_exporta_visualizador.qmd` | Python | dados do visualizador do site | — |
+| `06b_mapas_folium.qmd` | Python | mapas Folium, só uso local | `ano`, `turno`, `uf`, `camadas` |
+| `07_carga_georedus.qmd` | Python | artefatos de carga no banco da GeoReDUS | `anos`, `turnos`, `saida` |
+| `08_cadastro_georedus.qmd` | Python | linhas de cadastro das camadas | `anos`, `turnos`, `saida` |
+| `09_insumos_municipio.qmd` | R | insumos de um município (perfil × voto) | `cd_mun`, `ano` |
+
+Só `index.qmd`, `00`, `01`, `02` e `mapas.qmd` são páginas do site (`docs/`). Os
+demais são de execução local: o HTML sai na raiz, ao lado do `.qmd`, e é
+git-ignorado. Cada um termina numa seção "Conferência", com as checagens
+daquela etapa.
 
 ## Reprodutibilidade
 
@@ -44,27 +71,32 @@ quarto render 02_geocodificacao_locais.qmd
 quarto render 01_locais_votacao.qmd -P ano:2018 --output 01_locais_votacao_2018.html
 quarto render 02_geocodificacao_locais.qmd -P ano:2018 --output 02_geocodificacao_locais_2018.html
 
-# Python (por ano)
+# Python (por ano). O Quarto usa o kernel do venv: ative-o antes, ou aponte
+# QUARTO_PYTHON para venv/Scripts/python.exe
 python -m venv venv
 venv\Scripts\activate.bat        # PowerShell: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env             # preencher CARTO_API_KEY antes de exportar os mapas
-python scripts/03_pesos_alocacao.py --ano 2022
-python scripts/processa_turno.py --ano 2022 --turno 1 --fonte votacao_secao
-python scripts/processa_turno.py --ano 2022 --turno 2 --fonte votacao_secao
+cp .env.example .env             # preencher CARTO_API_KEY antes de gerar os mapas Folium
+quarto render 03_pesos_alocacao.qmd -P ano:2022
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:2
 
-# Mudança de votação entre anos (2º turno, zona × município)
-python scripts/06_mudanca_votacao.py --de 2018 --para 2022
+# Mudança de votação entre anos (zona × município; turno 2 é o padrão)
+quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 
 # Dados do visualizador do site (docs/mapas/dados/) e a página
-python scripts/05_exporta_visualizador.py
+quarto render 06_exporta_visualizador.qmd
 quarto render mapas.qmd
 
 # Opcional, só local: mapas Folium por setor/município/zona (dados/mapas_folium/)
-python scripts/05_gera_mapas.py --ano 2022 --turno 1
+quarto render 06b_mapas_folium.qmd -P ano:2022 -P turno:1
+
+# Carga e cadastro na GeoReDUS
+quarto render 07_carga_georedus.qmd -P anos:2018,2022,2026
+quarto render 08_cadastro_georedus.qmd -P anos:2018,2022,2026
 ```
 
-`scripts/processa_municipio.py` calcula o resultado por município direto da seção,
+`04b_resultados_municipio.qmd` calcula o resultado por município direto da seção,
 sem precisar das etapas 01–03 — útil para um ano ainda não processado e como
 validação cruzada.
 
@@ -72,10 +104,10 @@ validação cruzada.
 e como baixá-los. `.env` (a chave do CARTO) também é git-ignorado — ver `.env.example`.
 
 **Atenção ao rodar `quarto render` do projeto inteiro (sem apontar um `.qmd`
-específico):** por padrão ele limpa `docs/` antes de renderizar, e isso apaga
-`docs/mapas/dados/` (gerado por `scripts/05_exporta_visualizador.py`, fora do
-motor do Quarto). Renderize só os `.qmd` alterados, passe `--no-clean`, ou rode o
-exportador de novo depois do render.
+específico):** ele só renderiza as páginas do site, mas por padrão limpa `docs/`
+antes, e isso apaga `docs/mapas/dados/` (gerado por
+`06_exporta_visualizador.qmd`). Renderize só os `.qmd` alterados, passe
+`--no-clean`, ou rode o exportador de novo depois do render.
 
 ## Agradecimentos
 
