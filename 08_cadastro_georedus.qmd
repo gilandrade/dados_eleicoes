@@ -1,0 +1,349 @@
+---
+title: "08 · Cadastro das camadas na GeoReDUS"
+search: false
+execute:
+  echo: true
+---
+
+Gera as linhas de cadastro das camadas de eleições: uma por mapa do site
+(`mapas.qmd` + `assets/mapas.js`) × ano × turno, no formato da aba `eleicoes` da
+planilha de cadastro. As cores, os cortes e os rótulos da legenda vêm de
+`cores.py`, os mesmos do visualizador; a classe de cor já está calculada nas
+views (`07_carga_georedus.qmd`).
+
+As camadas usam os presets categóricos do `@redus/georedus-ui`
+(`vector_point_categorical`, `vector_polygon_categorical`). Os contínuos não
+servem na UI 0.23.1: o de pontos só varia o tamanho, sem cor por valor, e o de
+polígonos não deixa voltar aos cortes fixos depois de trocar o método de
+classificação (ver GeoReDUS/georedus#51).
+
+O arquivo sai em `dados/03_georedus/carga/cadastro_georedus.csv`, pronto para
+colar na planilha.
+
+```bash
+quarto render 08_cadastro_georedus.qmd -P anos:2018,2022,2026
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+import pyarrow.parquet as pq
+
+from eleicoes import cores, exporta
+from eleicoes.cadastro import (
+    COLLECTION_ID,
+    ENTRADA_FRONTEIRA,
+    ENTRADAS_LOCAL,
+    FORMATO_INTEIRO,
+    FORMATO_PCT,
+    FORMATO_PP,
+    FORMATO_SIM_NAO,
+    INDICATOR_ID,
+    PRESET_POLIGONOS,
+    PRESET_PONTOS,
+    TITULO_ABSTENCAO,
+    TITULO_BRANCO_NULO,
+    TITULO_ZONA,
+    entradas_presidente,
+    estilo_poligonos,
+    estilo_pontos,
+)
+from eleicoes.config import (
+    CARGA_DIR,
+    NOME_BOLSONARO_POR_ANO,
+    NOME_PT_POR_ANO,
+    NR_BOLSONARO_POR_ANO,
+    RESULTADOS_DIR,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+anos = "2018,2022,2026"
+turnos = "1,2"
+saida = ""  # caminho do CSV; vazio = dados/03_georedus/carga/cadastro_georedus.csv
+```
+
+```{python}
+#| label: parametros-derivados
+anos = sorted((int(a) for a in str(anos).split(",") if a.strip()), reverse=True)
+turnos = sorted(int(t) for t in str(turnos).split(",") if t.strip())
+saida = Path(saida) if saida else CARGA_DIR / "cadastro_georedus.csv"
+
+# Ano × turno com resultado em disco; os demais ficam fora do cadastro.
+eleicoes = [
+    (ano, turno)
+    for ano in anos
+    for turno in turnos
+    if (RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet").exists()
+]
+comum = {"collection_id": COLLECTION_ID, "indicator_id": INDICATOR_ID}
+print(f"com resultado: {eleicoes}")
+
+
+def view_locais(ano, turno):
+    return f"tse_malha_locais_votacao_{ano}_t{turno}"
+
+
+def view_zona(ano, turno):
+    return f"tse_malha_zona_mun_{ano}_t{turno}"
+
+
+def caminho_menu(ano, turno):
+    return f"Eleições / {ano} / {turno}º turno"
+```
+
+## 1. Locais de votação: brancos e nulos
+
+Cor pela classe de `pc_brancos_nulos`; tamanho pelo total de votos.
+
+```{python}
+#| label: brancos-nulos
+linhas_brancos_nulos = {
+    (ano, turno): exporta.linha_cadastro(
+        id_camada=f"{view_locais(ano, turno)}.pct_brancos_nulos",
+        view=view_locais(ano, turno),
+        preset=PRESET_PONTOS,
+        path=f"{caminho_menu(ano, turno)} / Locais de votação",
+        label="Brancos e nulos",
+        descricao=(
+            "Votos brancos e nulos sobre o total de votos de cada local de votação."
+            " Tamanho: total de votos."
+        ),
+        style=estilo_pontos(
+            "classe_brancos_nulos",
+            cores.legenda_sequencial(TITULO_BRANCO_NULO, cores.QUEBRAS_BRANCO_NULO, rampa=cores.RAMPA_CINZA),
+            "qt_comparecimento",
+        ),
+        tooltip={
+            "title": "nm_local_votacao",
+            "entries": [
+                *ENTRADAS_LOCAL,
+                {"key": "pc_brancos_nulos", "label": "Brancos e nulos", "format": FORMATO_PCT},
+                {"key": "qt_comparecimento", "label": "Comparecimento (votos)", "format": FORMATO_INTEIRO},
+            ],
+        },
+        **comum,
+    )
+    for ano, turno in eleicoes
+}
+```
+
+## 2. Locais de votação: abstenção
+
+Cor pela classe de `pc_abstencao`; tamanho pelos eleitores inscritos.
+
+```{python}
+#| label: abstencao
+linhas_abstencao = {
+    (ano, turno): exporta.linha_cadastro(
+        id_camada=f"{view_locais(ano, turno)}.pct_abstencao",
+        view=view_locais(ano, turno),
+        preset=PRESET_PONTOS,
+        path=f"{caminho_menu(ano, turno)} / Locais de votação",
+        label="Abstenção",
+        descricao=(
+            "Inscritos que não compareceram, sobre os inscritos de cada local de votação."
+            " Tamanho: eleitores inscritos."
+        ),
+        style=estilo_pontos(
+            "classe_abstencao",
+            cores.legenda_sequencial(TITULO_ABSTENCAO, cores.QUEBRAS_ABSTENCAO),
+            "qt_aptos",
+        ),
+        tooltip={
+            "title": "nm_local_votacao",
+            "entries": [
+                *ENTRADAS_LOCAL,
+                {"key": "pc_abstencao", "label": "Abstenção", "format": FORMATO_PCT},
+                {"key": "qt_aptos", "label": "Inscritos", "format": FORMATO_INTEIRO},
+            ],
+        },
+        **comum,
+    )
+    for ano, turno in eleicoes
+}
+```
+
+## 3. Presidente: locais de votação e zona × município
+
+Diferença entre Lula/Haddad e o bolsonarista nos votos válidos. A legenda é a
+do site, que chama o polo azul de "Bolsonaro" em todos os anos. Só para os anos
+com número de Bolsonaro em `config.NR_BOLSONARO_POR_ANO`.
+
+```{python}
+#| label: presidente
+ROTULO_PRESIDENTE = "Votos válidos - Presidente"
+linhas_presidente_locais, linhas_presidente_zona = {}, {}
+
+for ano, turno in eleicoes:
+    if ano not in NR_BOLSONARO_POR_ANO:
+        print(f"{ano}: sem número de Bolsonaro — mapas de Presidente fora do cadastro")
+        continue
+    nome_pt, nome_bolsonaro = NOME_PT_POR_ANO[ano], NOME_BOLSONARO_POR_ANO[ano]
+    legenda = cores.legenda_margem(nome_pt)
+
+    linhas_presidente_locais[ano, turno] = exporta.linha_cadastro(
+        id_camada=f"{view_locais(ano, turno)}.classe_margem",
+        view=view_locais(ano, turno),
+        preset=PRESET_PONTOS,
+        path=f"{caminho_menu(ano, turno)} / Locais de votação",
+        label=ROTULO_PRESIDENTE,
+        descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos. Tamanho: votos válidos.",
+        style=estilo_pontos("classe_margem", legenda, "qt_validos"),
+        tooltip={
+            "title": "nm_local_votacao",
+            "entries": [
+                *ENTRADAS_LOCAL,
+                *entradas_presidente(ano),
+                {"key": "qt_validos", "label": "Votos válidos", "format": FORMATO_INTEIRO},
+            ],
+        },
+        **comum,
+    )
+    linhas_presidente_zona[ano, turno] = exporta.linha_cadastro(
+        id_camada=f"{view_zona(ano, turno)}.margem_pt_bolsonaro",
+        view=view_zona(ano, turno),
+        preset=PRESET_POLIGONOS,
+        path=f"{caminho_menu(ano, turno)} / Zona eleitoral × município",
+        label=ROTULO_PRESIDENTE,
+        descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos, por zona eleitoral.",
+        style=estilo_poligonos("classe_margem", legenda),
+        tooltip={
+            "title": TITULO_ZONA,
+            "entries": [
+                *entradas_presidente(ano),
+                {"key": "qt_comparecimento", "label": "Comparecimento (votos)", "format": FORMATO_INTEIRO},
+                ENTRADA_FRONTEIRA,
+            ],
+        },
+        **comum,
+    )
+```
+
+## 4. Mudança de votação
+
+Mapa "quem cresceu mais nos votos válidos" entre um ano e o anterior, no mesmo
+turno. No 2º turno são 11 classes; o 3º lugar (mais duas) só existe no 1º.
+
+Tabelas anteriores a `cresceu_mais_validos` (2018 → 2022) só têm a variação de
+Lula/Haddad; o id e o texto delas ficam como já estão cadastrados.
+
+```{python}
+#| label: mudanca
+linhas_mudanca = {}
+
+for ano_antes, ano_depois in zip(anos[1:], anos):
+    for turno in turnos:
+        parquet = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+        if (ano_depois, turno) not in eleicoes or not parquet.exists():
+            continue
+
+        view = f"tse_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}"
+        par = (ano_antes, ano_depois)
+        nome_pt = {ano: NOME_PT_POR_ANO[ano] for ano in par}
+        nome_bolsonaro = {ano: NOME_BOLSONARO_POR_ANO[ano] for ano in par}
+        entradas = [
+            {"key": f"pc_validos_pt_{ano}", "label": f"{nome_pt[ano]} em {ano}", "format": FORMATO_PCT}
+            for ano in par
+        ]
+
+        if "cresceu_mais_validos" not in pq.read_schema(parquet).names:
+            coluna_id = "var_pc_validos_pt"
+            descricao = (
+                f"Variação de {cores.nome_pt_par(ano_antes, ano_depois)} nos votos válidos entre {ano_antes} e {ano_depois},"
+                " por zona eleitoral."
+            )
+            entradas.append({"key": "var_pc_validos_pt", "label": "Variação (p.p.)", "format": FORMATO_PP})
+        else:
+            coluna_id = "var_pc_validos_maior"
+            descricao = (
+                f"Quem cresceu mais nos votos válidos entre {ano_antes} e {ano_depois}"
+                f" ({turno}º turno), em pontos percentuais, por zona eleitoral."
+            )
+            entradas.append(
+                {"key": "var_pc_validos_pt", "label": f"Variação de {nome_pt[ano_depois]} (p.p.)", "format": FORMATO_PP}
+            )
+            entradas += [
+                {
+                    "key": f"pc_validos_bolsonaro_{ano}",
+                    "label": f"{nome_bolsonaro[ano]} em {ano}",
+                    "format": FORMATO_PCT,
+                }
+                for ano in par
+            ]
+            entradas.append(
+                {
+                    "key": "var_pc_validos_bolsonaro",
+                    "label": f"Variação de {nome_bolsonaro[ano_depois]} (p.p.)",
+                    "format": FORMATO_PP,
+                }
+            )
+            if turno == 1:
+                descricao += (
+                    f" 3º lugar: zonas em que {nome_pt[ano_depois]} e {nome_bolsonaro[ano_depois]}"
+                    " caíram; compara o mais votado fora os dois em cada eleição, mesmo que"
+                    " não seja o mesmo candidato."
+                )
+                entradas += [
+                    {"key": f"pc_validos_terceiro_{ano}", "label": f"3º lugar em {ano}", "format": FORMATO_PCT}
+                    for ano in par
+                ]
+                entradas.append(
+                    {"key": "var_pc_validos_terceiro", "label": "Variação do 3º lugar (p.p.)", "format": FORMATO_PP}
+                )
+
+        linhas_mudanca[ano_depois, turno] = exporta.linha_cadastro(
+            id_camada=f"{view}.{coluna_id}",
+            view=view,
+            preset=PRESET_POLIGONOS,
+            path=f"Eleições / {ano_depois} / {turno}º turno / Zona eleitoral × município",
+            label=f"Mudança de votação {ano_antes} → {ano_depois}",
+            descricao=descricao,
+            style=estilo_poligonos("classe_mudanca", cores.legenda_mudanca(ano_antes, ano_depois, turno)),
+            tooltip={
+                "title": TITULO_ZONA,
+                "entries": [
+                    *entradas,
+                    {"key": "mudou_vencedor", "label": "Trocou de vencedor", "format": FORMATO_SIM_NAO},
+                    ENTRADA_FRONTEIRA,
+                ],
+            },
+            **comum,
+        )
+```
+
+## 5. Ordem do menu e gravação
+
+Do ano mais recente ao mais antigo, 1º e 2º turno. Dentro de cada turno, a
+ordem do seletor do site: Presidente (pontos), brancos e nulos, abstenção,
+Presidente (zona) e, por último, a mudança de votação que chega naquele turno.
+
+```{python}
+#| label: gravacao
+linhas = []
+for chave in eleicoes:
+    grupos = (linhas_presidente_locais, linhas_brancos_nulos, linhas_abstencao, linhas_presidente_zona, linhas_mudanca)
+    linhas += [grupo[chave] for grupo in grupos if chave in grupo]
+
+caminho = exporta.escreve_cadastro(linhas, saida)
+print(f"{len(linhas)} camadas em {caminho}")
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+cadastro = pd.DataFrame(linhas)
+assert cadastro["id"].is_unique, "há id de camada repetido"
+cadastro[["id", "preset", "path", "label"]]
+```

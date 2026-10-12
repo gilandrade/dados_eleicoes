@@ -1,0 +1,284 @@
+---
+title: "03 · Pesos de alocação"
+search: false
+execute:
+  echo: true
+---
+
+Roda **uma vez por ano**, antes da eleição. Aloca cada domicílio do CNEFE 2022
+ao local de votação mais próximo do mesmo município e, a partir disso, produz:
+
+- `pesos_local_setor_{ano}.parquet` — matriz de pesos local → setor;
+- `geom_areas_locais_{ano}.gpkg` — Voronoi dos locais, recortado por município;
+- `geom_zona_mun_{ano}.gpkg` — zona × município, exata ou estimada;
+- `diagnostico_alocacao_{ano}.parquet` e `cobertura_setor_cnefe_{ano}.parquet`.
+
+A matriz é cara de calcular (~55 min no Brasil inteiro) e barata de aplicar: a
+etapa 04 só multiplica. Ver PLAN.md > Etapa 03.
+
+```bash
+quarto render 03_pesos_alocacao.qmd -P ano:2026
+quarto render 03_pesos_alocacao.qmd -P ano:2022 -P cd_mun:2211001   # só Teresina
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import duckdb
+import geopandas as gpd
+import pandas as pd
+
+from eleicoes import alocacao
+from eleicoes.config import (
+    CNEFE_ESPECIES_DOMICILIO,
+    CNEFE_MUN_DIR,
+    CRS_METRICO_BR,
+    CRS_SIRGAS2000,
+    GEOMETRIAS_DIR,
+    POP18_SETOR_PARQUET,
+    PROCESSADO_DIR,
+    RESULTADOS_DIR,
+    SETORES_2022_GPKG,
+    SETORES_MUN_DIR,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+ano = 2022
+cd_mun = ""  # um ou mais códigos IBGE de 7 dígitos, separados por vírgula; vazio = Brasil
+```
+
+```{python}
+#| label: parametros-derivados
+ano = int(ano)
+# `-P cd_mun:2211001` chega como inteiro; ids são sempre texto.
+cd_mun_filtro = [c.strip() for c in str(cd_mun).split(",") if c.strip()] or None
+sufixo = f"_{'_'.join(cd_mun_filtro)}" if cd_mun_filtro else ""
+print(f"ano={ano} | municípios={cd_mun_filtro or 'Brasil'}")
+```
+
+## 1. Locais de votação elegíveis
+
+Saída da etapa 02 (`geom_locais_votacao_{ano}.gpkg`), sem os locais especiais
+(voto em trânsito, preso provisório). Sem a camada nacional, aceita a de cada
+município pedido (`geom_locais_votacao_{ano}_{cd_mun}.gpkg`, de
+`09_insumos_municipio.qmd`): mesma estrutura, mas só com a coordenada do TSE
+validada, sem a cadeia de fallback da etapa 02.
+
+```{python}
+#| label: locais
+caminho_locais = GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg"
+if caminho_locais.exists():
+    locais = gpd.read_file(caminho_locais)
+else:
+    caminhos = [GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}_{c}.gpkg" for c in cd_mun_filtro or []]
+    if not caminhos or not all(c.exists() for c in caminhos):
+        raise FileNotFoundError(
+            f"{caminho_locais} não existe. Rode 01_locais_votacao.qmd e "
+            "02_geocodificacao_locais.qmd antes desta etapa, ou "
+            "09_insumos_municipio.qmd para um município só."
+        )
+    locais = pd.concat([gpd.read_file(c) for c in caminhos], ignore_index=True)
+
+locais = locais.loc[~locais["flag_especial"]].copy()
+if cd_mun_filtro:
+    locais = locais.loc[locais["cd_mun"].isin(cd_mun_filtro)].copy()
+```
+
+Locais no centróide do município (sem coordenada real) não atraem domicílios: a
+posição deles não é a do local. Continuam na camada de zona × município (contam
+na zona e nos inscritos dela), e os votos deles ficam em local, zona × município
+e município, fora do setor — como os especiais.
+
+```{python}
+#| label: locais-alocacao
+sem_coord = locais["flag_sem_coord"].astype(bool)
+locais_alocacao = locais.loc[~sem_coord].copy()
+
+pd.Series({
+    "locais elegíveis": len(locais),
+    "no centróide do município (fora da alocação)": int(sem_coord.sum()),
+    "inscritos nesses locais": int(locais.loc[sem_coord, "qt_eleitores"].sum()),
+})
+```
+
+## 2. Domicílios do CNEFE
+
+Um `cnefe_{cd_mun}.parquet` por município em `CNEFE_MUN_DIR`
+(`00b_insumos_brasil.qmd` ou `09_insumos_municipio.qmd`), com `cd_setor` de 15
+dígitos e lat/lon em EPSG:4674. O filtro de espécie vai na query do DuckDB para
+não materializar o que seria descartado em seguida.
+
+```{python}
+#| label: domicilios
+arquivos = sorted(CNEFE_MUN_DIR.glob("cnefe_[0-9]*.parquet"))
+if not arquivos:
+    raise FileNotFoundError(
+        f"Nenhum cnefe_<cd_mun>.parquet em {CNEFE_MUN_DIR}. Rode "
+        "00b_insumos_brasil.qmd (Brasil) ou 09_insumos_municipio.qmd (um município)."
+    )
+if cd_mun_filtro:
+    arquivos = [a for a in arquivos if a.stem.removeprefix("cnefe_") in set(cd_mun_filtro)]
+
+especies = ", ".join(str(e) for e in CNEFE_ESPECIES_DOMICILIO)
+lista = ", ".join("'" + str(a).replace("\\", "/").replace("'", "''") + "'" for a in arquivos)
+df = duckdb.connect().sql(
+    f"select cd_mun, cd_setor, cod_especie, latitude, longitude "
+    f"from read_parquet([{lista}]) where cod_especie in ({especies})"
+).df()
+domicilios = gpd.GeoDataFrame(
+    df, geometry=gpd.points_from_xy(df["longitude"], df["latitude"]), crs=CRS_SIRGAS2000
+)
+print(f"{len(arquivos)} município(s), {len(domicilios):,} domicílios")
+```
+
+## 3. População adulta por setor e limites municipais
+
+`pop18_setor.parquet` e `municipios.gpkg` vêm de `00_auxiliares.qmd`; aqui só
+são lidos.
+
+```{python}
+#| label: auxiliares
+if not POP18_SETOR_PARQUET.exists():
+    raise FileNotFoundError(f"{POP18_SETOR_PARQUET} não existe — rode 00_auxiliares.qmd primeiro.")
+pop18 = pd.read_parquet(POP18_SETOR_PARQUET)
+
+caminho_municipios = PROCESSADO_DIR / "aux" / "municipios.gpkg"
+if not caminho_municipios.exists():
+    raise FileNotFoundError(f"{caminho_municipios} não existe — rode 00_auxiliares.qmd primeiro.")
+municipios = gpd.read_file(caminho_municipios)
+if cd_mun_filtro:
+    municipios = municipios.loc[municipios["cd_mun"].isin(cd_mun_filtro)].copy()
+
+print(f"{len(pop18):,} setores com pop18, {len(municipios):,} município(s)")
+```
+
+## 4. Cobertura de setor do CNEFE
+
+Parte dos domicílios do CNEFE tem `cd_setor` que não existe na malha de 2022
+(cadastro de endereços numa safra diferente). Esses domicílios não puxam peso;
+aqui só se mede quanto é, por município.
+
+```{python}
+#| label: cobertura
+cobertura = alocacao.mede_cobertura_setor(domicilios, pop18)
+pc_invalido_geral = 1 - domicilios["cd_setor"].isin(set(pop18["cd_setor"])).mean()
+print(f"{100 * pc_invalido_geral:.1f}% dos domicílios com cd_setor fora da malha oficial")
+cobertura.sort_values("pc_dom_setor_invalido", ascending=False).head(10)
+```
+
+## 5. Domicílio → local mais próximo
+
+Vizinho mais próximo dentro do mesmo município, em EPSG:5880.
+
+```{python}
+#| label: alocacao
+domicilios["id_local"] = alocacao.aloca_domicilios_a_locais(domicilios, locais_alocacao)
+
+n_sem_local = int(domicilios["id_local"].isna().sum())
+print(
+    f"{n_sem_local:,} domicílios ({100 * n_sem_local / len(domicilios):.2f}%) sem local elegível "
+    "no município (município sem CNEFE útil ou sem local elegível)"
+)
+```
+
+## 6. Matriz de pesos local → setor
+
+`adultos(L, s) = n_dom(L ∩ s) × pop18(s) / n_dom(s)`, normalizado para somar 1
+em cada local.
+
+```{python}
+#| label: pesos
+pesos = alocacao.constroi_pesos_local_setor(domicilios, pop18)
+print(f"{len(pesos):,} pares local × setor, {pesos['id_local'].nunique():,} locais")
+pesos.head()
+```
+
+## 7. Áreas dos locais e diagnóstico
+
+Voronoi dos locais recortado pelo município, e a razão entre adultos estimados
+e eleitores inscritos por local.
+
+```{python}
+#| label: areas-diagnostico
+areas_locais = alocacao.poligonos_voronoi_por_municipio(locais_alocacao, municipios)
+diagnostico = alocacao.diagnostico_razao_eleitores(locais_alocacao, pesos)
+diagnostico["razao_eleitores"].describe()
+```
+
+## 8. Zona × município
+
+Município de zona única usa o polígono do IBGE (exato). Com várias zonas, cada
+setor vai para a zona que recebe a maior parte dos seus adultos; setores sem
+adulto, para a zona do local mais próximo; depois as zonas são tornadas
+contínuas e fundidas (`geom_estimada = True`).
+
+```{python}
+#| label: setores
+caminhos_mun = [SETORES_MUN_DIR / f"setores_{c}.gpkg" for c in cd_mun_filtro or []]
+if caminhos_mun and all(c.exists() for c in caminhos_mun):
+    setores = pd.concat([gpd.read_file(c) for c in caminhos_mun], ignore_index=True)
+else:
+    if not SETORES_2022_GPKG.exists():
+        raise FileNotFoundError(f"{SETORES_2022_GPKG} não existe. Rode 00b_insumos_brasil.qmd.")
+    if cd_mun_filtro:
+        # `where` do GDAL: não materializa o Brasil inteiro (~1,5 GB).
+        where = "CD_MUN IN (" + ", ".join(f"'{c}'" for c in cd_mun_filtro) + ")"
+        setores = gpd.read_file(SETORES_2022_GPKG, where=where)
+    else:
+        setores = gpd.read_file(SETORES_2022_GPKG)
+setores = setores.rename(columns={"CD_SETOR": "cd_setor", "CD_MUN": "cd_mun"})
+print(f"{len(setores):,} polígonos de setor")
+```
+
+```{python}
+#| label: zona-mun
+zona_mun = alocacao.constroi_zona_mun(setores, locais, pesos, municipios)
+zona_mun["geom_estimada"].value_counts()
+```
+
+## 9. Gravação
+
+```{python}
+#| label: gravacao
+RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
+GEOMETRIAS_DIR.mkdir(parents=True, exist_ok=True)
+
+pesos.to_parquet(RESULTADOS_DIR / f"pesos_local_setor_{ano}{sufixo}.parquet", index=False)
+diagnostico.to_parquet(RESULTADOS_DIR / f"diagnostico_alocacao_{ano}{sufixo}.parquet", index=False)
+cobertura.to_parquet(RESULTADOS_DIR / f"cobertura_setor_cnefe_{ano}{sufixo}.parquet", index=False)
+areas_locais.to_file(GEOMETRIAS_DIR / f"geom_areas_locais_{ano}{sufixo}.gpkg", driver="GPKG")
+zona_mun.to_file(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}{sufixo}.gpkg", driver="GPKG")
+```
+
+## Conferência
+
+Os pesos de cada local somam 1 (é o que garante que a etapa 04 conserva os
+votos ao distribuir para os setores).
+
+```{python}
+#| label: conferencia-pesos
+soma_pesos = pesos.groupby("id_local")["peso"].sum()
+assert ((soma_pesos - 1).abs() < 1e-9).all(), "há local com pesos que não somam 1"
+print(f"{len(soma_pesos):,} locais com pesos somando 1")
+```
+
+A zona × município tem de cobrir o município inteiro. A tabela mostra os
+municípios com maior fração da área **sem** zona; valores perto de zero são
+diferença de traçado entre a malha de setores e a de municípios.
+
+```{python}
+#| label: conferencia-area
+area_zona = zona_mun.to_crs(CRS_METRICO_BR).assign(area=lambda g: g.area).groupby("cd_mun")["area"].sum()
+area_mun = municipios.to_crs(CRS_METRICO_BR).set_index("cd_mun").area
+descoberta = (1 - area_zona / area_mun).rename("pc_area_sem_zona").dropna()
+descoberta.sort_values(ascending=False).head(10).to_frame()
+```

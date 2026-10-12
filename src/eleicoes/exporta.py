@@ -1,8 +1,8 @@
 """Exportação: arquivos no modelo GeoReDUS, artefatos de carga e cadastro.
 
 Ver PLAN.md > Modelo de dados e > Etapa 05. Cada função aqui escreve um único
-tipo de artefato; a orquestração fica em `scripts/processa_turno.py` e
-`scripts/03_pesos_alocacao.py`.
+tipo de artefato; a orquestração fica nos notebooks (`03_pesos_alocacao.qmd`,
+`04_resultados_turno.qmd`, `07_carga_georedus.qmd`, `08_cadastro_georedus.qmd`).
 """
 
 from __future__ import annotations

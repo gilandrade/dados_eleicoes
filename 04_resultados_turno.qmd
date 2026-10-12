@@ -1,0 +1,191 @@
+---
+title: "04 · Resultados de um turno"
+search: false
+execute:
+  echo: true
+---
+
+Lê os resultados por seção (boletim de urna ou `votacao_secao`) e agrega por
+**local**, **zona × município**, **município** e, multiplicando pela matriz de
+pesos da etapa 03, por **setor**. Só lê, agrega e escreve; não recalcula nada
+espacial. Ver PLAN.md > Noite da eleição.
+
+```bash
+quarto render 04_resultados_turno.qmd -P ano:2026 -P turno:1 -P fonte:bweb -P baixar:true
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+
+from eleicoes import exporta, fontes, resultados
+from eleicoes.config import (
+    CODIGOS_NAO_CANDIDATO,
+    NOME_BOLSONARO_POR_ANO,
+    NOME_PT_POR_ANO,
+    NR_BOLSONARO_POR_ANO,
+    NR_PT,
+    PROCESSADO_DIR,
+    RESULTADOS_DIR,
+)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+ano = 2022
+turno = 1
+fonte = "votacao_secao"  # "bweb" = caminho rápido (boletim de urna); "votacao_secao" = consolidado oficial
+baixar = False           # baixa os arquivos antes de ler
+```
+
+```{python}
+#| label: parametros-derivados
+ano, turno = int(ano), int(turno)
+print(f"ano={ano} | turno={turno} | fonte={fonte} | baixar={baixar}")
+```
+
+## 1. Seções, locais e pesos
+
+`secao_local` e `locais` vêm da etapa 01; a matriz de pesos, da etapa 03.
+
+```{python}
+#| label: insumos
+def le_parquet(caminho, etapa):
+    if not caminho.exists():
+        raise FileNotFoundError(f"{caminho} não existe — rode {etapa}.")
+    return pd.read_parquet(caminho)
+
+
+secao_local = le_parquet(PROCESSADO_DIR / f"secao_local_{ano}.parquet", "01_locais_votacao.qmd")
+locais = le_parquet(PROCESSADO_DIR / f"locais_{ano}.parquet", "01_locais_votacao.qmd")
+pesos = le_parquet(
+    RESULTADOS_DIR / f"pesos_local_setor_{ano}.parquet", f"03_pesos_alocacao.qmd -P ano:{ano}"
+)
+
+pd.Series({"seções × turno": len(secao_local), "locais": len(locais), "pares local × setor": len(pesos)})
+```
+
+## 2. Resultados por seção
+
+Uma linha por seção × votável, no mesmo esquema para as duas fontes
+(`fontes.py`). Com `votacao_secao`, usa `qt_aptos` do
+`detalhe_votacao_secao_{ano}.zip` se ele já estiver em `dados/01_bruto/{ano}/`.
+
+```{python}
+#| label: resultados-secao
+resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar))
+print(f"{len(resultados_secao):,} linhas de resultado por seção")
+resultados_secao.head()
+```
+
+## 3. Seção → local de votação
+
+Junta por `(id_secao, turno)`: o local de uma seção pode mudar entre os turnos.
+As linhas sem `id_local` deveriam ser só as do exterior.
+
+```{python}
+#| label: id-local
+com_id = resultados.secao_para_id_local(resultados_secao, secao_local)
+
+n_sem_local = int(com_id["id_local"].isna().sum())
+print(f"{n_sem_local:,} linhas ({100 * n_sem_local / len(com_id):.3f}%) sem id_local")
+
+candidatos = sorted(c for c in com_id["nr_votavel"].unique() if c not in CODIGOS_NAO_CANDIDATO)
+cols_votos_validos = [f"qt_votos_{c}" for c in candidatos]
+print("candidatos:", candidatos)
+```
+
+## 4. Por local (observado)
+
+```{python}
+#| label: local
+res_local = resultados.agrega_por_local(com_id, locais)
+res_local = resultados.calcula_indicadores(res_local, cols_votos_validos=cols_votos_validos)
+res_local.shape
+```
+
+## 5. Por zona × município (observado)
+
+```{python}
+#| label: zona-mun
+res_zona_mun = resultados.agrega_por_zona_mun(com_id, locais)
+res_zona_mun = resultados.calcula_indicadores(res_zona_mun, cols_votos_validos=cols_votos_validos)
+res_zona_mun.shape
+```
+
+## 6. Por município (observado)
+
+Soma da zona × município.
+
+```{python}
+#| label: municipio
+res_municipio = resultados.agrega_zona_mun_por_municipio(res_zona_mun)
+res_municipio = resultados.calcula_indicadores(res_municipio, cols_votos_validos=cols_votos_validos)
+res_municipio.shape
+```
+
+## 7. Por setor (estimado)
+
+Votos do local × peso do local em cada setor. Locais especiais e locais sem
+domicílio alocado não estão na matriz, então o setor tem um pouco menos votos
+que os níveis observados (0,81% em 2022) — por desenho.
+
+```{python}
+#| label: setor
+res_setor = resultados.agrega_por_setor(res_local, pesos)
+res_setor = resultados.calcula_indicadores(res_setor, cols_votos_validos=cols_votos_validos)
+res_setor.shape
+```
+
+## 8. Gravação
+
+```{python}
+#| label: gravacao
+#| output: false
+prefixo = f"res_presidente_{ano}_t{turno}"
+exporta.escreve_resultados(res_local, RESULTADOS_DIR / f"{prefixo}_local.parquet")
+exporta.escreve_resultados(res_zona_mun, RESULTADOS_DIR / f"{prefixo}_zona_mun.parquet")
+exporta.escreve_resultados(res_municipio, RESULTADOS_DIR / f"{prefixo}_municipio.parquet")
+exporta.escreve_resultados(res_setor, RESULTADOS_DIR / f"{prefixo}_setor.parquet")
+```
+
+## Conferência
+
+Total nacional por nível. Local, zona × município e município têm de bater
+entre si, voto a voto; o setor fica um pouco abaixo (ver seção 7).
+
+```{python}
+#| label: conferencia-totais
+niveis = {"local": res_local, "zona_mun": res_zona_mun, "municipio": res_municipio, "setor": res_setor}
+cols_votos = [c for c in res_local.columns if c.startswith("qt_votos_")]
+totais = pd.DataFrame({nivel: df[cols_votos].sum() for nivel, df in niveis.items()}).round(0).astype("int64")
+totais.loc["total"] = totais.sum()
+
+for nivel in ("zona_mun", "municipio"):
+    assert (totais[nivel] == totais["local"]).all(), f"total de {nivel} difere do de local"
+perda_setor = 1 - totais.loc["total", "setor"] / totais.loc["total", "local"]
+assert perda_setor < 0.02, f"setor perdeu {100 * perda_setor:.2f}% dos votos"
+print(f"votos fora do setor: {100 * perda_setor:.2f}%")
+totais
+```
+
+Lula/Haddad e o bolsonarista do ano, para comparar com o número oficial do TSE.
+
+```{python}
+#| label: conferencia-candidatos
+pd.Series({
+    NOME_PT_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_PT}"].sum()),
+    NOME_BOLSONARO_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_BOLSONARO_POR_ANO[ano]}"].sum()),
+    "comparecimento": int(res_zona_mun["qt_comparecimento"].sum()),
+    "aptos": int(res_zona_mun["qt_aptos"].sum()),
+})
+```

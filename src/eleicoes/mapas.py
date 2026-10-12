@@ -51,7 +51,7 @@ def _adiciona_margem_assinada(df: pd.DataFrame, ano: int) -> pd.DataFrame:
 def _carrega_resultados(ano: int, turno: int, nivel: str) -> pd.DataFrame:
     caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_{nivel}.parquet"
     if not caminho.exists():
-        raise FileNotFoundError(f"{caminho} não existe — rode processa_turno.py primeiro.")
+        raise FileNotFoundError(f"{caminho} não existe — rode 04_resultados_turno.qmd primeiro.")
     return _adiciona_margem_assinada(pd.read_parquet(caminho), ano)
 
 
@@ -139,7 +139,7 @@ def monta_zona_mun(
     caminho_geom = GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg"
     if not caminho_geom.exists():
         raise FileNotFoundError(
-            f"{caminho_geom} não existe — rode scripts/03_pesos_alocacao.py --ano {ano}."
+            f"{caminho_geom} não existe — rode 03_pesos_alocacao.qmd -P ano:{ano}."
         )
     gdf = gpd.read_file(caminho_geom)[["id_zona_mun", "geom_estimada", "geometry"]]
     gdf["geometry"] = simplifica_geometria(gdf.geometry.values, tolerancia=tolerancia, grid_size=grid_size)

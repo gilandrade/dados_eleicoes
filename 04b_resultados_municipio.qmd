@@ -1,0 +1,106 @@
+---
+title: "04b · Resultados por município, direto da seção"
+search: false
+execute:
+  echo: true
+---
+
+Agrega os resultados por município sem passar pelos locais de votação. Serve
+para um ano que ainda não rodou as etapas 01–03 e como **validação cruzada**:
+com um ano que já tem locais, o resultado por `cd_mun` tem de ser idêntico ao
+`res_..._municipio` da etapa 04 (ver PLAN.md > Verificação).
+
+Grava o mesmo arquivo da etapa 04 (`res_presidente_{ano}_t{turno}_municipio`).
+
+```bash
+quarto render 04b_resultados_municipio.qmd -P ano:2018 -P turno:2
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+
+from eleicoes import exporta, fontes, resultados
+from eleicoes.config import CODIGOS_NAO_CANDIDATO, PROCESSADO_DIR, RESULTADOS_DIR
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+ano = 2022
+turno = 2
+fonte = "votacao_secao"  # ou "bweb" (boletim de urna)
+baixar = False
+```
+
+```{python}
+#| label: parametros-derivados
+ano, turno = int(ano), int(turno)
+print(f"ano={ano} | turno={turno} | fonte={fonte} | baixar={baixar}")
+```
+
+## 1. Crosswalk TSE ↔ IBGE e resultados por seção
+
+```{python}
+#| label: leitura
+caminho_crosswalk = PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet"
+if not caminho_crosswalk.exists():
+    raise FileNotFoundError(f"{caminho_crosswalk} não existe — rode 00_auxiliares.qmd.")
+crosswalk = pd.read_parquet(caminho_crosswalk)
+
+resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar))
+print(f"{len(resultados_secao):,} linhas de resultado por seção")
+
+candidatos = sorted(
+    c for c in resultados_secao["nr_votavel"].unique() if c not in CODIGOS_NAO_CANDIDATO
+)
+cols_votos_validos = [f"qt_votos_{c}" for c in candidatos]
+```
+
+## 2. Agregação por município
+
+Seções de municípios sem crosswalk (o exterior) ficam numa linha só, com
+`cd_mun = "EXTERIOR"`.
+
+```{python}
+#| label: municipio
+caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet"
+# O que já está em disco (o da etapa 04), só para a conferência no final.
+res_anterior = pd.read_parquet(caminho) if caminho.exists() else None
+
+res_municipio = resultados.agrega_secao_por_municipio(resultados_secao, crosswalk)
+res_municipio = resultados.calcula_indicadores(res_municipio, cols_votos_validos=cols_votos_validos)
+
+n_exterior = int((res_municipio["cd_mun"] == resultados.SENTINELA_EXTERIOR).sum())
+print(f"{len(res_municipio):,} municípios, {n_exterior} linha(s) do exterior")
+```
+
+## 3. Gravação
+
+```{python}
+#| label: gravacao
+#| output: false
+exporta.escreve_resultados(res_municipio, caminho)
+```
+
+## Conferência
+
+Total de votos válidos e, se já havia um `res_..._municipio` em disco, a
+diferença de votos por candidato em relação a ele (tem de ser zero).
+
+```{python}
+#| label: conferencia
+print(f"{int(res_municipio[cols_votos_validos].sum().sum()):,} votos válidos")
+
+if res_anterior is not None:
+    cols = [c for c in cols_votos_validos if c in res_anterior.columns]
+    diferenca = (res_municipio[cols].sum() - res_anterior[cols].sum()).rename("este − anterior")
+    display(diferenca.to_frame())
+```

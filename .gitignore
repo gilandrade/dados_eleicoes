@@ -15,6 +15,8 @@ renv/sandbox/
 /.quarto/
 *_files/
 *_cache/
+# HTML das etapas de execução local (fora do site): sai ao lado do .qmd
+/*.html
 
 # Python
 venv/

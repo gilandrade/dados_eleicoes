@@ -1,0 +1,157 @@
+---
+title: "00b · Insumos nacionais: setores e CNEFE"
+search: false
+params:
+  etapa: "setores,cnefe"
+  uf: ""
+---
+
+Baixa os dois insumos nacionais da etapa 03, sem depender de repos irmãos:
+
+- `dados/01_bruto/aux/setores/BR_setores_CD2022.gpkg` — malha de setores 2022
+  (geobr): `CD_SETOR` (15 dígitos), `CD_MUN`, `CD_UF`; EPSG:4674;
+- `dados/01_bruto/cnefe/cnefe_{cd_mun}.parquet` — domicílios do CNEFE 2022
+  (cnefetools): `cd_mun`, `cd_setor`, `cod_especie`, `latitude`, `longitude`.
+
+É **retomável**: municípios com parquet pronto e UFs já gravadas na malha são
+pulados. O CNEFE é baixado por município (~5.570 downloads do FTP do IBGE).
+
+Pré-requisito: `00_auxiliares.qmd` (usa o crosswalk para a lista de municípios).
+
+```bash
+quarto render 00b_insumos_brasil.qmd                              # os dois
+quarto render 00b_insumos_brasil.qmd -P etapa:cnefe -P uf:35      # só o CNEFE da UF 35
+```
+
+Não rodar dois `quarto render` deste arquivo ao mesmo tempo: eles disputam os
+arquivos intermediários do knitr.
+
+```{r setup}
+#| message: false
+library(dplyr)
+library(stringr)
+library(arrow)
+library(sf)
+
+etapas <- str_split_1(as.character(params$etapa), ",") |> str_trim()
+filtro_uf <- str_trim(as.character(params$uf))
+
+CNEFE_MUN_DIR <- "dados/01_bruto/cnefe"
+SETORES_DIR <- "dados/01_bruto/aux/setores"
+AUX_DIR <- "dados/02_processado/aux"
+for (pasta in c(CNEFE_MUN_DIR, SETORES_DIR)) dir.create(pasta, showWarnings = FALSE, recursive = TRUE)
+
+CNEFE_ESPECIES_DOMICILIO <- c(1L, 2L)  # 1 = particular, 2 = coletivo
+TENTATIVAS <- 4
+
+com_retry <- function(expr_fn) {
+  for (t in seq_len(TENTATIVAS)) {
+    r <- tryCatch(expr_fn(), error = function(e) {
+      message("  tentativa ", t, "/", TENTATIVAS, " falhou: ", conditionMessage(e))
+      NULL
+    })
+    if (!is.null(r)) return(r)
+    Sys.sleep(2^t)
+  }
+  NULL
+}
+```
+
+## 1. Municípios a processar
+
+```{r municipios}
+crosswalk <- read_parquet(file.path(AUX_DIR, "crosswalk_mun_tse_ibge.parquet"))
+municipios <- sort(unique(crosswalk$cd_mun))
+if (nzchar(filtro_uf)) municipios <- municipios[startsWith(municipios, filtro_uf)]
+
+length(municipios)
+```
+
+## 2. Malha de setores
+
+Uma UF por vez, acrescentada ao mesmo gpkg. `code_tract` é `double` no geobr;
+vira texto com `sprintf("%.0f")` para não perder dígitos.
+
+`showProgress` fica no padrão: com `FALSE`, o geobr devolve `NULL` em silêncio
+ao renderizar pelo Quarto (ver CLAUDE.md).
+
+```{r setores}
+#| message: false
+gpkg <- file.path(SETORES_DIR, "BR_setores_CD2022.gpkg")
+
+if ("setores" %in% etapas) {
+  ufs <- sort(unique(substr(municipios, 1, 2)))
+  feitas <- if (file.exists(gpkg)) {
+    unique(st_read(gpkg, query = "select distinct CD_UF from setores", quiet = TRUE)$CD_UF)
+  } else {
+    character()
+  }
+  for (uf in setdiff(ufs, feitas)) {
+    s <- com_retry(function() geobr::read_census_tract(
+      year = 2022, code_tract = as.integer(uf), simplified = FALSE, verbose = FALSE
+    ))
+    if (is.null(s)) stop("Falha ao baixar os setores da UF ", uf)
+    s <- s |>
+      transmute(
+        CD_SETOR = sprintf("%.0f", code_tract),
+        CD_MUN = sprintf("%.0f", code_muni),
+        CD_UF = uf
+      ) |>
+      st_transform(4674) |>
+      st_make_valid()
+    st_write(s, gpkg, layer = "setores", append = file.exists(gpkg), quiet = TRUE)
+  }
+}
+```
+
+## 3. CNEFE por município
+
+Só as espécies de domicílio, com coordenada. `COD_SETOR` vem com um sufixo
+`"P"` que a malha de setores não tem.
+
+```{r cnefe}
+#| message: false
+falhas <- character()
+
+if ("cnefe" %in% etapas) {
+  for (cd_mun in municipios) {
+    saida <- file.path(CNEFE_MUN_DIR, sprintf("cnefe_%s.parquet", cd_mun))
+    if (file.exists(saida)) next
+    cnefe <- com_retry(function() {
+      cnefetools::read_cnefe(code_muni = as.integer(cd_mun), output = "arrow", verbose = FALSE, cache = FALSE) |>
+        select(COD_SETOR, COD_ESPECIE, LATITUDE, LONGITUDE) |>
+        collect()
+    })
+    if (is.null(cnefe)) {
+      falhas <- c(falhas, cd_mun)
+      next
+    }
+    cnefe <- cnefe |>
+      filter(COD_ESPECIE %in% CNEFE_ESPECIES_DOMICILIO, !is.na(LATITUDE), !is.na(LONGITUDE)) |>
+      transmute(
+        cd_mun = cd_mun,
+        cd_setor = str_remove(COD_SETOR, "P$"),  # sufixo "P" ausente na malha
+        cod_especie = as.integer(COD_ESPECIE),
+        latitude = LATITUDE,
+        longitude = LONGITUDE
+      )
+    write_parquet(cnefe, saida)
+  }
+}
+```
+
+## Conferência
+
+Municípios pedidos que ainda não têm CNEFE em disco (rodar de novo para
+retomar) e quantos setores a malha tem no total.
+
+```{r conferencia}
+tem_cnefe <- file.exists(file.path(CNEFE_MUN_DIR, sprintf("cnefe_%s.parquet", municipios)))
+cat(sum(tem_cnefe), "de", length(municipios), "municípios com CNEFE em disco\n")
+if (length(falhas)) cat("Falharam nesta rodada:", paste(falhas, collapse = ", "), "\n")
+
+if (file.exists(gpkg)) {
+  # Contagem pelos metadados do gpkg: um `group by` varreria os ~1,5 GB.
+  st_layers(gpkg)
+}
+```

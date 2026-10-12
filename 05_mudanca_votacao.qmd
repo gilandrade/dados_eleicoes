@@ -1,0 +1,140 @@
+---
+title: "05 · Mudança de votação entre dois anos"
+search: false
+execute:
+  echo: true
+---
+
+Compara dois anos por **zona × município**, no mesmo turno, e grava
+`mudanca_presidente_{de}_{para}_t{turno}_zona_mun.parquet`.
+
+Pensado para o 2º turno (dois candidatos). No 1º turno funciona com Lula/Haddad
+× bolsonarista: os demais candidatos entram no "não-voto" da base do eleitorado
+apto, e o vencedor da zona pode ser um terceiro.
+
+Comparar nesse nível é válido porque as zonas quase não mudaram entre 2018 e
+2022 (mesmo conjunto de zonas nos 189 municípios com mais de uma; 99,84% dos
+locais na mesma zona) — ver PLAN.md.
+
+```bash
+quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
+quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:1
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+
+from eleicoes import exporta, resultados
+from eleicoes.config import NR_BOLSONARO_POR_ANO, NR_PT, RESULTADOS_DIR
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+de = 2018
+para = 2022
+turno = 2
+```
+
+```{python}
+#| label: parametros-derivados
+ano_antes, ano_depois, turno = int(de), int(para), int(turno)
+print(f"{ano_antes} -> {ano_depois} | {turno}º turno")
+```
+
+## 1. Resultados dos dois anos
+
+```{python}
+#| label: leitura
+def le_zona_mun(ano):
+    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_zona_mun.parquet"
+    if not caminho.exists():
+        raise FileNotFoundError(
+            f"{caminho} não existe — rode 04_resultados_turno.qmd -P ano:{ano} -P turno:{turno}."
+        )
+    return pd.read_parquet(caminho)
+
+
+res_antes_bruto = le_zona_mun(ano_antes)
+res_depois = le_zona_mun(ano_depois)
+print(f"{len(res_antes_bruto):,} zonas × município em {ano_antes}, {len(res_depois):,} em {ano_depois}")
+```
+
+## 2. Alinhamento das zonas
+
+Em municípios de zona única, o número da zona pode ter mudado entre os anos;
+o id do ano anterior é trocado pelo do ano mais recente.
+
+```{python}
+#| label: alinhamento
+res_antes = resultados.alinha_zona_mun(res_antes_bruto, res_depois)
+n_trocados = int((res_antes["id_zona_mun"] != res_antes_bruto["id_zona_mun"]).sum())
+print(f"{n_trocados} zonas com o id realinhado")
+```
+
+## 3. Mudança de votação
+
+Duas bases: **votos válidos** (`var_pc_validos_pt`, e `cresceu_mais_validos`,
+que pinta o mapa) e **eleitorado apto** (`pc_aptos_*`, `var_pc_aptos_*`,
+`tipo_mudanca`), em que Lula/Haddad + bolsonarista + não-voto somam 100%.
+`tipo_mudanca` descreve o saldo agregado da zona, nunca eleitores que trocaram
+de lado.
+
+```{python}
+#| label: mudanca
+mudanca = resultados.mudanca_votacao(
+    res_antes, res_depois,
+    ano_antes=ano_antes, ano_depois=ano_depois, nr_pt=NR_PT, chave="id_zona_mun",
+    nr_bolsonaro_antes=NR_BOLSONARO_POR_ANO[ano_antes],
+    nr_bolsonaro_depois=NR_BOLSONARO_POR_ANO[ano_depois],
+)
+print(f"{len(mudanca):,} zonas × município")
+mudanca["sentido_virada"].value_counts().to_frame()
+```
+
+```{python}
+#| label: tipo-mudanca
+mudanca["tipo_mudanca"].value_counts(dropna=False).to_frame()
+```
+
+## 4. Gravação
+
+```{python}
+#| label: gravacao
+#| output: false
+caminho = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+exporta.escreve_resultados(mudanca, caminho)
+```
+
+## Conferência
+
+Zonas do território (sem o exterior) que ficaram sem par depois do alinhamento.
+
+```{python}
+#| label: conferencia-pares
+def territorio(df):
+    return set(df.loc[~df["id_zona_mun"].str.startswith(resultados.SENTINELA_EXTERIOR), "id_zona_mun"])
+
+
+sem_par_antes = territorio(res_antes) - set(mudanca["id_zona_mun"])
+sem_par_depois = territorio(res_depois) - set(mudanca["id_zona_mun"])
+print(f"sem par: {len(sem_par_antes)} em {ano_antes}, {len(sem_par_depois)} em {ano_depois}")
+print("exemplos:", sorted(sem_par_antes | sem_par_depois)[:5])
+```
+
+Na base do eleitorado apto, as três variações somam zero em toda zona.
+
+```{python}
+#| label: conferencia-aptos
+soma = mudanca[["var_pc_aptos_pt", "var_pc_aptos_bolsonaro", "var_pc_aptos_nao_voto"]].sum(axis=1, skipna=False)
+assert (soma.dropna().abs() < 1e-9).all(), "as variações sobre aptos não somam zero"
+print(f"{soma.notna().sum():,} zonas com as variações somando zero; {soma.isna().sum()} sem qt_aptos")
+```

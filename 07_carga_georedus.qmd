@@ -1,0 +1,357 @@
+---
+title: "07 · Artefatos de carga na GeoReDUS"
+search: false
+execute:
+  echo: true
+---
+
+Para cada ano, copia as geometrias e os resultados para
+`data-src/tse/eleicoes/` e escreve, em `collections/`, o
+`table.sh`/`schema.sql`/`down.sql` de cada tabela do schema `tse` e uma view por
+ano × turno em `public_read_api`, que junta a malha com os resultados pelo id
+(ver PLAN.md > Etapa 05).
+
+A camada por setor não entra aqui: ela reaproveita a malha de setores e a RPC
+`cem_censo_2022_data_tile` que já existem no banco.
+
+```bash
+quarto render 07_carga_georedus.qmd -P anos:2018,2022,2026 -P saida:../redus-geo-api/packages/db-manager
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+
+from eleicoes import carga, cores, exporta
+from eleicoes.carga import SCHEMA_PG
+from eleicoes.config import CARGA_DIR, GEOMETRIAS_DIR, PROCESSADO_DIR, RESULTADOS_DIR
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+anos = "2018,2022,2026"
+turnos = "1,2"
+saida = ""  # raiz com `collections/` e `data-src/`; vazio = dados/03_georedus/carga
+```
+
+```{python}
+#| label: parametros-derivados
+anos = [int(a) for a in str(anos).split(",") if a.strip()]
+turnos = [int(t) for t in str(turnos).split(",") if t.strip()]
+saida = (Path(saida) if saida else CARGA_DIR).resolve()
+
+dir_tse = saida / "collections" / SCHEMA_PG
+dir_api = saida / "collections" / "public_read_api"
+schema_municipio = saida / "collections" / carga.SCHEMA_MUNICIPIO
+print(f"anos={anos} | turnos={turnos}\nsaída: {saida}")
+```
+
+## 1. Schema `tse`
+
+```{python}
+#| label: schema-raiz
+schema_raiz = exporta._escreve_texto(
+    dir_tse / "schema.sql",
+    f"-- requires: ../extensions/postgis/schema.sql\n\nCREATE SCHEMA IF NOT EXISTS {SCHEMA_PG};\n",
+)
+exporta._escreve_texto(dir_tse / "down.sql", f"-- migrate:down\nDROP SCHEMA IF EXISTS {SCHEMA_PG};\n")
+tabelas = []  # o que foi gerado, para a conferência
+```
+
+## 2. Malhas: zona × município e locais de votação
+
+Uma tabela por ano para cada malha (`tse.malha_zona_mun_{ano}`,
+`tse.malha_locais_votacao_{ano}`), direto dos gpkg das etapas 02 e 03.
+
+```{python}
+#| label: malhas
+schema_zona, schema_pontos = {}, {}
+for ano in anos:
+    gpkg_zona = carga.exige(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg")
+    colunas_zona, geom_zona = carga.colunas_gpkg(gpkg_zona)
+    schema_zona[ano] = carga.gera_tabela(
+        f"malha_zona_mun_{ano}",
+        dir_tse / "malha" / f"zona_mun_{ano}",
+        colunas_zona,
+        caminho_fonte=carga.copia_fonte(gpkg_zona, saida, str(ano)),
+        chave="id_zona_mun",
+        indices=("cd_mun",),
+        tipo_geometria=geom_zona,
+        schema_raiz=schema_raiz,
+    )
+
+    gpkg_locais = carga.exige(GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg")
+    colunas_pontos, geom_pontos = carga.colunas_gpkg(gpkg_locais)
+    schema_pontos[ano] = carga.gera_tabela(
+        f"malha_locais_votacao_{ano}",
+        dir_tse / "malha" / f"locais_votacao_{ano}",
+        colunas_pontos,
+        caminho_fonte=carga.copia_fonte(gpkg_locais, saida, str(ano)),
+        chave="id_local",
+        indices=("cd_mun",),
+        tipo_geometria=geom_pontos,
+        schema_raiz=schema_raiz,
+    )
+    tabelas += [f"tse.malha_zona_mun_{ano}", f"tse.malha_locais_votacao_{ano}"]
+```
+
+## 3. Nome e endereço dos locais
+
+De `locais_{ano}.parquet` vai só o que a malha de pontos não tem
+(`carga.COLUNAS_LOCAIS`). `latitude`/`longitude` ficam de fora: é a coordenada
+bruta do TSE, antes da validação da etapa 02.
+
+```{python}
+#| label: locais
+schema_locais = {}
+for ano in anos:
+    parquet_locais = carga.exige(PROCESSADO_DIR / f"locais_{ano}.parquet")
+    tipos_locais = carga.colunas_parquet(parquet_locais)
+    schema_locais[ano] = carga.gera_tabela(
+        f"locais_votacao_{ano}",
+        dir_tse / f"locais_votacao_{ano}",
+        {col: tipos_locais[col] for col in carga.COLUNAS_LOCAIS},
+        caminho_fonte=carga.copia_fonte(parquet_locais, saida, str(ano)),
+        chave="id_local",
+        src_sql=f"SELECT {', '.join(carga.COLUNAS_LOCAIS)} FROM {parquet_locais.stem}",
+        schema_raiz=schema_raiz,
+    )
+    tabelas.append(f"tse.locais_votacao_{ano}")
+```
+
+## 4. Resultados por ano × turno
+
+Uma tabela por nível observado (`zona_mun`, `local`). Ano × turno sem
+resultado em disco fica fora da carga.
+
+```{python}
+#| label: resultados
+schemas_res, tipos_res, colunas_res = {}, {}, {}
+eleicoes = []  # (ano, turno) com resultado
+for ano in anos:
+    for turno in turnos:
+        eleicao = f"presidente_{ano}_t{turno}"
+        if not (RESULTADOS_DIR / f"res_{eleicao}_local.parquet").exists():
+            print(f"{ano}, turno {turno}: sem resultados — fora da carga")
+            continue
+        eleicoes.append((ano, turno))
+        for nivel, chave in (("zona_mun", "id_zona_mun"), ("local", "id_local")):
+            parquet = carga.exige(RESULTADOS_DIR / f"res_{eleicao}_{nivel}.parquet")
+            colunas = carga.colunas_parquet(parquet)
+            schemas_res[ano, turno, nivel] = carga.gera_tabela(
+                f"{eleicao}_{nivel}",
+                dir_tse / eleicao / nivel,
+                colunas,
+                caminho_fonte=carga.copia_fonte(parquet, saida, str(ano)),
+                chave=chave,
+                schema_raiz=schema_raiz,
+            )
+            tipos_res[ano, turno, nivel] = colunas
+            colunas_res[ano, turno, nivel] = [f"res.{col}" for col in colunas if col != chave]
+            tabelas.append(f"tse.{eleicao}_{nivel}")
+```
+
+## 5. View de zona × município
+
+Malha + resultados + nome do município, com a margem Lula/Haddad − bolsonarista
+e a classe de cor (`classe_margem`) já calculada com os cortes de `cores.py`.
+
+```{python}
+#| label: view-zona-mun
+for ano, turno in eleicoes:
+    eleicao = f"presidente_{ano}_t{turno}"
+    pasta = dir_api / SCHEMA_PG / f"malha_zona_mun_{ano}_t{turno}"
+    exporta.gera_view_publica(
+        f"{SCHEMA_PG}_malha_zona_mun_{ano}_t{turno}",
+        [
+            "malha.id_zona_mun AS id",
+            "malha.id_zona_mun",
+            "malha.cd_mun",
+            "mun.nm_mun",
+            "mun.sigla_uf",
+            "malha.nr_zona",
+            "malha.n_zonas_mun",
+            "malha.geom_estimada",
+            "malha.geom",
+            *colunas_res[ano, turno, "zona_mun"],
+            *carga.colunas_margem(ano, tipos_res[ano, turno, "zona_mun"]),
+        ],
+        from_sql=(
+            f"FROM\n  {SCHEMA_PG}.malha_zona_mun_{ano} AS malha\n"
+            f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_zona_mun AS res\n"
+            "    ON malha.id_zona_mun = res.id_zona_mun\n"
+            f"{carga.JOIN_MUNICIPIO}"
+        ),
+        diretorio_saida=pasta,
+        requires=carga.requires(
+            pasta,
+            dir_api / "schema.sql",
+            schema_zona[ano],
+            schemas_res[ano, turno, "zona_mun"],
+            schema_municipio,
+        ),
+    )
+    tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_zona_mun_{ano}_t{turno}")
+```
+
+## 6. View de locais de votação
+
+Pontos + nome e endereço + resultados, com as três classes de cor (margem,
+brancos e nulos, abstenção). Locais sem coordenada confiável ficam no centróide
+do município; como no site, não são desenhados (`WHERE NOT flag_sem_coord`).
+
+Os percentuais das classes são recalculados das contagens em vez de lidos das
+colunas `pc_*` (ver o comentário em `carga.py`).
+
+```{python}
+#| label: view-locais
+for ano, turno in eleicoes:
+    eleicao = f"presidente_{ano}_t{turno}"
+    tipos_local = tipos_res[ano, turno, "local"]
+    pasta = dir_api / SCHEMA_PG / f"malha_locais_votacao_{ano}_t{turno}"
+    exporta.gera_view_publica(
+        f"{SCHEMA_PG}_malha_locais_votacao_{ano}_t{turno}",
+        [
+            "malha.id_local AS id",
+            "malha.id_local",
+            "malha.cd_mun",
+            "mun.nm_mun",
+            "mun.sigla_uf",
+            f"{carga.SQL_ID_ZONA_MUN} AS id_zona_mun",
+            "malha.nr_zona",
+            "malha.fonte_coord",
+            "malha.precisao",
+            "malha.flag_especial",
+            "malha.qt_eleitores",
+            "loc.nm_local_votacao",
+            "loc.ds_endereco",
+            "loc.nm_bairro",
+            "loc.nr_cep",
+            "loc.ds_tipo_local",
+            "malha.geom",
+            *colunas_res[ano, turno, "local"],
+            f"{carga.sql_qt_validos(tipos_local)} AS qt_validos",
+            *carga.colunas_margem(ano, tipos_local),
+            f"{carga.sql_pct('pc_brancos_nulos')} AS pct_brancos_nulos",
+            carga.sql_classe_sequencial(carga.sql_pc_brancos_nulos(tipos_local), cores.QUEBRAS_BRANCO_NULO)
+            + " AS classe_brancos_nulos",
+            f"{carga.sql_pct('pc_abstencao')} AS pct_abstencao",
+            carga.sql_classe_sequencial(carga.sql_pc_abstencao(), cores.QUEBRAS_ABSTENCAO)
+            + " AS classe_abstencao",
+        ],
+        from_sql=(
+            f"FROM\n  {SCHEMA_PG}.malha_locais_votacao_{ano} AS malha\n"
+            f"  LEFT JOIN {SCHEMA_PG}.locais_votacao_{ano} AS loc\n"
+            "    ON malha.id_local = loc.id_local\n"
+            f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_local AS res\n"
+            "    ON malha.id_local = res.id_local\n"
+            f"{carga.JOIN_MUNICIPIO}\n"
+            "WHERE\n  NOT malha.flag_sem_coord"
+        ),
+        diretorio_saida=pasta,
+        requires=carga.requires(
+            pasta,
+            dir_api / "schema.sql",
+            schema_pontos[ano],
+            schema_locais[ano],
+            schemas_res[ano, turno, "local"],
+            schema_municipio,
+        ),
+    )
+    tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_locais_votacao_{ano}_t{turno}")
+```
+
+## 7. Mudança de votação entre anos consecutivos
+
+Tabela e view por par de anos × turno, com os ids e a malha do ano mais
+recente. As colunas do mapa "de onde veio a mudança" (sobre o eleitorado apto)
+ficam fora do banco: ainda não foram validadas. A cor é de quem cresceu mais
+nos votos válidos.
+
+```{python}
+#| label: mudanca
+for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
+    for turno in turnos:
+        nome = f"presidente_mudanca_{ano_antes}_{ano_depois}_t{turno}"
+        parquet = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+        if not parquet.exists():
+            print(f"{parquet.name} não existe — fora da carga")
+            continue
+
+        todas = carga.colunas_parquet(parquet)
+        colunas = {c: t for c, t in todas.items() if not c.startswith(carga.PREFIXOS_FORA_DA_MUDANCA)}
+        opcoes = {}
+        if len(colunas) < len(todas):
+            opcoes["src_sql"] = f"SELECT {', '.join(colunas)} FROM {parquet.stem}"
+        schema_mudanca = carga.gera_tabela(
+            f"{nome}_zona_mun",
+            dir_tse / nome / "zona_mun",
+            colunas,
+            caminho_fonte=carga.copia_fonte(parquet, saida, str(ano_depois)),
+            chave="id_zona_mun",
+            schema_raiz=schema_raiz,
+            **opcoes,
+        )
+
+        # Parquets anteriores a `cresceu_mais_validos` (só 2º turno) usam a variação
+        # de Lula/Haddad: com dois candidatos um sobe o que o outro cai, e a classe é a mesma.
+        if "cresceu_mais_validos" in colunas:
+            classe = carga.sql_classe_crescimento("res.cresceu_mais_validos", "res.var_pc_validos_maior")
+        else:
+            classe = carga.sql_classe_divergente("res.var_pc_validos_pt", cores.QUEBRAS_MUDANCA)
+
+        pasta = dir_api / SCHEMA_PG / f"malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}"
+        exporta.gera_view_publica(
+            f"{SCHEMA_PG}_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}",
+            [
+                "malha.id_zona_mun AS id",
+                "malha.id_zona_mun",
+                "malha.cd_mun",
+                "mun.nm_mun",
+                "mun.sigla_uf",
+                "malha.nr_zona",
+                "malha.n_zonas_mun",
+                "malha.geom_estimada",
+                "malha.geom",
+                *[f"res.{col}" for col in colunas if col != "id_zona_mun"],
+                f"{classe} AS classe_mudanca",
+            ],
+            from_sql=(
+                f"FROM\n  {SCHEMA_PG}.malha_zona_mun_{ano_depois} AS malha\n"
+                f"  LEFT JOIN {SCHEMA_PG}.{nome}_zona_mun AS res\n"
+                "    ON malha.id_zona_mun = res.id_zona_mun\n"
+                f"{carga.JOIN_MUNICIPIO}"
+            ),
+            diretorio_saida=pasta,
+            requires=carga.requires(
+                pasta, dir_api / "schema.sql", schema_zona[ano_depois], schema_mudanca, schema_municipio
+            ),
+        )
+        tabelas += [
+            f"tse.{nome}_zona_mun",
+            f"public_read_api.{SCHEMA_PG}_malha_zona_mun_mudanca_{ano_antes}_{ano_depois}_t{turno}",
+        ]
+```
+
+## Conferência
+
+Tabelas e views geradas, e o tamanho do que foi copiado para `data-src/`.
+
+```{python}
+#| label: conferencia
+fontes_copiadas = [p for p in (saida / "data-src").rglob("*") if p.is_file()]
+print(
+    f"{len(tabelas)} tabelas e views | {len(fontes_copiadas)} arquivos em data-src "
+    f"({sum(p.stat().st_size for p in fontes_copiadas) / 1e6:.0f} MB)"
+)
+pd.Series(tabelas, name="objeto").to_frame()
+```

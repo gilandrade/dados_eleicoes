@@ -28,8 +28,8 @@ CARGA_DIR = GEOREDUS_DIR / "carga"
 
 # CNEFE 2022 por município (cnefetools, IBGE), já filtrado às espécies de
 # domicílio e com `cd_setor` de 15 dígitos (sem o "P" do `COD_SETOR` original).
-# Gerado por `scripts/00b_insumos_brasil.R` (Brasil) ou
-# `scripts/09_insumos_municipio.R` (um município); sem repos irmãos.
+# Gerado por `00b_insumos_brasil.qmd` (Brasil) ou
+# `09_insumos_municipio.qmd` (um município); sem repos irmãos.
 CNEFE_MUN_DIR = BRUTO_DIR / "cnefe"
 
 # pop18 por setor: calculado em R na etapa 00 (00_auxiliares.qmd), a partir dos
@@ -38,9 +38,9 @@ CNEFE_MUN_DIR = BRUTO_DIR / "cnefe"
 POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 
 # Malha de setores censitários 2022 (geobr, ~472 mil polígonos, ~1,5 GB),
-# gerada por `scripts/00b_insumos_brasil.R`. `CD_SETOR` tem 15 dígitos, sem
+# gerada por `00b_insumos_brasil.qmd`. `CD_SETOR` tem 15 dígitos, sem
 # sufixo (diferente do `COD_SETOR` do CNEFE, que tem um "P" no final). Para um
-# município só, `SETORES_MUN_DIR` (`scripts/09_insumos_municipio.R`).
+# município só, `SETORES_MUN_DIR` (`09_insumos_municipio.qmd`).
 SETORES_MUN_DIR = BRUTO_DIR / "aux" / "setores"
 SETORES_2022_GPKG = SETORES_MUN_DIR / "BR_setores_CD2022.gpkg"
 
@@ -156,3 +156,8 @@ CD_UF_POR_SG_UF = {
     "PR": 41, "SC": 42, "RS": 43,
     "MS": 50, "MT": 51, "GO": 52, "DF": 53,
 }
+UFS_27 = [
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+    "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+    "SP", "SE", "TO",
+]
