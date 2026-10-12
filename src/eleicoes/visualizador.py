@@ -26,6 +26,7 @@ from . import cores
 from .config import (
     BRUTO_DIR,
     CARGO_PRESIDENTE,
+    CARGOS,
     CODIGOS_NAO_CANDIDATO,
     CRS_SIRGAS2000,
     GEOMETRIAS_DIR,
@@ -39,7 +40,7 @@ from .config import (
     TILES_VISUALIZADOR,
     TILES_VISUALIZADOR_ATTR,
 )
-from .fontes import _sql_read_csv
+from .fontes import TIPO_ELEICAO_ORDINARIA, _sql_read_csv, converte_zip_em_parquet
 from .resultados import SENTINELA_EXTERIOR
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,119 @@ def exporta_locais_turno(ano: int, turno: int, ids: list[str]) -> Path:
     )
 
 
+# ==== Partido mais votado (eleições municipais) ================================
+
+
+def siglas_partidos(ano: int) -> dict[int, str]:
+    """`{número: sigla}` dos partidos do ano, do `consulta_cand_{ano}.zip`
+    (`03b_baixa_resultados.qmd`). Só a eleição ordinária: o arquivo traz as
+    suplementares dos anos seguintes, com as siglas de quando aconteceram."""
+    destino = BRUTO_DIR / str(ano)
+    parquet = converte_zip_em_parquet(
+        destino / f"consulta_cand_{ano}.zip",
+        destino / f"consulta_cand_{ano}_partidos.parquet",
+        ("cd_tipo_eleicao", "nr_partido", "sg_partido"),
+        nome_interno=f"consulta_cand_{ano}_BRASIL.csv",
+    )
+    caminho = str(parquet).replace("'", "''")
+    linhas = duckdb.sql(
+        f"""select cast(nr_partido as integer) as nr, mode(sg_partido) as sigla
+            from read_parquet('{caminho}')
+            where cast(cd_tipo_eleicao as integer) = {TIPO_ELEICAO_ORDINARIA}
+            group by 1 order by 1"""
+    ).fetchall()
+    return dict(linhas)
+
+
+def _tres_mais_votados(res: pd.DataFrame) -> tuple[list[list], list[list]]:
+    """Números e fatias dos válidos (por mil) dos três partidos mais votados de
+    cada linha: `([nr_1, nr_2, nr_3], [pc_1, pc_2, pc_3])`, cada item uma lista
+    alinhada a `res`. Linha sem resultado, ou posição sem voto, fica `null`."""
+    cols = [c for c in res.columns if c.startswith("pc_validos_")]
+    numeros = np.array([int(c.removeprefix("pc_validos_")) for c in cols])
+    pc = res[cols].to_numpy(dtype=float, na_value=np.nan)
+    ordem = np.argsort(-np.nan_to_num(pc, nan=-1.0), axis=1, kind="stable")[:, :3]
+    pc_top = np.take_along_axis(pc, ordem, axis=1)
+    com_voto = pc_top > 0  # NaN > 0 é False
+    nrs = [[int(n) if ok else None for n, ok in zip(numeros[ordem[:, k]], com_voto[:, k])] for k in range(3)]
+    pcs = [[int(round(1000 * v)) if ok else None for v, ok in zip(pc_top[:, k], com_voto[:, k])] for k in range(3)]
+    return nrs, pcs
+
+
+def _nomes_candidatos_municipio(ano: int, turno: int, cargo: str, chave: str) -> dict | None:
+    """`{município: {nr: nome}}` dos candidatos (etapa 04), pela coluna `chave`
+    (`cd_mun_tse` nos pontos, `cd_mun` nas zonas). `None` em cargo por partido."""
+    if CARGOS[cargo]["por_partido"]:
+        return None
+    nomes = pd.read_parquet(RESULTADOS_DIR / f"candidatos_{cargo}_{ano}_t{turno}.parquet")
+    nomes = nomes.sort_values([chave, "nr_votavel"])
+    return {
+        mun: dict(zip(grupo["nr_votavel"].astype(str), grupo["nm_votavel"].str.title()))
+        for mun, grupo in nomes.groupby(chave)
+    }
+
+
+def exporta_locais_partido(ano: int, turno: int, cargo: str, ids: list[str]) -> Path:
+    """`locais_{ano}_t{turno}_{cargo}.json`, alinhado a `locais_{ano}.json`:
+    classe do partido mais votado (`c_part`), os três mais votados (`nr`/`pc`)
+    e, como no arquivo de Presidente, brancos e nulos, abstenção e os tamanhos."""
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}_local.parquet")
+    res = res.set_index("id_local").reindex(ids)
+    siglas = siglas_partidos(ano)
+    cols_candidatos = [
+        c for c in res.columns
+        if c.startswith("qt_votos_") and int(c.removeprefix("qt_votos_")) not in CODIGOS_NAO_CANDIDATO
+    ]
+    qt_validos = res[cols_candidatos].sum(axis=1, min_count=1)
+    # Local sem resultado (DF, município fora do 2º turno) ou sem voto válido
+    # não tem partido mais votado: `nr_vencedor` viria do reindex como NaN no
+    # primeiro caso, mas no segundo seria a primeira coluna.
+    vencedor = res["nr_vencedor"].where(qt_validos > 0)
+    nrs, pcs = _tres_mais_votados(res)
+
+    saida = {
+        "c_part": cores.classifica_partido(vencedor, siglas).tolist(),
+        "c_bn": cores.classifica_sequencial(res["pc_brancos_nulos"], cores.QUEBRAS_BRANCO_NULO).tolist(),
+        "c_abst": cores.classifica_sequencial(res["pc_abstencao"], cores.QUEBRAS_ABSTENCAO).tolist(),
+        "nr": nrs,
+        "pc": pcs,
+        "bn": _por_mil(res["pc_brancos_nulos"]),
+        "abst": _por_mil(res["pc_abstencao"]),
+        "aptos": _inteiro(res["qt_aptos"]),
+        "comp": _inteiro(res["qt_comparecimento"]),
+        "val": _inteiro(qt_validos),
+        "partidos": {str(nr): sigla for nr, sigla in siglas.items()},
+    }
+    nomes = _nomes_candidatos_municipio(ano, turno, cargo, "cd_mun_tse")
+    if nomes is not None:
+        saida["nomes"] = nomes
+    return _escreve_json(saida, DADOS_VISUALIZADOR_DIR / f"locais_{ano}_t{turno}_{cargo}.json")
+
+
+def exporta_zona_mun_partido(ano: int, turno: int, cargo: str) -> Path:
+    """`zona_mun_{ano}_t{turno}_{cargo}.json`:
+    `{id: [classe, nr_1, pc_1, nr_2, pc_2, nr_3, pc_3, comparecimento]}`."""
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}_zona_mun.parquet")
+    res = res.loc[~res["id_zona_mun"].str.startswith(SENTINELA_EXTERIOR)].reset_index(drop=True)
+    siglas = siglas_partidos(ano)
+    cols_validos = [c for c in res.columns if c.startswith("pc_validos_")]
+    vencedor = res["nr_vencedor"].where(res[cols_validos].notna().any(axis=1))
+    nrs, pcs = _tres_mais_votados(res)
+    colunas = zip(
+        cores.classifica_partido(vencedor, siglas).tolist(),
+        nrs[0], pcs[0], nrs[1], pcs[1], nrs[2], pcs[2],
+        _inteiro(res["qt_comparecimento"]),
+    )
+    saida = {
+        "dados": dict(zip(res["id_zona_mun"], (list(c) for c in colunas))),
+        "partidos": {str(nr): sigla for nr, sigla in siglas.items()},
+    }
+    nomes = _nomes_candidatos_municipio(ano, turno, cargo, "cd_mun")
+    if nomes is not None:
+        saida["nomes"] = nomes
+    return _escreve_json(saida, DADOS_VISUALIZADOR_DIR / f"zona_mun_{ano}_t{turno}_{cargo}.json")
+
+
 # ==== Polígonos (zona × município) ============================================
 
 
@@ -311,12 +425,33 @@ def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
 # ==== Configuração (tiles, legendas, combinações disponíveis) ================
 
 
+TITULO_LEGENDA_PARTIDO = {
+    "prefeito": "Partido do candidato a prefeito mais votado",
+    "vereador": "Partido mais votado para vereador",
+}
+
+
 def exporta_config(
     pontos: list[tuple[int, int]],
     zona_mun: list[tuple[int, int]],
     mudancas: list[tuple[int, int, int]],
+    municipais: dict[str, list[tuple[int, int]]] | None = None,
 ) -> Path:
-    """`config.json`: fundo do mapa, legendas e combinações disponíveis."""
+    """`config.json`: fundo do mapa, legendas e combinações disponíveis.
+
+    `municipais` é `{"pontos_prefeito": [(ano, turno), ...], "zona_mun_prefeito":
+    ..., "pontos_vereador": ..., "zona_mun_vereador": ...}` — a chave é a do
+    mapa em `assets/mapas.js`.
+    """
+    municipais = municipais or {}
+    anos_municipais = sorted({a for combos in municipais.values() for a, _ in combos})
+    legendas_partido = {
+        chave: {
+            str(a): cores.legenda_partido(TITULO_LEGENDA_PARTIDO[chave.split("_")[-1]], siglas_partidos(a))
+            for a in sorted({a for a, _ in combos})
+        }
+        for chave, combos in municipais.items()
+    }
     anos = sorted({a for a, _ in pontos} | {a for a, _ in zona_mun})
     legenda_presidente = {str(a): cores.legenda_margem(NOME_PT_POR_ANO[a]) for a in anos}
     chave = lambda a, b, t: f"{a}-{b}-{t}"
@@ -334,7 +469,10 @@ def exporta_config(
             "cores_divergentes": cores.cores_divergentes(),
             "cores_mudanca": cores.cores_mudanca(),
             "cores_sequenciais": cores.RAMPA_SEQUENCIAL,
+            "cores_partido": cores.cores_partido(),
+            "anos_municipais": anos_municipais,
             "legendas": {
+                **legendas_partido,
                 "pontos_presidente": legenda_presidente,
                 "zona_mun_presidente": legenda_presidente,
                 "pontos_branco_nulo": cores.legenda_sequencial(
@@ -350,6 +488,7 @@ def exporta_config(
                 "pontos": [list(x) for x in pontos],
                 "zona_mun": [list(x) for x in zona_mun],
                 "mudanca": [list(x) for x in mudancas],
+                **{chave: [list(x) for x in combos] for chave, combos in municipais.items()},
             },
         },
         DADOS_VISUALIZADOR_DIR / "config.json",

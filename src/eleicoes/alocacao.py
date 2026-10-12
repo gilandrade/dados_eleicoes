@@ -3,10 +3,10 @@
 Método "Voronoi dasimétrico sobre os domicílios do CNEFE" (ver PLAN.md > Pesquisa):
 
 1. cada domicílio do CNEFE vai para o local de votação mais próximo do mesmo
-   município (`aloca_domicilios_a_locais`);
+   município (`conta_domicilios_por_local_setor`);
 2. os domicílios de cada (local, setor) são convertidos em população adulta
    estimada, pela participação do setor nos domicílios da célula
-   (`constroi_pesos_local_setor`);
+   (`calcula_pesos_local_setor`);
 3. a matriz de pesos resultante (`id_local`, `cd_setor`, `peso`) é reaproveitada
    todo turno: `votos_setor = pesos @ votos_local` (ver `resultados.py`).
 
@@ -18,11 +18,13 @@ nunca na noite da apuração.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely
+from pyproj import Transformer
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
 from scipy.spatial import cKDTree
@@ -59,98 +61,119 @@ def decodifica_wkb(df: pd.DataFrame, coluna_geom: str = "geometry") -> gpd.GeoDa
     )
 
 
-def aloca_domicilios_a_locais(
-    domicilios: gpd.GeoDataFrame,
+def conta_domicilios_por_local_setor(
+    arquivos_cnefe: list[Path],
     locais: gpd.GeoDataFrame,
+    setores_validos: pd.Index,
     *,
-    col_mun_domicilios: str = "cd_mun",
+    especies: tuple[int, ...],
     col_mun_locais: str = "cd_mun",
     col_id_local: str = "id_local",
-) -> pd.Series:
-    """Para cada domicílio, o `id_local` do local mais próximo no mesmo município.
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, dict[str, int]]:
+    """Aloca cada domicílio ao local mais próximo do município e conta, **um
+    município por vez**, sem nunca montar os ~90 milhões de pontos do Brasil.
 
-    Usa uma KD-tree por município em CRS métrico (`CRS_METRICO_BR`), o que
-    equivale a avaliar o diagrama de Voronoi dos locais elegíveis nos pontos de
-    domicílio, sem construir os polígonos.
-
-    Domicílios em municípios sem nenhum local elegível (não deveria ocorrer, mas
-    é medido) resultam em `pd.NA`.
+    O vizinho mais próximo (KD-tree em `CRS_METRICO_BR`, equivale a avaliar o
+    Voronoi dos locais elegíveis nos domicílios) é calculado com arrays numpy
+    de coordenadas projetadas, sem objetos shapely. A versão anterior
+    construía um GeoDataFrame com todos os domicílios (um `Point` por linha) e
+    ainda uma cópia reprojetada: dezenas de GB de RAM no Brasil inteiro. Aqui o
+    pico é o maior município (São Paulo, ~5 milhões de linhas, ~200 MB) e o
+    que sobra no fim são só as contagens por (local, setor).
 
     Args:
-        domicilios: pontos de domicílio (ex.: CNEFE espécies 1/2), com uma
-            coluna de código de município.
-        locais: pontos de locais de votação **elegíveis** (sem voto em
-            trânsito nem seções especiais), com `id_local` e código de
-            município.
-        col_mun_domicilios: nome da coluna de município em `domicilios`.
-        col_mun_locais: nome da coluna de município em `locais`.
-        col_id_local: nome da coluna de id em `locais`.
+        arquivos_cnefe: um `cnefe_{cd_mun}.parquet` por município, com
+            `cd_mun`, `cd_setor`, `cod_especie`, `latitude` e `longitude`
+            (EPSG:4674).
+        locais: pontos de locais de votação **elegíveis**, com `col_id_local`
+            e `col_mun_locais`.
+        setores_validos: códigos de setor da malha oficial (`pop18`), para a
+            cobertura (ver `mede_cobertura_setor`).
+        especies: `COD_ESPECIE` tratados como domicílio.
 
     Returns:
-        `pd.Series` alinhada ao índice de `domicilios`, com o `id_local` mais
-        próximo (mesmo município) ou `pd.NA`.
+        - `n_dom_local_setor`: `col_id_local`, `cd_setor`, `n_dom`;
+        - `n_dom_setor`: Series `n_dom_setor` indexada por `cd_setor`, contando
+          **todos** os domicílios, inclusive os sem local elegível (mesma
+          conta de `calcula_pesos_local_setor`);
+        - `cobertura`: `cd_mun`, `n_dom`, `n_dom_setor_valido`,
+          `pc_dom_setor_invalido`;
+        - `totais`: `n_dom` e `n_sem_local` (município sem local elegível).
     """
-    dom_m = domicilios.to_crs(CRS_METRICO_BR)
     loc_m = locais.to_crs(CRS_METRICO_BR)
-
-    resultado = pd.Series(pd.NA, index=domicilios.index, dtype="object")
-
-    dom_xy = np.column_stack([dom_m.geometry.x, dom_m.geometry.y])
     loc_xy = np.column_stack([loc_m.geometry.x, loc_m.geometry.y])
+    ids = loc_m[col_id_local].to_numpy()
+    arvores = {}
+    for cd_mun, posicoes in loc_m.groupby(col_mun_locais).indices.items():
+        arvores[cd_mun] = (cKDTree(loc_xy[posicoes]), ids[posicoes])
 
-    for cd_mun, idx_dom in dom_m.groupby(col_mun_domicilios).groups.items():
-        idx_loc = loc_m.index[loc_m[col_mun_locais] == cd_mun]
-        if len(idx_loc) == 0:
-            continue  # município sem local elegível — fica NA, é medido depois
+    transformador = Transformer.from_crs(CRS_SIRGAS2000, CRS_METRICO_BR, always_xy=True)
+    colunas = ["cd_mun", "cd_setor", "latitude", "longitude"]
 
-        pos_dom = dom_m.index.get_indexer(idx_dom)
-        pos_loc = loc_m.index.get_indexer(idx_loc)
+    por_local_setor, por_setor, cobertura = [], [], []
+    n_dom = n_sem_local = 0
+    for arquivo in arquivos_cnefe:
+        df = pd.read_parquet(
+            arquivo, columns=[*colunas, "cod_especie"],
+            filters=[("cod_especie", "in", list(especies))],
+        )[colunas]
+        for cd_mun, g in df.groupby("cd_mun", sort=False):
+            valido = setores_validos.get_indexer(g["cd_setor"]) >= 0
+            cobertura.append(
+                {"cd_mun": cd_mun, "n_dom": len(g), "n_dom_setor_valido": int(valido.sum())}
+            )
+            n_dom += len(g)
+            por_setor.append(g.groupby("cd_setor").size())
 
-        arvore = cKDTree(loc_xy[pos_loc])
-        _, vizinho = arvore.query(dom_xy[pos_dom])
+            if cd_mun not in arvores:
+                n_sem_local += len(g)  # município sem local elegível: é medido
+                continue
+            arvore, ids_mun = arvores[cd_mun]
+            x, y = transformador.transform(g["longitude"].to_numpy(), g["latitude"].to_numpy())
+            _, vizinho = arvore.query(np.column_stack([x, y]))
+            por_local_setor.append(
+                pd.DataFrame({col_id_local: ids_mun[vizinho], "cd_setor": g["cd_setor"].to_numpy()})
+                .groupby([col_id_local, "cd_setor"]).size().rename("n_dom").reset_index()
+            )
 
-        resultado.loc[idx_dom] = loc_m.loc[idx_loc, col_id_local].to_numpy()[vizinho]
+    n_dom_local_setor = (
+        pd.concat(por_local_setor, ignore_index=True)
+        .groupby([col_id_local, "cd_setor"], as_index=False)["n_dom"].sum()
+    )
+    n_dom_setor = pd.concat(por_setor).groupby(level=0).sum().rename("n_dom_setor")
+    n_dom_setor.index.name = "cd_setor"
 
-    return resultado
+    cobertura = pd.DataFrame(cobertura)
+    cobertura["pc_dom_setor_invalido"] = 1 - cobertura["n_dom_setor_valido"] / cobertura["n_dom"]
+    return n_dom_local_setor, n_dom_setor, cobertura, {"n_dom": n_dom, "n_sem_local": n_sem_local}
 
 
-def constroi_pesos_local_setor(
-    domicilios_com_local: pd.DataFrame,
+def calcula_pesos_local_setor(
+    n_dom_local_setor: pd.DataFrame,
+    n_dom_setor: pd.Series,
     pop18_setor: pd.DataFrame,
     *,
     col_id_local: str = "id_local",
     col_setor: str = "cd_setor",
     col_pop18: str = "pop18",
 ) -> pd.DataFrame:
-    """Constrói a matriz de pesos `id_local -> cd_setor`.
+    """Constrói a matriz de pesos `id_local -> cd_setor` a partir das contagens.
 
     `adultos(L, s) = n_dom(L ∩ s) * pop18(s) / n_dom(s)`, normalizado depois
     para que `Σ_s peso(L, s) = 1` em cada local — a verificação de conservação
     do PLAN.md.
 
     Args:
-        domicilios_com_local: uma linha por domicílio, com `col_id_local` (de
-            `aloca_domicilios_a_locais`) e `col_setor`.
+        n_dom_local_setor: `col_id_local`, `col_setor` e `n_dom` (domicílios
+            de cada célula local × setor).
+        n_dom_setor: Series `n_dom_setor` indexada por `col_setor`, com todos
+            os domicílios do setor.
         pop18_setor: uma linha por setor, com `col_setor` e `col_pop18`
             (população adulta estimada — ver `pop18_por_setor`).
-        col_id_local: nome da coluna de id do local.
-        col_setor: nome da coluna de setor.
-        col_pop18: nome da coluna de população adulta do setor.
 
     Returns:
         DataFrame com `col_id_local`, `col_setor`, `n_dom`, `adultos`, `peso`.
     """
-    n_dom_local_setor = (
-        domicilios_com_local.dropna(subset=[col_id_local])
-        .groupby([col_id_local, col_setor])
-        .size()
-        .rename("n_dom")
-        .reset_index()
-    )
-    n_dom_setor = (
-        domicilios_com_local.groupby(col_setor).size().rename("n_dom_setor")
-    )
-
     pesos = n_dom_local_setor.merge(n_dom_setor, on=col_setor, how="left")
     pesos = pesos.merge(pop18_setor[[col_setor, col_pop18]], on=col_setor, how="left")
 
@@ -556,7 +579,7 @@ def constroi_zona_mun(
         locais: locais não especiais (inclusive os posicionados no centróide
             do município), com `col_id_local`, `col_mun`, `col_zona`,
             `qt_eleitores`, `flag_sem_coord` e a geometria do ponto.
-        pesos: matriz de pesos local -> setor (de `constroi_pesos_local_setor`).
+        pesos: matriz de pesos local -> setor (de `calcula_pesos_local_setor`).
         municipios: polígonos dos municípios (geobr), com `col_mun`.
         col_setor, col_id_local, col_mun, col_zona: nomes das colunas.
 
@@ -658,7 +681,7 @@ def mede_cobertura_setor(
     `pop18` implícito de 0, então **não** puxam peso para o setor fantasma —
     a menos que TODOS os domicílios da célula (local × setor) sejam
     fantasma, caso em que o peso cai no fallback de distribuição igual (ver
-    `constroi_pesos_local_setor`) e o setor fantasma acaba aparecendo na
+    `calcula_pesos_local_setor`) e o setor fantasma acaba aparecendo na
     matriz de pesos mesmo assim, sem geometria correspondente. Rodar isto
     por município antes de publicar, para saber onde o problema é grande.
 
@@ -667,7 +690,7 @@ def mede_cobertura_setor(
         `pc_dom_setor_invalido`.
     """
     setores_validos = set(pop18_setor[col_setor])
-    df = domicilios.copy()
+    df = domicilios[["cd_mun", col_setor]].copy()
     df["setor_valido"] = df[col_setor].isin(setores_validos)
 
     resumo = (

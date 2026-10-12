@@ -7,8 +7,9 @@ execute:
 
 Exporta para `docs/mapas/dados/` os JSON compactos que a página de mapas do
 site lê (`mapas.qmd` + `assets/mapas.js`). Exporta tudo o que já existir em
-disco: pontos (locais) e zona × município de cada ano × turno processado, e a
-mudança de votação entre anos. Não tem parâmetro.
+disco: pontos (locais) e zona × município de cada ano × turno processado, a
+mudança de votação entre anos e, nos anos municipais, o partido mais votado
+para Prefeito e Vereador. Não tem parâmetro.
 
 ```bash
 quarto render 06_exporta_visualizador.qmd
@@ -25,7 +26,7 @@ sys.path.insert(0, "src")
 import pandas as pd
 
 from eleicoes import visualizador
-from eleicoes.config import ANOS, GEOMETRIAS_DIR, RESULTADOS_DIR
+from eleicoes.config import ANOS, ANOS_MUNICIPAIS, CARGOS_MUNICIPAIS, GEOMETRIAS_DIR, RESULTADOS_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
 
@@ -86,14 +87,41 @@ for ano_antes in ANOS:
 mudancas
 ```
 
-## 4. Configuração do visualizador
+## 4. Eleições municipais: partido mais votado
+
+Mesma geometria (pontos e zona × município do ano), com um arquivo de valores
+por ano × turno × cargo. Vereador não tem 2º turno; Prefeito, só nos municípios
+com mais de 200 mil eleitores em que ninguém passou de 50%.
+
+```{python}
+#| label: municipais
+municipais = {f"{tipo}_{cargo}": [] for cargo in CARGOS_MUNICIPAIS for tipo in ("pontos", "zona_mun")}
+for ano in ANOS_MUNICIPAIS:
+    tem_pontos = (GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg").exists()
+    tem_zonas = (GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg").exists()
+    ids = visualizador.exporta_locais(ano) if tem_pontos else None
+    if tem_zonas:
+        visualizador.exporta_zona_mun_geom(ano)
+    for cargo in CARGOS_MUNICIPAIS:
+        for turno in TURNOS:
+            prefixo = RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}"
+            if tem_pontos and prefixo.with_name(prefixo.name + "_local.parquet").exists():
+                visualizador.exporta_locais_partido(ano, turno, cargo, ids)
+                municipais[f"pontos_{cargo}"].append((ano, turno))
+            if tem_zonas and prefixo.with_name(prefixo.name + "_zona_mun.parquet").exists():
+                visualizador.exporta_zona_mun_partido(ano, turno, cargo)
+                municipais[f"zona_mun_{cargo}"].append((ano, turno))
+municipais
+```
+
+## 5. Configuração do visualizador
 
 `config.json` lista o que foi exportado, com as legendas e cores de `cores.py`.
 
 ```{python}
 #| label: config
 #| output: false
-visualizador.exporta_config(pontos, zona_mun, mudancas)
+visualizador.exporta_config(pontos, zona_mun, mudancas, municipais)
 ```
 
 ## Conferência

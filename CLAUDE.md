@@ -38,6 +38,8 @@ export QUARTO_PYTHON="$PWD/venv/Scripts/python.exe"   # se o venv não estiver a
 quarto render 03_pesos_alocacao.qmd -P ano:2022
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
 quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
+quarto render 03b_baixa_resultados.qmd -P ano:2024        # zips de resultado (R; 26 UFs nos municipais)
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
 ```
@@ -61,6 +63,13 @@ data model (geometry files vs. result files joined by a shared id).
 - **00–02 (R)**: crosswalk TSE↔IBGE, malhas, `pop18` por setor; download e chaves
   dos locais/seções; validação e geocodificação das coordenadas. `00b_insumos_brasil.qmd`
   (R) baixa a malha de setores e o CNEFE do Brasil.
+- **Eleições municipais (2020, 2024, branch `eleicoes-municipais`)**: reaproveitam
+  01–04 sem mudança de método; só o cargo muda (`config.CARGOS`, `-P cargo:prefeito|vereador`
+  na 04/04b). Prefeito é lido por candidato (o número do votável é o do partido, nomes
+  em `candidatos_prefeito_*.parquet`); Vereador é somado por partido
+  (`fontes.ler_votacao_secao(por_partido=True)`). O visualizador pinta o **partido
+  mais votado** (`cores.CORES_PARTIDO`, `visualizador.exporta_*_partido`). A mudança
+  entre anos (05), o Folium (06b) e a GeoReDUS (07/08) seguem só com Presidente.
 - **03 (Python, `03_pesos_alocacao.qmd`, roda 1× por ano)**: aloca cada
   domicílio do CNEFE ao local de votação mais próximo do mesmo município,
   constrói a matriz de pesos `local → setor` (ponderada pela população adulta) e
@@ -388,6 +397,30 @@ data model (geometry files vs. result files joined by a shared id).
   vizinha, 1 local, 2+ locais) — não basta olhar o log. As três travas das
   pontes (local de outra zona, setor já movido, não partir outra zona) foram
   todas necessárias; tirar qualquer uma faz reaparecer oscilação ou exclave novo.
+- **Eleições municipais, achados nos arquivos reais (11/10/2026):**
+  - **Não existe `votacao_secao_{ano}_BR.zip`** em 2020/2024 (404): é um zip por UF,
+    sem DF (`03b_baixa_resultados.qmd`). Cada CSV vira parquet só com as colunas
+    usadas (`fontes.converte_zip_em_parquet`): são dezenas de GB descompactados.
+  - **Os arquivos trazem as eleições suplementares** (`CD_TIPO_ELEICAO = 1`, 37 em
+    2024, também com `NR_TURNO = 1`) junto da ordinária (`= 2`). Sem filtrar
+    (`fontes.TIPO_ELEICAO_ORDINARIA`), o município que repetiu a eleição soma as duas.
+    Vale também para `consulta_cand` (siglas) e `detalhe_votacao_secao`.
+  - **O `detalhe_votacao_secao` tem uma linha por seção por cargo**: o join por seção
+    precisa filtrar `cd_cargo`, senão duplica os votos.
+  - **O número do partido muda de dono**: 25 era DEM em 2020 e é PRD em 2024; as
+    siglas vêm do `consulta_cand_{ano}`, nunca de uma tabela fixa.
+  - **Boa Esperança do Norte (MT, código TSE 73709)** foi emancipada depois da malha
+    do IBGE de 2022: sem `cd_mun` no crosswalk, seus 3 locais ficam fora do mapa e
+    os votos caem na linha `EXTERIOR` (conservam o total, não aparecem em mapa).
+  - **Conferido contra o TSE:** Prefeito de São Paulo 2024 (Nunes 1.801.139, Boulos
+    1.776.127, Marçal 1.719.274 no 1º turno; 3.393.110 × 2.323.901 no 2º) e o
+    mais votado = eleito em todos os 5.477 municípios decididos no 1º turno.
+- **Etapa 03 sem GeoDataFrame de domicílios (12/10/2026).** Montar um ponto shapely
+  por domicílio (90,7 milhões) estourava a RAM do PC. `alocacao.conta_domicilios_por_local_setor`
+  processa um município por vez com arrays numpy e guarda só as contagens por
+  (local, setor): Brasil inteiro em ~4 min com pico de ~2,2 GB (antes ~44 min na
+  alocação). A malha de setores só é lida para os municípios com mais de uma zona.
+  Saída idêntica à anterior (conferida em Teresina).
 - **`SETORES_2022_GPKG` tem 914 códigos de setor repetidos** (um setor em mais
   de um polígono, em 267 municípios). Qualquer merge por `cd_setor` com a malha
   precisa juntar os pedaços antes (`dissolve`), senão cruza linhas em silêncio.

@@ -10,7 +10,8 @@ para um ano que ainda não rodou as etapas 01–03 e como **validação cruzada*
 com um ano que já tem locais, o resultado por `cd_mun` tem de ser idêntico ao
 `res_..._municipio` da etapa 04 (ver PLAN.md > Verificação).
 
-Grava o mesmo arquivo da etapa 04 (`res_presidente_{ano}_t{turno}_municipio`).
+Grava o mesmo arquivo da etapa 04 (`res_{cargo}_{ano}_t{turno}_municipio`;
+`-P cargo:prefeito` ou `cargo:vereador` nos anos municipais).
 
 ```bash
 quarto render 04b_resultados_municipio.qmd -P ano:2018 -P turno:2
@@ -26,7 +27,7 @@ sys.path.insert(0, "src")
 import pandas as pd
 
 from eleicoes import exporta, fontes, resultados
-from eleicoes.config import CODIGOS_NAO_CANDIDATO, PROCESSADO_DIR, RESULTADOS_DIR
+from eleicoes.config import CARGOS, CODIGOS_NAO_CANDIDATO, PROCESSADO_DIR, RESULTADOS_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
 ```
@@ -38,12 +39,15 @@ ano = 2022
 turno = 2
 fonte = "votacao_secao"  # ou "bweb" (boletim de urna)
 baixar = False
+cargo = "presidente"  # ou "prefeito" / "vereador" (anos municipais)
 ```
 
 ```{python}
 #| label: parametros-derivados
 ano, turno = int(ano), int(turno)
-print(f"ano={ano} | turno={turno} | fonte={fonte} | baixar={baixar}")
+if cargo not in CARGOS:
+    raise ValueError(f"cargo desconhecido: {cargo!r} (use {', '.join(CARGOS)})")
+print(f"ano={ano} | turno={turno} | cargo={cargo} | fonte={fonte} | baixar={baixar}")
 ```
 
 ## 1. Crosswalk TSE ↔ IBGE e resultados por seção
@@ -55,7 +59,7 @@ if not caminho_crosswalk.exists():
     raise FileNotFoundError(f"{caminho_crosswalk} não existe — rode 00_auxiliares.qmd.")
 crosswalk = pd.read_parquet(caminho_crosswalk)
 
-resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar))
+resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar), cargo=cargo)
 print(f"{len(resultados_secao):,} linhas de resultado por seção")
 
 candidatos = sorted(
@@ -71,7 +75,7 @@ Seções de municípios sem crosswalk (o exterior) ficam numa linha só, com
 
 ```{python}
 #| label: municipio
-caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet"
+caminho = RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}_municipio.parquet"
 # O que já está em disco (o da etapa 04), só para a conferência no final.
 res_anterior = pd.read_parquet(caminho) if caminho.exists() else None
 

@@ -8,7 +8,7 @@ para o contexto completo.
 
 ## [Mapas](mapas.qmd)
 
-Presidente em 2018 e 2022, nos dois turnos, num só visualizador:
+Presidente (2018, 2022, 2026) e Prefeito e Vereador (2020, 2024), nos dois turnos quando houve, num só visualizador:
 
 - **locais de votação:** Presidente, brancos e nulos, abstenção;
 - **zona × município:** Presidente e a mudança de votação 2018 → 2022 (2º turno).

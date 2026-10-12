@@ -54,6 +54,20 @@ CRS_METRICO_BR = 5880  # SIRGAS 2000 / Brazil Polyconic — para distâncias nac
 
 ANOS = (2018, 2022, 2026)
 CARGO_PRESIDENTE = 1  # código TSE do cargo Presidente (CD_CARGO / NR_CARGO = 1)
+
+# Eleições municipais: sem DF nem exterior, e sem arquivo `_BR` (um zip de
+# `votacao_secao` por UF). Prefeito é lido por candidato — o número do votável é
+# o do partido, e o candidato muda de município para município. Vereador é
+# somado por partido (2 primeiros dígitos do número).
+ANOS_MUNICIPAIS = (2020, 2024)
+CARGO_PREFEITO = 11
+CARGO_VEREADOR = 13
+CARGOS = {
+    "presidente": {"cd_cargo": CARGO_PRESIDENTE, "por_partido": False, "rotulo": "Presidente"},
+    "prefeito": {"cd_cargo": CARGO_PREFEITO, "por_partido": False, "rotulo": "Prefeito"},
+    "vereador": {"cd_cargo": CARGO_VEREADOR, "por_partido": True, "rotulo": "Vereador"},
+}
+CARGOS_MUNICIPAIS = ("prefeito", "vereador")
 CODIGO_BRANCO = 95
 CODIGO_NULO = 96
 # "Voto anulado e apurado em separado" — existe no 2018 (1º turno), não em
@@ -81,6 +95,9 @@ URL_LOCAIS_VOTACAO = (
     f"{TSE_CDN_BASE}/eleitorado_locais_votacao/eleitorado_local_votacao_{{ano}}.zip"
 )
 URL_VOTACAO_SECAO = f"{TSE_CDN_BASE}/votacao_secao/votacao_secao_{{ano}}_BR.zip"
+# Um zip por UF: os cargos estaduais nos anos gerais e todos os cargos nos
+# municipais (`_BR` dá 404 em 2020 e 2024 — conferido em 11/10/2026).
+URL_VOTACAO_SECAO_UF = f"{TSE_CDN_BASE}/votacao_secao/votacao_secao_{{ano}}_{{uf}}.zip"
 # QT_APTOS/QT_COMPARECIMENTO reais por seção — opcional (ver fontes.py:
 # qt_comparecimento já sai certo sem ele, calculado como soma de qt_votos).
 # Achado no portal humano em 29/09/2026, depois de eu chutar

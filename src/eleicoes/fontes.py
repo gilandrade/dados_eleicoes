@@ -22,13 +22,20 @@ vezes): `detalhe_votacao_secao/detalhe_votacao_secao_{ano}.zip` — **sem**
 (só Presidente, `TP_ABRANGENCIA='F'`) e um por UF. Padrão de nome do TSE não é
 uniforme entre datasets — não adivinhar de novo sem checar o portal.
 
-Ambos os leitores filtram o cargo Presidente na própria leitura (mais barato
-que filtrar depois de ler o Brasil inteiro).
+Ambos os leitores filtram o cargo na própria leitura (mais barato que filtrar
+depois de ler o Brasil inteiro).
+
+Eleições municipais (2020, 2024): não há `votacao_secao_{ano}_BR.zip`, só um zip
+por UF com todos os cargos, e os CSV somam dezenas de GB. Cada zip vira um
+parquet só com as colunas usadas (`converte_zip_em_parquet`), e os leitores
+aceitam a lista de parquets no lugar do CSV. O `detalhe_votacao_secao` desses
+anos tem uma linha por seção **por cargo** — o join filtra `cd_cargo`.
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -38,6 +45,8 @@ import pandas as pd
 from .config import (
     BRUTO_DIR,
     CARGO_PRESIDENTE,
+    CARGOS,
+    CODIGOS_NAO_CANDIDATO,
     UFS_27,
     URL_BWEB,
     URL_DETALHE_VOTACAO_SECAO,
@@ -77,25 +86,86 @@ def _sql_read_csv(caminho: Path) -> str:
     )
 
 
+# CD_TIPO_ELEICAO da eleição ordinária. Os arquivos dos anos municipais trazem
+# junto as suplementares (37 em 2024, `CD_TIPO_ELEICAO = 1`, também com
+# `NR_TURNO = 1`): sem o filtro, o município que refez a eleição soma as duas.
+TIPO_ELEICAO_ORDINARIA = 2
+
+# Colunas de `votacao_secao` e de `detalhe_votacao_secao` que os leitores usam —
+# as únicas guardadas nos parquets dos anos municipais.
+COLUNAS_VOTACAO_SECAO = (
+    "cd_tipo_eleicao", "ds_eleicao", "sg_uf", "cd_municipio", "nr_zona", "nr_secao", "nr_turno",
+    "cd_cargo", "nr_votavel", "nm_votavel", "qt_votos",
+)
+COLUNAS_DETALHE = (
+    "cd_tipo_eleicao", "cd_municipio", "nr_zona", "nr_secao", "nr_turno", "cd_cargo", "qt_aptos",
+    "qt_comparecimento",
+)
+
+
+def _sql_fonte(caminho: Path | list[Path]) -> str:
+    """SQL de leitura de um CSV do TSE ou de um ou mais parquets convertidos
+    por `converte_zip_em_parquet` (mesmas colunas, tudo texto)."""
+    caminhos = caminho if isinstance(caminho, list) else [caminho]
+    if caminhos[0].suffix != ".parquet":
+        (unico,) = caminhos
+        return _sql_read_csv(unico)
+    lista = ", ".join("'" + str(c).replace("'", "''") + "'" for c in caminhos)
+    return f"read_parquet([{lista}])"
+
+
+def _executa(con: duckdb.DuckDBPyConnection, query: str, por_partido: bool) -> pd.DataFrame:
+    """Executa a consulta de `ler_votacao_secao`, somando por partido se pedido."""
+    if not por_partido:
+        return con.execute(query).df()
+    nao_candidato = ", ".join(str(c) for c in CODIGOS_NAO_CANDIDATO)
+    return con.execute(
+        f"""
+        with base as ({query})
+        select
+            ano, turno, sg_uf, cd_mun_tse, nr_zona, nr_secao, cd_cargo,
+            case
+                when nr_votavel in ({nao_candidato}) then nr_votavel
+                else cast(substr(cast(nr_votavel as varchar), 1, 2) as integer)
+            end as nr_votavel,
+            sum(qt_votos) as qt_votos,
+            any_value(qt_comparecimento) as qt_comparecimento,
+            any_value(qt_aptos) as qt_aptos
+        from base
+        group by all
+        """
+    ).df()
+
+
 def ler_votacao_secao(
-    caminho_votacao_secao: Path,
+    caminho_votacao_secao: Path | list[Path],
     ano: int,
     turno: int,
     *,
     caminho_detalhe: Path | None = None,
+    cd_cargo: int = CARGO_PRESIDENTE,
+    por_partido: bool = False,
 ) -> pd.DataFrame:
     """Lê `votacao_secao_{ano}_BR.csv`, opcionalmente enriquecido com
     `detalhe_votacao_secao_{ano}_BR.csv` (ver módulo — nome do arquivo real,
     não `..._{ano}_BR.zip` que eu tinha chutado).
 
     Caminho "oficial", consolidado pelo TSE após a apuração. Filtra o cargo
-    Presidente e o turno pedido.
+    (`cd_cargo`, Presidente por padrão) e o turno pedido.
 
     Args:
         caminho_votacao_secao: CSV de `votacao_secao_{ano}_BR.zip` (votos por
-            candidato/seção).
+            candidato/seção). Para os outros cargos, o CSV de
+            `votacao_secao_{ano}_{UF}.zip`, que tem o mesmo cabeçalho, ou a
+            lista dos parquets por UF (`converte_zip_em_parquet`).
         ano: ano da eleição.
         turno: 1 ou 2.
+        cd_cargo: código TSE do cargo (`CD_CARGO`).
+        por_partido: se True, soma no próprio SQL os votos de cada partido por
+            seção (`nr_votavel` vira o número do partido, os 2 primeiros
+            dígitos; branco, nulo e anulado ficam como estão) e a coluna
+            `nm_votavel` sai. Evita materializar uma linha por candidato — o
+            que importa para o país inteiro em cargo proporcional.
         caminho_detalhe: CSV de `detalhe_votacao_secao_{ano}_BR.csv` (dentro
             do zip `detalhe_votacao_secao_{ano}.zip`), com `QT_APTOS` e
             `QT_COMPARECIMENTO` reais por seção. Se `None` (padrão),
@@ -108,13 +178,15 @@ def ler_votacao_secao(
         DataFrame no esquema comum (ver `ESQUEMA_COLUNAS`).
     """
     con = duckdb.connect()
-    sql_votos = _sql_read_csv(caminho_votacao_secao)
+    sql_votos = _sql_fonte(caminho_votacao_secao)
 
     votos_query = f"""
         select
             {ano} as ano,
             {turno} as turno,
-            sg_uf,
+            -- alias explícito: sem ele o duckdb devolve o nome como está no
+            -- CSV (SG_UF, NM_VOTAVEL), fora do esquema comum.
+            sg_uf as sg_uf,
             -- CD_MUNICIPIO aqui não tem zero à esquerda (varia de 2 a 5
             -- dígitos: "1120", não "01120" como em eleitorado_local_votacao)
             -- — confirmado contra o arquivo real de 2022 em 29/09/2026.
@@ -125,11 +197,12 @@ def ler_votacao_secao(
             cast(nr_secao as integer) as nr_secao,
             cast(cd_cargo as integer) as cd_cargo,
             cast(nr_votavel as integer) as nr_votavel,
-            nm_votavel,
+            nm_votavel as nm_votavel,
             cast(qt_votos as integer) as qt_votos
         from {sql_votos}
-        where cast(cd_cargo as integer) = {CARGO_PRESIDENTE}
+        where cast(cd_cargo as integer) = {cd_cargo}
             and cast(nr_turno as integer) = {turno}
+            and cast(cd_tipo_eleicao as integer) = {TIPO_ELEICAO_ORDINARIA}
     """
 
     if caminho_detalhe is None:
@@ -141,9 +214,9 @@ def ler_votacao_secao(
                 cast(NULL as integer) as qt_aptos
             from votos
         """
-        return con.execute(query).df()
+        return _executa(con, query, por_partido)
 
-    sql_detalhe = _sql_read_csv(caminho_detalhe)
+    sql_detalhe = _sql_fonte(caminho_detalhe)
     query = f"""
         with votos as ({votos_query}),
              detalhe as (
@@ -156,6 +229,10 @@ def ler_votacao_secao(
                     cast(qt_comparecimento as integer) as qt_comparecimento
                 from {sql_detalhe}
                 where cast(nr_turno as integer) = {turno}
+                    -- nos anos municipais o detalhe tem uma linha por seção
+                    -- por cargo; sem o filtro o join duplicaria os votos.
+                    and cast(cd_cargo as integer) = {cd_cargo}
+                    and cast(cd_tipo_eleicao as integer) = {TIPO_ELEICAO_ORDINARIA}
             )
         select
             v.*,
@@ -170,7 +247,7 @@ def ler_votacao_secao(
         left join detalhe d
             on d.cd_mun_tse = v.cd_mun_tse and d.nr_zona = v.nr_zona and d.nr_secao = v.nr_secao
     """
-    return con.execute(query).df()
+    return _executa(con, query, por_partido)
 
 
 def ler_bweb(caminho_bweb_uf: Path, ano: int, turno: int, sg_uf: str) -> pd.DataFrame:
@@ -256,14 +333,95 @@ def extrai_csv_do_zip(caminho_zip: Path, caminho_csv: Path, *, nome_interno: str
     logger.info("Extraindo %s de %s...", nome_interno or "(primeiro .csv)", caminho_zip)
     with zipfile.ZipFile(caminho_zip) as z:
         alvo = nome_interno or next(n for n in z.namelist() if n.lower().endswith(".csv"))
+        # copyfileobj: o CSV de uma UF grande passa de vários GB, não cabe
+        # inteiro na memória.
         with z.open(alvo) as origem, open(caminho_csv, "wb") as saida:
-            saida.write(origem.read())
+            shutil.copyfileobj(origem, saida, length=1 << 24)
+
+
+def converte_zip_em_parquet(
+    caminho_zip: Path,
+    caminho_parquet: Path,
+    colunas: tuple[str, ...],
+    *,
+    nome_interno: str | None = None,
+) -> Path:
+    """Converte um CSV de dentro de um zip do TSE em parquet, só com `colunas`.
+
+    O CSV é extraído ao lado do parquet e apagado no fim: os `votacao_secao`
+    por UF dos anos municipais somam dezenas de GB descompactados, contra
+    algumas centenas de MB em parquet. As colunas continuam todas texto, como
+    em `_sql_read_csv`. Não refaz o que já existe.
+    """
+    if caminho_parquet.exists():
+        return caminho_parquet
+    caminho_csv = caminho_parquet.with_suffix(".csv")
+    parcial = caminho_parquet.with_suffix(".parquet.part")
+    extrai_csv_do_zip(caminho_zip, caminho_csv, nome_interno=nome_interno)
+    try:
+        duckdb.sql(
+            f"""copy (select {", ".join(colunas)} from {_sql_read_csv(caminho_csv)})
+                to '{str(parcial).replace("'", "''")}' (format parquet, compression zstd)"""
+        )
+    finally:
+        caminho_csv.unlink(missing_ok=True)
+    parcial.replace(caminho_parquet)
+    return caminho_parquet
+
+
+def _obtem_resultados_municipais(
+    ano: int, turno: int, cargo: str, ufs: list[str] | None
+) -> pd.DataFrame:
+    """Resultados por seção de um cargo municipal, dos zips por UF (ver módulo).
+
+    Os zips vêm de `03b_baixa_resultados.qmd` (o CDN devolve 403 ao Python).
+    """
+    destino = BRUTO_DIR / str(ano)
+    # Sem DF: não tem eleição municipal.
+    ufs = ufs or [uf for uf in UFS_27 if uf != "DF"]
+    parquets = [
+        converte_zip_em_parquet(
+            destino / f"votacao_secao_{ano}_{uf}.zip",
+            destino / f"votacao_secao_{ano}_{uf}.parquet",
+            COLUNAS_VOTACAO_SECAO,
+        )
+        for uf in ufs
+    ]
+
+    caminho_zip_detalhe = destino / f"detalhe_votacao_secao_{ano}.zip"
+    caminho_detalhe = destino / f"detalhe_votacao_secao_{ano}.parquet"
+    if caminho_detalhe.exists() or caminho_zip_detalhe.exists():
+        converte_zip_em_parquet(
+            caminho_zip_detalhe, caminho_detalhe, COLUNAS_DETALHE,
+            nome_interno=f"detalhe_votacao_secao_{ano}_BRASIL.csv",
+        )
+    else:
+        logger.info("%s não encontrado — qt_aptos vem de locais.qt_eleitores.", caminho_zip_detalhe.name)
+        caminho_detalhe = None
+
+    return ler_votacao_secao(
+        parquets, ano, turno, caminho_detalhe=caminho_detalhe,
+        cd_cargo=CARGOS[cargo]["cd_cargo"], por_partido=CARGOS[cargo]["por_partido"],
+    )
 
 
 def obtem_resultados_secao(
-    ano: int, turno: int, fonte: str, deve_baixar: bool
+    ano: int,
+    turno: int,
+    fonte: str,
+    deve_baixar: bool,
+    cargo: str = "presidente",
+    ufs: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Baixa (se pedido) e lê os resultados por seção, na fonte escolhida."""
+    """Baixa (se pedido) e lê os resultados por seção, na fonte escolhida.
+
+    `cargo` é uma chave de `config.CARGOS`. Os cargos municipais só existem em
+    `votacao_secao`, um zip por UF já em disco (`fonte` e `deve_baixar` não se
+    aplicam); `ufs` restringe a leitura a algumas UFs, para testar.
+    """
+    if cargo != "presidente":
+        return _obtem_resultados_municipais(ano, turno, cargo, ufs)
+
     destino = BRUTO_DIR / str(ano)
 
     if fonte == "bweb":

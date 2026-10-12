@@ -4,8 +4,9 @@ page-layout: full
 toc: false
 ---
 
-Resultados da eleição presidencial de 2018, 2022 e 2026 (TSE). Escolha o mapa, o
-ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
+Resultados da eleição presidencial de 2018, 2022 e 2026 e das eleições
+municipais de 2020 e 2024 (TSE). Escolha o mapa, o ano e o turno; passe o mouse
+sobre um ponto ou uma área para ver os números.
 
 ```{=html}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
@@ -16,11 +17,15 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
     <select id="sel-mapa">
       <optgroup label="Locais de votação (pontos)">
         <option value="pontos_presidente">Presidente — % dos votos válidos</option>
+        <option value="pontos_prefeito">Prefeito — partido mais votado</option>
+        <option value="pontos_vereador">Vereador — partido mais votado</option>
         <option value="pontos_branco_nulo">Brancos e nulos — % do total de votos</option>
         <option value="pontos_abstencao">Abstenção — % dos inscritos</option>
       </optgroup>
       <optgroup label="Zona eleitoral × município (áreas)">
         <option value="zona_mun_presidente">Presidente — % dos votos válidos</option>
+        <option value="zona_mun_prefeito">Prefeito — partido mais votado</option>
+        <option value="zona_mun_vereador">Vereador — partido mais votado</option>
         <option value="mudanca">Mudança de votação entre eleições</option>
         <option value="mudanca_tipo">De onde veio a mudança (% do eleitorado)</option>
       </optgroup>
@@ -50,7 +55,17 @@ ano e o turno; passe o mouse sobre um ponto ou uma área para ver os números.
 - Nos locais de votação, a **cor** é o percentual e o **tamanho** da bolinha é
   a base desse percentual: votos válidos (Presidente), total de votos (brancos
   e nulos) ou inscritos (abstenção). A área é proporcional à quantidade, na
-  mesma escala nos três anos.
+  mesma escala em todos os anos.
+- **Prefeito e Vereador** (2020 e 2024) pintam o **partido mais votado** em
+  cada local ou zona — não o eleito no município. Onze partidos têm cor própria
+  (os que mais venceram em 2024, mais PSOL e PRTB), com as cores oficiais de cada um; onde duas
+  coincidem, vale uma cor secundária do partido (PSB em laranja, União em azul-claro). Os demais
+  ficam em cinza, e o tooltip lista os três mais votados com a sigla. Em Prefeito, o voto é do candidato e a cor é a
+  do partido dele; em Vereador, somam-se os votos nominais e de legenda de cada
+  partido. Em 2020 a cor do União aparece como DEM, um dos dois partidos que o
+  formaram. O 2º turno só existe para Prefeito, nas cidades que o tiveram; o
+  resto do mapa fica sem dado. Nos anos municipais, brancos e nulos são os da
+  votação para Prefeito.
 - Nas cidades com mais de uma zona eleitoral, a fronteira *entre* as zonas é
   estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando
   for o caso.

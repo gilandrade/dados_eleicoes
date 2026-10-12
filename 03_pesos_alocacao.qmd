@@ -13,8 +13,12 @@ ao local de votação mais próximo do mesmo município e, a partir disso, produ
 - `geom_zona_mun_{ano}.gpkg` — zona × município, exata ou estimada;
 - `diagnostico_alocacao_{ano}.parquet` e `cobertura_setor_cnefe_{ano}.parquet`.
 
-A matriz é cara de calcular (~55 min no Brasil inteiro) e barata de aplicar: a
-etapa 04 só multiplica. Ver PLAN.md > Etapa 03.
+A matriz é cara de calcular e barata de aplicar: a etapa 04 só multiplica. Ver
+PLAN.md > Etapa 03.
+
+O CNEFE é processado **um município por vez**, só com coordenadas em arrays
+numpy (nunca um GeoDataFrame com os ~90 milhões de domicílios, que estourava a
+RAM): o pico de memória é o do maior município.
 
 ```bash
 quarto render 03_pesos_alocacao.qmd -P ano:2026
@@ -28,7 +32,6 @@ import sys
 
 sys.path.insert(0, "src")
 
-import duckdb
 import geopandas as gpd
 import pandas as pd
 
@@ -37,7 +40,6 @@ from eleicoes.config import (
     CNEFE_ESPECIES_DOMICILIO,
     CNEFE_MUN_DIR,
     CRS_METRICO_BR,
-    CRS_SIRGAS2000,
     GEOMETRIAS_DIR,
     POP18_SETOR_PARQUET,
     PROCESSADO_DIR,
@@ -114,8 +116,8 @@ pd.Series({
 
 Um `cnefe_{cd_mun}.parquet` por município em `CNEFE_MUN_DIR`
 (`00b_insumos_brasil.qmd` ou `09_insumos_municipio.qmd`), com `cd_setor` de 15
-dígitos e lat/lon em EPSG:4674. O filtro de espécie vai na query do DuckDB para
-não materializar o que seria descartado em seguida.
+dígitos e lat/lon em EPSG:4674. Aqui só se listam os arquivos; a leitura é feita
+município a município na seção 4.
 
 ```{python}
 #| label: domicilios
@@ -127,17 +129,7 @@ if not arquivos:
     )
 if cd_mun_filtro:
     arquivos = [a for a in arquivos if a.stem.removeprefix("cnefe_") in set(cd_mun_filtro)]
-
-especies = ", ".join(str(e) for e in CNEFE_ESPECIES_DOMICILIO)
-lista = ", ".join("'" + str(a).replace("\\", "/").replace("'", "''") + "'" for a in arquivos)
-df = duckdb.connect().sql(
-    f"select cd_mun, cd_setor, cod_especie, latitude, longitude "
-    f"from read_parquet([{lista}]) where cod_especie in ({especies})"
-).df()
-domicilios = gpd.GeoDataFrame(
-    df, geometry=gpd.points_from_xy(df["longitude"], df["latitude"]), crs=CRS_SIRGAS2000
-)
-print(f"{len(arquivos)} município(s), {len(domicilios):,} domicílios")
+print(f"{len(arquivos)} arquivo(s) de município")
 ```
 
 ## 3. População adulta por setor e limites municipais
@@ -161,48 +153,44 @@ if cd_mun_filtro:
 print(f"{len(pop18):,} setores com pop18, {len(municipios):,} município(s)")
 ```
 
-## 4. Cobertura de setor do CNEFE
+## 4. Domicílio → local mais próximo e cobertura de setor
+
+Vizinho mais próximo dentro do mesmo município, em EPSG:5880, e a contagem de
+domicílios por (local, setor) e por setor, tudo em `alocacao.conta_domicilios_por_local_setor`.
 
 Parte dos domicílios do CNEFE tem `cd_setor` que não existe na malha de 2022
 (cadastro de endereços numa safra diferente). Esses domicílios não puxam peso;
-aqui só se mede quanto é, por município.
+aqui só se mede quanto é, por município (`cobertura`).
 
 ```{python}
-#| label: cobertura
-cobertura = alocacao.mede_cobertura_setor(domicilios, pop18)
-pc_invalido_geral = 1 - domicilios["cd_setor"].isin(set(pop18["cd_setor"])).mean()
+#| label: alocacao
+n_dom_local_setor, n_dom_setor, cobertura, totais = alocacao.conta_domicilios_por_local_setor(
+    arquivos, locais_alocacao, pd.Index(pop18["cd_setor"]), especies=CNEFE_ESPECIES_DOMICILIO
+)
+
+print(f"{totais['n_dom']:,} domicílios")
+print(
+    f"{totais['n_sem_local']:,} domicílios ({100 * totais['n_sem_local'] / totais['n_dom']:.2f}%) "
+    "sem local elegível no município (município sem CNEFE útil ou sem local elegível)"
+)
+pc_invalido_geral = 1 - cobertura["n_dom_setor_valido"].sum() / cobertura["n_dom"].sum()
 print(f"{100 * pc_invalido_geral:.1f}% dos domicílios com cd_setor fora da malha oficial")
 cobertura.sort_values("pc_dom_setor_invalido", ascending=False).head(10)
 ```
 
-## 5. Domicílio → local mais próximo
-
-Vizinho mais próximo dentro do mesmo município, em EPSG:5880.
-
-```{python}
-#| label: alocacao
-domicilios["id_local"] = alocacao.aloca_domicilios_a_locais(domicilios, locais_alocacao)
-
-n_sem_local = int(domicilios["id_local"].isna().sum())
-print(
-    f"{n_sem_local:,} domicílios ({100 * n_sem_local / len(domicilios):.2f}%) sem local elegível "
-    "no município (município sem CNEFE útil ou sem local elegível)"
-)
-```
-
-## 6. Matriz de pesos local → setor
+## 5. Matriz de pesos local → setor
 
 `adultos(L, s) = n_dom(L ∩ s) × pop18(s) / n_dom(s)`, normalizado para somar 1
 em cada local.
 
 ```{python}
 #| label: pesos
-pesos = alocacao.constroi_pesos_local_setor(domicilios, pop18)
+pesos = alocacao.calcula_pesos_local_setor(n_dom_local_setor, n_dom_setor, pop18)
 print(f"{len(pesos):,} pares local × setor, {pesos['id_local'].nunique():,} locais")
 pesos.head()
 ```
 
-## 7. Áreas dos locais e diagnóstico
+## 6. Áreas dos locais e diagnóstico
 
 Voronoi dos locais recortado pelo município, e a razão entre adultos estimados
 e eleitores inscritos por local.
@@ -214,29 +202,34 @@ diagnostico = alocacao.diagnostico_razao_eleitores(locais_alocacao, pesos)
 diagnostico["razao_eleitores"].describe()
 ```
 
-## 8. Zona × município
+## 7. Zona × município
 
 Município de zona única usa o polígono do IBGE (exato). Com várias zonas, cada
 setor vai para a zona que recebe a maior parte dos seus adultos; setores sem
 adulto, para a zona do local mais próximo; depois as zonas são tornadas
 contínuas e fundidas (`geom_estimada = True`).
 
+Os setores só entram nos municípios com **mais de uma zona** (os de zona única
+usam o polígono do IBGE), então só esses são lidos da malha nacional (~1,5 GB, 472
+mil polígonos): o `where` do GDAL e `columns` evitam materializar o resto.
+
 ```{python}
 #| label: setores
+n_zonas = locais.groupby("cd_mun")["nr_zona"].nunique()
+muns_multi = sorted(n_zonas[n_zonas > 1].index)
+
 caminhos_mun = [SETORES_MUN_DIR / f"setores_{c}.gpkg" for c in cd_mun_filtro or []]
 if caminhos_mun and all(c.exists() for c in caminhos_mun):
     setores = pd.concat([gpd.read_file(c) for c in caminhos_mun], ignore_index=True)
+    setores = setores.loc[setores["CD_MUN"].isin(muns_multi)]
 else:
     if not SETORES_2022_GPKG.exists():
         raise FileNotFoundError(f"{SETORES_2022_GPKG} não existe. Rode 00b_insumos_brasil.qmd.")
-    if cd_mun_filtro:
-        # `where` do GDAL: não materializa o Brasil inteiro (~1,5 GB).
-        where = "CD_MUN IN (" + ", ".join(f"'{c}'" for c in cd_mun_filtro) + ")"
-        setores = gpd.read_file(SETORES_2022_GPKG, where=where)
-    else:
-        setores = gpd.read_file(SETORES_2022_GPKG)
+    # O campo do `where` tem de estar em `columns` com o nome exato do esquema.
+    where = "CD_MUN IN (" + ", ".join(f"'{c}'" for c in muns_multi) + ")"
+    setores = gpd.read_file(SETORES_2022_GPKG, where=where, columns=["CD_SETOR", "CD_MUN"])
 setores = setores.rename(columns={"CD_SETOR": "cd_setor", "CD_MUN": "cd_mun"})
-print(f"{len(setores):,} polígonos de setor")
+print(f"{len(muns_multi):,} municípios com várias zonas, {len(setores):,} polígonos de setor")
 ```
 
 ```{python}
@@ -245,7 +238,7 @@ zona_mun = alocacao.constroi_zona_mun(setores, locais, pesos, municipios)
 zona_mun["geom_estimada"].value_counts()
 ```
 
-## 9. Gravação
+## 8. Gravação
 
 ```{python}
 #| label: gravacao
