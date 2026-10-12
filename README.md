@@ -22,7 +22,7 @@ os resultados no território (locais → setores censitários) e o cronograma.
 - **Mudança de votação entre anos** (2º turno, Δ p.p. de Lula/Haddad + virada), por zona ×
   município.
 - **Visualizador de mapas** no site (página `mapas.qmd`): pontos por local e
-  zona × município, 2018 e 2022, com legenda e seletor de mapa/ano/turno.
+  zona × município, com legenda e seletor de mapa/ano/turno.
 - Artefatos de carga para o banco da GeoReDUS.
 
 ## Stack
@@ -80,6 +80,13 @@ cp .env.example .env             # preencher CARTO_API_KEY antes de gerar os map
 quarto render 03_pesos_alocacao.qmd -P ano:2022
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:2
+
+# Eleições municipais (2020, 2024): os zips de resultado vêm da 03b (um por UF);
+# a 04 roda por cargo (prefeito, vereador) e turno
+quarto render 03b_baixa_resultados.qmd -P ano:2024
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:2 -P cargo:prefeito
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:vereador
 
 # Mudança de votação entre anos (zona × município; turno 2 é o padrão)
 quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022

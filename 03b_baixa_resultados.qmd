@@ -1,0 +1,93 @@
+---
+title: "03b · Download dos resultados"
+search: false
+params:
+  ano: 2024
+---
+
+Baixa do CDN do TSE os zips que a etapa 04 lê, para `dados/01_bruto/{ano}/`.
+Fica em R porque o CDN devolve 403 ao `requests` do Python. Pula o que já
+estiver em disco.
+
+- **Ano geral** (2018, 2022, 2026): `votacao_secao_{ano}_BR.zip` (Presidente).
+- **Ano municipal** (2020, 2024): um `votacao_secao_{ano}_{UF}.zip` por UF (26,
+  sem DF) — não existe `_BR` nesses anos.
+- Nos dois casos, `detalhe_votacao_secao_{ano}.zip` (aptos e comparecimento por
+  seção) e `consulta_cand_{ano}.zip` (candidatos e siglas dos partidos).
+
+```bash
+quarto render 03b_baixa_resultados.qmd -P ano:2024
+```
+
+```{r setup}
+#| message: false
+library(httr2)
+
+ano <- as.integer(params$ano)
+BRUTO_DIR <- file.path("dados/01_bruto", ano)
+dir.create(BRUTO_DIR, showWarnings = FALSE, recursive = TRUE)
+
+TSE_CDN_BASE <- "https://cdn.tse.jus.br/estatistica/sead/odsele"
+ANOS_MUNICIPAIS <- c(2020L, 2024L)
+UFS_26 <- c(
+  "AC", "AL", "AP", "AM", "BA", "CE", "ES", "GO", "MA", "MT", "MS", "MG", "PA",
+  "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"
+)
+```
+
+```{r arquivos}
+votacao_secao <- if (ano %in% ANOS_MUNICIPAIS) {
+  sprintf("votacao_secao/votacao_secao_%d_%s.zip", ano, UFS_26)
+} else {
+  sprintf("votacao_secao/votacao_secao_%d_BR.zip", ano)
+}
+arquivos_tse <- c(
+  votacao_secao,
+  sprintf("detalhe_votacao_secao/detalhe_votacao_secao_%d.zip", ano),
+  sprintf("consulta_cand/consulta_cand_%d.zip", ano)
+)
+length(arquivos_tse)
+```
+
+```{r download}
+#| message: false
+baixar_com_retry <- function(url, destino, tentativas = 3) {
+  if (file.exists(destino)) {
+    return(invisible(destino))
+  }
+  parcial <- paste0(destino, ".part")
+  for (tentativa in seq_len(tentativas)) {
+    resultado <- tryCatch(
+      {
+        request(url) |>
+          req_user_agent("dados_eleicoes (CEM/USP)") |>
+          req_perform(path = parcial)
+        TRUE
+      },
+      error = function(e) {
+        message(sprintf("Tentativa %d/%d falhou: %s", tentativa, tentativas, conditionMessage(e)))
+        FALSE
+      }
+    )
+    if (isTRUE(resultado)) break
+    if (tentativa < tentativas) Sys.sleep(2^tentativa)
+  }
+  if (!isTRUE(resultado)) stop("Não foi possível baixar ", url)
+  file.rename(parcial, destino)
+  invisible(destino)
+}
+
+for (arquivo in arquivos_tse) {
+  baixar_com_retry(file.path(TSE_CDN_BASE, arquivo), file.path(BRUTO_DIR, basename(arquivo)))
+}
+```
+
+## Conferência
+
+```{r conferencia}
+tamanhos <- file.info(file.path(BRUTO_DIR, basename(arquivos_tse)))["size"]
+tamanhos$MB <- round(tamanhos$size / 1e6, 1)
+stopifnot("zip vazio ou ausente" = all(!is.na(tamanhos$size) & tamanhos$size > 1000))
+sprintf("%d arquivos, %.1f GB", nrow(tamanhos), sum(tamanhos$size) / 1e9)
+tamanhos["MB"]
+```

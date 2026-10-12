@@ -202,7 +202,9 @@ locais_final <- locais_validados |>
 
 # Ano de referência para o fallback "outro ano": nunca o próprio ano (antes,
 # 2018 apontava para si mesmo e o passo não fazia nada).
-ano_referencia <- c("2018" = 2022, "2022" = 2018, "2026" = 2022)[[as.character(ano)]]
+ano_referencia <- c(
+  "2018" = 2022, "2020" = 2022, "2022" = 2018, "2024" = 2022, "2026" = 2022
+)[[as.character(ano)]]
 ref_outro_ano <- referencia_outro_ano(ano_referencia)
 if (!is.null(ref_outro_ano)) {
   locais_final <- aplica_fallback(locais_final, ref_outro_ano, sprintf("ano_%d", ano_referencia))

@@ -23,6 +23,18 @@
     zona_mun_presidente: { tipo: "zona_mun", cores: "div", legendaPorAno: true },
     mudanca: { tipo: "mudanca", cores: "mud" },
     mudanca_tipo: { tipo: "mudanca", cores: "tipo", posClasse: 5 },
+    // Eleições municipais: cor = partido mais votado. `cargo` escolhe o arquivo
+    // de valores (`..._t{turno}_{cargo}.json`) e a lista de anos disponíveis.
+    pontos_prefeito: {
+      tipo: "pontos", classe: "c_part", cores: "part", legendaPorAno: true, cargo: "prefeito",
+      tamanho: "val", rotuloTamanho: "votos válidos",
+    },
+    zona_mun_prefeito: { tipo: "zona_mun", cores: "part", legendaPorAno: true, cargo: "prefeito" },
+    pontos_vereador: {
+      tipo: "pontos", classe: "c_part", cores: "part", legendaPorAno: true, cargo: "vereador",
+      tamanho: "val", rotuloTamanho: "votos válidos",
+    },
+    zona_mun_vereador: { tipo: "zona_mun", cores: "part", legendaPorAno: true, cargo: "vereador" },
   };
   const ehMapaMudanca = (chave) => MAPAS[chave].tipo === "mudanca";
 
@@ -84,9 +96,21 @@
   }
 
   function combinacoes(chaveMapa) {
-    const tipo = MAPAS[chaveMapa].tipo;
-    return tipo === "pontos" ? config.disponivel.pontos : config.disponivel.zona_mun;
+    const spec = MAPAS[chaveMapa];
+    if (spec.cargo) return config.disponivel[chaveMapa] || [];
+    if (spec.tipo !== "pontos") return config.disponivel.zona_mun;
+    // Brancos e nulos e abstenção existem também nos anos municipais, pelos
+    // números de Prefeito (o cargo majoritário, como Presidente nos gerais).
+    return chaveMapa === "pontos_presidente"
+      ? config.disponivel.pontos
+      : [...config.disponivel.pontos, ...(config.disponivel.pontos_prefeito || [])];
   }
+
+  // Cargo que dá nome ao arquivo de valores: o do mapa ou, nos mapas sem cargo
+  // (brancos e nulos, abstenção), Prefeito nos anos municipais. `null` = Presidente.
+  const cargoDoArquivo = (spec, ano) =>
+    spec.cargo || ((config.anos_municipais || []).includes(ano) ? "prefeito" : null);
+  const sufixoCargo = (cargo) => (cargo ? "_" + cargo : "");
 
   function preencheSeletores(estado) {
     const selAno = el("sel-ano");
@@ -205,6 +229,7 @@
 
   function corDaClasse(classe, paleta) {
     const cores = paleta === "seq" ? config.cores_sequenciais
+      : paleta === "part" ? config.cores_partido
       : paleta === "tipo" ? config.cores_tipo_mudanca
       : paleta === "mud" ? config.cores_mudanca : config.cores_divergentes;
     return classe >= 0 ? cores[classe] : config.cor_sem_dado;
@@ -248,10 +273,23 @@
     return `${escapa(config.nome_pt[String(ano)])}: <b>${fmtPct(pt)}</b> · ${escapa(config.nome_bolsonaro[String(ano)])}: <b>${fmtPct(bo)}</b>`;
   }
 
+  // Os três mais votados de um local ou zona: "SIGLA — Candidato: 45,2%". O
+  // nome só existe em Prefeito (`nomesMun` = {nr: nome} do município).
+  function linhasPartidos(nrs, pcs, partidos, nomesMun) {
+    return nrs.map((nr, k) => {
+      if (nr == null) return "";
+      const nome = nomesMun && nomesMun[String(nr)];
+      return `${k ? "<br>" : ""}${escapa(partidos[String(nr)] || nr)}${nome ? " — " + escapa(nome) : ""}: <b>${fmtPct(pcs[k])}</b>`;
+    }).join("");
+  }
+
   async function camadaPontos(estado) {
     const { ano, turno } = estado;
     const spec = MAPAS[estado.mapa];
-    const [geo, res] = await Promise.all([carrega(`locais_${ano}.json`), carrega(`locais_${ano}_t${turno}.json`)]);
+    const cargo = cargoDoArquivo(spec, ano);
+    const [geo, res] = await Promise.all([
+      carrega(`locais_${ano}.json`), carrega(`locais_${ano}_t${turno}${sufixoCargo(cargo)}.json`),
+    ]);
     preencheFiltros(
       geo.id.length, (i) => geo.ufs[geo.uf[i]], (i) => geo.municipios[geo.mun[i]], (i) => geo.bairros[geo.bairro[i]]
     );
@@ -283,9 +321,17 @@
     const texto = (i) => {
       const cabecalho = `<b>${escapa(geo.nome[i] || geo.id[i])}</b><br>${escapa(geo.municipios[geo.mun[i]])}<br>`;
       if (estado.mapa === "pontos_branco_nulo")
-        return cabecalho + `Brancos e nulos: <b>${fmtPct(res.bn[i])}</b><br>Comparecimento: ${fmtNum(res.comp[i])} votos`;
+        return cabecalho + `Brancos e nulos${cargo ? " (Prefeito)" : ""}: <b>${fmtPct(res.bn[i])}</b>` +
+          `<br>Comparecimento: ${fmtNum(res.comp[i])} votos`;
       if (estado.mapa === "pontos_abstencao")
         return cabecalho + `Abstenção: <b>${fmtPct(res.abst[i])}</b><br>Inscritos: ${fmtNum(res.aptos[i])}`;
+      if (spec.cargo) {
+        if (res.nr[0][i] == null) return cabecalho + "Sem dado";
+        // id_local começa pelo código TSE do município (5 dígitos).
+        const nomesMun = res.nomes && res.nomes[geo.id[i].slice(0, 5)];
+        return cabecalho + linhasPartidos(res.nr.map((c) => c[i]), res.pc.map((c) => c[i]), res.partidos, nomesMun) +
+          `<br>Votos válidos: ${fmtNum(res.val[i])}`;
+      }
       return cabecalho + linhaPresidente(res.pt[i], res.bo[i], ano) + maisVotado(res.venc[i], res.candidatos, ano) +
         `<br>Votos válidos: ${fmtNum(res.val[i])}`;
     };
@@ -303,9 +349,10 @@
     const posClasse = MAPAS[estado.mapa].posClasse || 0;
     const paleta = MAPAS[estado.mapa].cores;
     const [anoAntes, anoDepois, turnoMud] = ehMudanca ? estado.par.split("-").map(Number) : [null, estado.ano, null];
+    const cargo = MAPAS[estado.mapa].cargo;
     const arquivoDados = ehMudanca
       ? `mudanca_${anoAntes}_${anoDepois}_t${turnoMud}.json`
-      : `zona_mun_${estado.ano}_t${estado.turno}.json`;
+      : `zona_mun_${estado.ano}_t${estado.turno}${sufixoCargo(cargo)}.json`;
     const [geo, res] = await Promise.all([carrega(`zona_mun_${anoDepois}_geo.json`), carrega(arquivoDados)]);
     const dados = res.dados;
     const recorte = recorteZonas(geo);
@@ -370,6 +417,11 @@
             `(${pctVal(boA, valA)} → ${pctVal(boD, valD)}; <b>${fmtPp(dpBo)}</b>)` +
             linhaTerceiro + cresceuMais) +
           (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "");
+      } else if (cargo) {
+        // id_zona_mun começa pelo código IBGE do município (7 dígitos).
+        const nomesMun = res.nomes && res.nomes[p.id.slice(0, 7)];
+        html += linhasPartidos([d[1], d[3], d[5]], [d[2], d[4], d[6]], res.partidos, nomesMun) +
+          `<br>Comparecimento: ${fmtNum(d[7])} votos`;
       } else {
         html += linhaPresidente(d[1], d[2], estado.ano) + maisVotado(d[5], res.candidatos, estado.ano) +
           `<br>Comparecimento: ${fmtNum(d[4])} votos`;
@@ -436,7 +488,12 @@
     if (inicial.vista) mapa.setView([inicial.vista[0], inicial.vista[1]], inicial.vista[2]);
     mapa.on("moveend", () => gravarHash());
     Object.assign(filtro, { uf: inicial.uf, mun: inicial.mun, bairro: inicial.bairro });
-    if (inicial.mapa && MAPAS[inicial.mapa]) el("sel-mapa").value = inicial.mapa;
+    // Mapa sem dado exportado (ex.: ano municipal ainda não processado) sai do seletor.
+    for (const opcao of [...el("sel-mapa").options]) {
+      if (!ehMapaMudanca(opcao.value) && !combinacoes(opcao.value).length) opcao.remove();
+    }
+    if (inicial.mapa && MAPAS[inicial.mapa] && [...el("sel-mapa").options].some((o) => o.value === inicial.mapa))
+      el("sel-mapa").value = inicial.mapa;
     preencheSeletores({ mapa: el("sel-mapa").value, ano: inicial.ano, turno: inicial.turno, par: inicial.par });
 
     el("sel-mapa").addEventListener("change", desenha);

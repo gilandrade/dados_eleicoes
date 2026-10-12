@@ -10,9 +10,19 @@ Lê os resultados por seção (boletim de urna ou `votacao_secao`) e agrega por
 pesos da etapa 03, por **setor**. Só lê, agrega e escreve; não recalcula nada
 espacial. Ver PLAN.md > Noite da eleição.
 
+Roda uma vez por ano × turno × **cargo**: Presidente (padrão) nos anos gerais;
+Prefeito e Vereador nos municipais (2020, 2024), a partir dos zips por UF de
+`03b_baixa_resultados.qmd`. Em Prefeito, `qt_votos_{nr}` é o número do
+candidato, que é o do partido — a pessoa muda de município para município
+(nomes em `candidatos_prefeito_{ano}_t{turno}.parquet`). Em Vereador, os votos
+são somados por partido (nominais + legenda).
+
 ```bash
 quarto render 04_resultados_turno.qmd -P ano:2026 -P turno:1 -P fonte:bweb -P baixar:true
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:vereador
+quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito -P uf:PI   # teste numa UF
 ```
 
 ```{python}
@@ -26,6 +36,7 @@ import pandas as pd
 
 from eleicoes import exporta, fontes, resultados
 from eleicoes.config import (
+    CARGOS,
     CODIGOS_NAO_CANDIDATO,
     NOME_BOLSONARO_POR_ANO,
     NOME_PT_POR_ANO,
@@ -45,12 +56,19 @@ ano = 2022
 turno = 1
 fonte = "votacao_secao"  # "bweb" = caminho rápido (boletim de urna); "votacao_secao" = consolidado oficial
 baixar = False           # baixa os arquivos antes de ler
+cargo = "presidente"     # ou "prefeito" / "vereador" (anos municipais)
+uf = ""                  # só cargos municipais: uma ou mais UFs, separadas por vírgula; vazio = Brasil
 ```
 
 ```{python}
 #| label: parametros-derivados
 ano, turno = int(ano), int(turno)
-print(f"ano={ano} | turno={turno} | fonte={fonte} | baixar={baixar}")
+if cargo not in CARGOS:
+    raise ValueError(f"cargo desconhecido: {cargo!r} (use {', '.join(CARGOS)})")
+ufs = [u.strip().upper() for u in str(uf).split(",") if u.strip()] or None
+# Rodada de teste (uma UF) não sobrescreve os arquivos do Brasil.
+prefixo = f"res_{cargo}_{ano}_t{turno}" + (f"_{'_'.join(ufs)}" if ufs else "")
+print(f"ano={ano} | turno={turno} | cargo={cargo} | UFs={ufs or 'Brasil'} | fonte={fonte} | baixar={baixar}")
 ```
 
 ## 1. Seções, locais e pesos
@@ -82,7 +100,7 @@ Uma linha por seção × votável, no mesmo esquema para as duas fontes
 
 ```{python}
 #| label: resultados-secao
-resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar))
+resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar), cargo=cargo, ufs=ufs)
 print(f"{len(resultados_secao):,} linhas de resultado por seção")
 resultados_secao.head()
 ```
@@ -151,11 +169,35 @@ res_setor.shape
 ```{python}
 #| label: gravacao
 #| output: false
-prefixo = f"res_presidente_{ano}_t{turno}"
 exporta.escreve_resultados(res_local, RESULTADOS_DIR / f"{prefixo}_local.parquet")
 exporta.escreve_resultados(res_zona_mun, RESULTADOS_DIR / f"{prefixo}_zona_mun.parquet")
 exporta.escreve_resultados(res_municipio, RESULTADOS_DIR / f"{prefixo}_municipio.parquet")
 exporta.escreve_resultados(res_setor, RESULTADOS_DIR / f"{prefixo}_setor.parquet")
+```
+
+Nomes dos candidatos por município (só quando o cargo é lido por candidato e o
+candidato muda de um município para outro): o formato largo guarda só o número.
+
+```{python}
+#| label: candidatos
+if cargo != "presidente" and not CARGOS[cargo]["por_partido"]:
+    nomes = (
+        com_id.loc[~com_id["nr_votavel"].isin(CODIGOS_NAO_CANDIDATO)]
+        .groupby(["cd_mun_tse", "nr_votavel", "nm_votavel"], as_index=False)["qt_votos"].sum()
+        .merge(
+            pd.read_parquet(PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet")[["cd_mun_tse", "cd_mun"]],
+            on="cd_mun_tse", how="left",
+        )
+    )
+    assert not nomes.duplicated(["cd_mun_tse", "nr_votavel"]).any(), "mais de um nome para o mesmo número no município"
+    # Município criado depois da base do crosswalk (Boa Esperança do Norte/MT,
+    # código TSE 73709, em 2024) fica sem `cd_mun`: nos resultados ele cai na
+    # linha do sentinela de `resultados.SENTINELA_EXTERIOR`, como o exterior.
+    sem_crosswalk = nomes.loc[nomes["cd_mun"].isna(), "cd_mun_tse"].unique()
+    if len(sem_crosswalk):
+        print(f"municípios sem crosswalk TSE x IBGE: {', '.join(sem_crosswalk)}")
+    nomes.to_parquet(RESULTADOS_DIR / f"{prefixo.replace('res_', 'candidatos_', 1)}.parquet", index=False)
+    print(f"{len(nomes):,} candidatos em {nomes['cd_mun'].nunique():,} municípios")
 ```
 
 ## Conferência
@@ -178,14 +220,37 @@ print(f"votos fora do setor: {100 * perda_setor:.2f}%")
 totais
 ```
 
-Lula/Haddad e o bolsonarista do ano, para comparar com o número oficial do TSE.
+Presidente: Lula/Haddad e o bolsonarista do ano, para comparar com o número
+oficial do TSE. Cargos municipais: municípios com resultado (5.569 no 1º turno
+de 2024; não há eleição no DF), comparecimento e aptos.
 
 ```{python}
 #| label: conferencia-candidatos
-pd.Series({
-    NOME_PT_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_PT}"].sum()),
-    NOME_BOLSONARO_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_BOLSONARO_POR_ANO[ano]}"].sum()),
+geral = {
     "comparecimento": int(res_zona_mun["qt_comparecimento"].sum()),
     "aptos": int(res_zona_mun["qt_aptos"].sum()),
-})
+}
+if cargo == "presidente":
+    conferencia = {
+        NOME_PT_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_PT}"].sum()),
+        NOME_BOLSONARO_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_BOLSONARO_POR_ANO[ano]}"].sum()),
+        **geral,
+    }
+else:
+    conferencia = {"municípios com resultado": len(res_municipio), **geral}
+pd.Series(conferencia)
+```
+
+Cargos municipais: votos no país e municípios em que cada partido foi o mais
+votado, pelo número do partido.
+
+```{python}
+#| label: conferencia-partidos
+if cargo != "presidente":
+    display(
+        pd.DataFrame({
+            "votos": res_municipio[cols_votos_validos].sum().astype("int64").rename(lambda c: int(c.removeprefix("qt_votos_"))),
+            "municípios em que foi o mais votado": res_municipio["nr_vencedor"].value_counts(),
+        }).fillna(0).astype("int64").sort_values("votos", ascending=False).rename_axis("nr_partido")
+    )
 ```

@@ -45,6 +45,80 @@ QUEBRAS_BRANCO_NULO = (0.03, 0.05, 0.07, 0.10)
 QUEBRAS_ABSTENCAO = (0.15, 0.18, 0.21, 0.25)
 
 
+# Mapa "partido mais votado" (eleições municipais): cor categórica por sigla,
+# para os nove partidos que mais venceram em municípios e em votos para
+# Prefeito em 2024 (o mesmo conjunto nos dois critérios), mais PSOL e PRTB, que
+# ficam entre os mais votados nas capitais (Boulos e Marçal em São Paulo); o
+# resto é "Outros".
+#
+# Cores **oficiais** dos partidos (pedido do Gil, 12/10/2026), tiradas das
+# infoboxes da Wikipédia em 12/10/2026 (cor principal e as secundárias da
+# identidade de cada partido); o PSOL (#FEDF00) foi indicado por ele. Cinco
+# partidos têm o azul como cor principal e PSB e PSOL, o amarelo, então onde
+# duas coincidem vale a secundária. A combinação foi escolhida por busca entre
+# as cores de cada partido (maior distância mínima ΔE OKLab, com o menor número
+# de trocas): só duas saíram da cor principal — PSB (laranja #FF8000, o
+# amarelo é do PSOL) e União (ciano #0FC0E6, o azul #254AA5 ficou parecido com
+# o de PP, PL e PSDB). Pior par: ΔE 7,1 (PL x Republicanos, dois azuis); os
+# demais pares passam de 8. Onze categorias NÃO passam em `validate_palette.js
+# --pairs all` (só três passariam): a sigla no tooltip e na legenda é a segunda
+# codificação, a cor sozinha não identifica o partido.
+CORES_PARTIDO = {
+    "PT": "#E20E28",
+    "PL": "#015AAA",
+    "PSD": "#FFA500",
+    "MDB": "#30914D",
+    "PP": "#1A3D72",
+    "UNIÃO": "#0FC0E6",
+    "REPUBLICANOS": "#0070C5",
+    "PSB": "#FF8000",
+    "PSDB": "#0080FF",
+    "PSOL": "#FEDF00",
+    "PRTB": "#2CB53F",
+}
+COR_OUTROS_PARTIDOS = "#898781"
+# Sigla de 2020 -> sigla que dá a cor. O DEM se fundiu com o PSL no União em
+# 2022; em 2020 foi o DEM que venceu em centenas de municípios, e fica com a
+# cor do sucessor (a legenda de 2020 mostra "DEM").
+SIGLA_COR_PARTIDO = {"DEM": "UNIÃO"}
+
+
+def cores_partido() -> list[str]:
+    """Cores de `CORES_PARTIDO`, na ordem, e a de "Outros" no fim."""
+    return [*CORES_PARTIDO.values(), COR_OUTROS_PARTIDOS]
+
+
+def _classe_da_sigla(sigla: str | None) -> int:
+    siglas = list(CORES_PARTIDO)
+    sigla = SIGLA_COR_PARTIDO.get(sigla, sigla)
+    return siglas.index(sigla) if sigla in siglas else len(siglas)
+
+
+def classifica_partido(nr_partido: pd.Series, siglas: dict[int, str]) -> np.ndarray:
+    """Índice em `cores_partido()` do partido de número `nr_partido`; `siglas`
+    é `{número: sigla}` do ano (os números mudam de dono: 25 era DEM em 2020 e
+    é PRD em 2024). NaN = `SEM_DADO`."""
+    nr = pd.to_numeric(nr_partido, errors="coerce")
+    classe = nr.map(lambda n: SEM_DADO if pd.isna(n) else _classe_da_sigla(siglas.get(int(n))))
+    return classe.astype(int).to_numpy()
+
+
+def legenda_partido(titulo: str, siglas: dict[int, str]) -> dict:
+    """Legenda do mapa de partido mais votado, só com as siglas do ano."""
+    do_ano = {}
+    for sigla in siglas.values():
+        classe = _classe_da_sigla(sigla)
+        if classe < len(CORES_PARTIDO):
+            do_ano[classe] = sigla
+    cores = cores_partido()
+    return _legenda(
+        titulo,
+        [*(cores[c] for c in sorted(do_ano)), COR_OUTROS_PARTIDOS],
+        [*(do_ano[c] for c in sorted(do_ano)), "Outros partidos"],
+        nota="A cor é do partido com mais votos válidos no local ou na zona. Passe o mouse para ver os três mais votados.",
+    )
+
+
 def cores_divergentes() -> list[str]:
     """Lula/Haddad forte -> Lula/Haddad fraco, empate, Bolsonaro fraco -> Bolsonaro forte."""
     return [*reversed(RAMPA_PT), COR_EMPATE, *RAMPA_BOLSONARO]
