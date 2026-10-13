@@ -460,6 +460,36 @@ data model (geometry files vs. result files joined by a shared id).
   - Experimento da limpeza de continuidade (`-P limite_ponte:0.15 -P permite_cortar:true`,
     `alocacao.PERMITE_PONTE_CORTAR_ZONA`): no Rio piora o encaixe com o CEM (área igual
     88,5% → 86,6%); em São Paulo não muda nada. Manter a limpeza padrão.
+  - **Lote `rms_cem_2022` rodado (12/10/2026)**: 71 municípios, 03d com `memoria_gb:24`
+    `bloco:2000` `max_min:60`, sem estouro de RAM (64 GB). Concordância com o CEM
+    (setores na mesma zona, sem Rio e São Paulo capitais, cujos `setor_zona_*` próprios
+    só existem na máquina que os rodou): 94,75% (linha reta) e 94,88% (rede); por RM de
+    90,9% (Salvador) a 98,1% (Baixada Santista). Rede não ajuda de forma consistente
+    (Curitiba e Recife pioram 0,0–0,4 p.p.).
+  - **r5r pode devolver um bloco com `from_id`/`to_id` trocados** (visto em Belém,
+    60 linhas: "setor" da saída era um local). `menores()` desfaz a troca antes de
+    escolher os 5 menores; sem isso a conferência `id_local %in% locais` falha.
+  - **As zonas do CEM respeitam os setores 2022 só em boa parte** (73 municípios, 125.641
+    setores): 96,4% dos setores têm ≥95% da área numa zona, 2,5% são cortados (>5% em
+    2+ zonas), e só 60% da fronteira interna fica a ≤15 m de uma borda de setor
+    (São Paulo 82%, Brasília 40%, Viamão 11%). Tirar os setores divididos sobe a
+    concordância só 0,8 p.p. (94,75% → 95,53%), então isso **não** explica a divergência
+    (`notebooks/teste_concordancia_setores_inteiros.py`).
+  - **Padrão das discordâncias** (Salvador, Belém, Curitiba; só setores inteiros;
+    `notebooks/inspeciona_discordancias_cem.py`): ~80% ficam a <300 m da fronteira CEM
+    (taxa de discordância 25–36% a <100 m, <2% a >300 m); em Salvador 55% estão em
+    bolsões de >10 setores, com pares repetidos (zona 2 → 13, 8 → 13). Em ~72% dos casos o
+    local da nossa zona está mais perto que o da zona CEM, ou seja, a fronteira real não
+    é Voronoi dos locais (segue vias, bairros ou limites administrativos). As
+    coordenadas dos locais estão certas (98–99% dentro da zona CEM do próprio local;
+    Hidalgo em Salvador 96%). O teto do critério "local mais próximo" é ~95%; passar
+    disso exige informação de fronteira (bairro, distrito) ou tratar a faixa de ~300 m
+    como incerta.
+  - **Ambiente (Windows)**: `quarto render` de `.qmd` Python com `-P` pede `papermill` no
+    venv e `QUARTO_PYTHON` em formato Windows (`C:\...\venv\Scripts\python.exe`); mesmo
+    assim a 03c falhou com `-P` e foi rodada com os parâmetros embutidos numa cópia
+    temporária. `compara_zonas_cem.py` precisa de `dados/mapas_comparacao/` já criada.
+    `osmium-tool` via Miniforge (`conda create -n osm -c conda-forge osmium-tool`).
 - **`SETORES_2022_GPKG` tem 914 códigos de setor repetidos** (um setor em mais
   de um polígono, em 267 municípios). Qualquer merge por `cd_setor` com a malha
   precisa juntar os pedaços antes (`dissolve`), senão cruza linhas em silêncio.
