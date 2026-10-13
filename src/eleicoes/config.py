@@ -44,6 +44,23 @@ POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 SETORES_MUN_DIR = BRUTO_DIR / "aux" / "setores"
 SETORES_2022_GPKG = SETORES_MUN_DIR / "BR_setores_CD2022.gpkg"
 
+# ==== Rede viária (OSM + r5r, etapas 03c/03d) ================================
+
+OSM_DIR = BRUTO_DIR / "aux" / "osm"
+# O Geofabrik só publica o Brasil por região; o recorte por município sai de
+# `osm.recorta_municipios` (03c_recorta_osm.qmd).
+GEOFABRIK_BRASIL_URL = "https://download.geofabrik.de/south-america/brazil/{regiao}-latest.osm.pbf"
+REGIAO_GEOFABRIK_POR_UF = {
+    **dict.fromkeys(["AC", "AM", "AP", "PA", "RO", "RR", "TO"], "norte"),
+    **dict.fromkeys(["AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE"], "nordeste"),
+    **dict.fromkeys(["ES", "MG", "RJ", "SP"], "sudeste"),
+    **dict.fromkeys(["PR", "RS", "SC"], "sul"),
+    **dict.fromkeys(["DF", "GO", "MS", "MT"], "centro-oeste"),
+}
+# osmium-tool (recorte do OSM, `osm.py`): caminho do executável, se não estiver no PATH.
+OSMIUM_BIN = os.environ.get("OSMIUM_BIN", "")
+OSM_BUFFER_GRAUS = 0.03  # ~3 km em volta do município, para rotas que saem pela divisa
+
 # ==== CRS ====================================================================
 
 CRS_WGS84 = 4326

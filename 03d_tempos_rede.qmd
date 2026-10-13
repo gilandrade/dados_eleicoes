@@ -1,0 +1,227 @@
+---
+title: "03d · Tempo na rede viária"
+params:
+  ano: 2022
+  cd_mun: ""
+  memoria_gb: 8
+  bloco: 5000
+  max_min: 120
+  rotulo: ""
+---
+
+Tempo de viagem na rede viária (OSM + r5r) do ponto representativo de cada
+setor até os locais de votação do mesmo município, só nos municípios com
+**várias zonas**. Método do
+[interpElections](https://antrologos.github.io/interpElections/articles/methodology.html):
+origem = `point_on_surface` do setor, destino = coordenada do local, a pé (cai
+para carro quando mais de 1% dos setores não alcança nenhum local a pé), tempo
+máximo de `max_min` minutos (par acima do limite = inalcançável).
+
+A etapa 03 usa o **local de menor tempo** de cada setor para traçar as zonas
+(`alocacao.local_mais_proximo_por_tempo`), no lugar da linha reta. Barreiras
+(rios, morros, baías) entram pela própria rede, sem penalidade explícita.
+
+Precisa dos recortes de `03c_recorta_osm.qmd` e de Java 21. Para não estourar a
+RAM, a rede é montada **um município por vez**, as origens vão em blocos de
+`bloco` setores e só os 5 menores tempos de cada setor são guardados (nunca a
+matriz setores × locais). É retomável: município com saída em
+`dados/02_processado/aux/tempo_rede_{ano}/` não é refeito.
+
+```bash
+quarto render 03d_tempos_rede.qmd -P ano:2022 -P cd_mun:2211001
+```
+
+```{r setup}
+#| message: false
+# O r5r inicia a JVM com os próprios parâmetros e descarta `java.parameters`
+# (sem isso o teto vira 1/4 da RAM, ~8 GB nesta máquina). Por isso a JVM é
+# iniciada aqui, com o -Xmx, antes de carregar o r5r.
+rJava::.jinit(parameters = c(
+  paste0("-Xmx", as.integer(params$memoria_gb), "g"),
+  "-DLOG_PATH=dados/01_bruto/aux/osm/r5r-log.log", "-DR5_VER=r5", "-DR5R_VER=2.4.0"
+))
+library(dplyr)
+library(sf)
+library(arrow)
+library(data.table)
+library(r5r)
+
+ano <- params$ano
+cd_mun_filtro <- trimws(strsplit(as.character(params$cd_mun), ",")[[1]])
+cd_mun_filtro <- cd_mun_filtro[nzchar(cd_mun_filtro)]
+sufixo <- if (length(cd_mun_filtro)) paste0("_", paste(cd_mun_filtro, collapse = "_")) else ""
+if (nzchar(params$rotulo)) sufixo <- paste0("_", params$rotulo)  # lote com nome no lugar da lista de códigos
+
+GEOMETRIAS_DIR <- "dados/03_georedus/geometrias"
+RESULTADOS_DIR <- "dados/03_georedus/resultados"
+OSM_DIR <- "dados/01_bruto/aux/osm"
+PARCIAIS_DIR <- file.path("dados/02_processado/aux", sprintf("tempo_rede_%d", ano))
+SETORES_2022_GPKG <- "dados/01_bruto/aux/setores/BR_setores_CD2022.gpkg"
+SETORES_MUN_DIR <- "dados/01_bruto/aux/setores"
+dir.create(PARCIAIS_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(RESULTADOS_DIR, showWarnings = FALSE, recursive = TRUE)
+
+MAX_MIN <- as.integer(params$max_min)
+BLOCO <- as.integer(params$bloco)
+VELOCIDADE_A_PE_KMH <- 3.6
+LIMIAR_INALCANCAVEL <- 0.01
+N_MENORES <- 5
+```
+
+## 1. Locais e municípios
+
+Locais com coordenada real (sem os especiais e sem os do centróide do
+município), nos municípios com mais de uma zona.
+
+```{r locais}
+locais <- st_read(file.path(GEOMETRIAS_DIR, sprintf("geom_locais_votacao_%d.gpkg", ano)), quiet = TRUE) |>
+  filter(!flag_especial, !flag_sem_coord)
+n_zonas <- locais |> st_drop_geometry() |> group_by(cd_mun) |> summarise(n = n_distinct(nr_zona))
+muns <- sort(n_zonas$cd_mun[n_zonas$n > 1])
+if (length(cd_mun_filtro)) muns <- intersect(muns, cd_mun_filtro)
+locais <- locais |> filter(cd_mun %in% muns)
+cat(length(muns), "município(s) com várias zonas,", nrow(locais), "locais\n")
+```
+
+## 2. Setores: ponto representativo
+
+Um ponto dentro de cada setor (`st_point_on_surface`), em EPSG:4326 como o r5r
+exige. A malha tem 914 códigos repetidos: os pedaços são juntados antes.
+
+```{r funcoes}
+le_setores_mun <- function(cd) {
+  arq <- file.path(SETORES_MUN_DIR, sprintf("setores_%s.gpkg", cd))
+  if (file.exists(arq)) {
+    s <- st_read(arq, quiet = TRUE)
+  } else {
+    q <- sprintf("SELECT CD_SETOR, CD_MUN, geom FROM setores WHERE CD_MUN = '%s'", cd)
+    s <- st_read(SETORES_2022_GPKG, query = q, quiet = TRUE)
+  }
+  s |>
+    group_by(CD_SETOR) |>
+    summarise(geom = st_union(geom), .groups = "drop") |>
+    st_make_valid()
+}
+
+pontos_origem <- function(s) {
+  p <- suppressWarnings(st_point_on_surface(s)) |> st_transform(4326)
+  xy <- st_coordinates(p)
+  data.frame(id = s$CD_SETOR, lon = xy[, 1], lat = xy[, 2])
+}
+
+# Os `n` menores tempos de cada origem (data.table, sem guardar o resto).
+menores <- function(tt, n = N_MENORES, ids_origem = NULL) {
+  tt <- as.data.table(tt)
+  setnames(tt, "travel_time_p50", "minutos", skip_absent = TRUE)
+  # O r5r às vezes devolve o bloco com origem e destino trocados (visto em Belém,
+  # 1501402): sem desfazer, o "setor" da saída seria um local. Tempo a pé é simétrico.
+  if (!is.null(ids_origem) && nrow(tt) && !any(tt$from_id %in% ids_origem) && any(tt$to_id %in% ids_origem)) {
+    setnames(tt, c("from_id", "to_id"), c("to_id", "from_id"))
+  }
+  tt <- tt[!is.na(minutos)]
+  tt[order(from_id, minutos), head(.SD, n), by = from_id][, .(cd_setor = from_id, id_local = to_id, minutos)]
+}
+
+# Roda as origens em blocos e junta só os menores tempos.
+#
+# Poda de pares (exata a pé): em `MAX_MIN` minutos ninguém anda mais que
+# `alcance_m` em linha reta, então cada bloco de setores vizinhos só precisa dos
+# locais dentro do retângulo do bloco + `alcance_m`. Sem a poda, São Paulo
+# (~100 mil setores × ~1,7 mil locais) levava mais de 30 min sem terminar.
+tempos_por_blocos <- function(rede, origens, destinos, modo) {
+  if (!nrow(origens)) return(NULL)
+  alcance_m <- if (modo == "WALK") MAX_MIN / 60 * VELOCIDADE_A_PE_KMH * 1000 else Inf
+  graus_lat <- alcance_m / 111000 * 1.05
+  # Origens em ordem de células de 0,03 grau (em serpentina), para os blocos
+  # serem compactos no espaço.
+  col <- floor(origens$lon / 0.03)
+  lin <- floor(origens$lat / 0.03)
+  ordem <- order(col, ifelse(col %% 2 == 0, lin, -lin))
+  origens <- origens[ordem, ]
+  blocos <- split(seq_len(nrow(origens)), ceiling(seq_len(nrow(origens)) / BLOCO))
+  saidas <- lapply(blocos, function(i) {
+    o <- origens[i, ]
+    # 1 grau de longitude vale 111 km × cos(lat): vale a latitude mais afastada do equador.
+    graus_lon <- graus_lat / cos(max(abs(o$lat)) * pi / 180)
+    d <- destinos[
+      destinos$lon >= min(o$lon) - graus_lon & destinos$lon <= max(o$lon) + graus_lon &
+        destinos$lat >= min(o$lat) - graus_lat & destinos$lat <= max(o$lat) + graus_lat, ]
+    if (!nrow(d)) return(NULL)
+    tt <- travel_time_matrix(
+      rede, origins = o, destinations = d,
+      mode = modo, max_trip_duration = MAX_MIN, walk_speed = VELOCIDADE_A_PE_KMH,
+      progress = FALSE, verbose = FALSE
+    )
+    out <- menores(tt, ids_origem = o$id)
+    rm(tt); gc(verbose = FALSE)
+    rJava::.jgc()  # devolve ao sistema a memória do bloco anterior (o JVM não faz sozinho)
+    out
+  })
+  rbindlist(saidas)
+}
+
+tempos_municipio <- function(cd) {
+  pbf <- file.path(OSM_DIR, cd)
+  if (!file.exists(file.path(pbf, sprintf("%s.osm.pbf", cd)))) {
+    stop("Sem recorte do OSM para ", cd, ". Rode 03c_recorta_osm.qmd.")
+  }
+  s <- le_setores_mun(cd)
+  origens <- pontos_origem(s)
+  l <- locais |> filter(cd_mun == cd)
+  xy <- st_coordinates(st_transform(l, 4326))
+  destinos <- data.frame(id = l$id_local, lon = xy[, 1], lat = xy[, 2])
+
+  rede <- setup_r5(pbf, verbose = FALSE)
+  on.exit({ stop_r5(rede); rJava::.jgc() }, add = TRUE)
+
+  a_pe <- tempos_por_blocos(rede, origens, destinos, "WALK")
+  sem_local <- setdiff(origens$id, a_pe$cd_setor)
+  pc_sem <- length(sem_local) / nrow(origens)
+  out <- a_pe[, modo := "WALK"]
+  # Modo AUTO: acima de 1% de setores sem nenhum local a pé, esses setores
+  # tentam de carro (a pé o setor pode estar numa ilha ou do outro lado de via expressa).
+  if (pc_sem > LIMIAR_INALCANCAVEL) {
+    de_carro <- tempos_por_blocos(rede, origens[origens$id %in% sem_local, ], destinos, "CAR")
+    if (!is.null(de_carro) && nrow(de_carro)) out <- rbind(out, de_carro[, modo := "CAR"])
+  }
+  out[, cd_mun := cd]
+  attr(out, "resumo") <- c(setores = nrow(origens), locais = nrow(destinos), pc_sem_local_a_pe = pc_sem)
+  out
+}
+```
+
+## 3. Tempos por município
+
+```{r tempos}
+resumos <- list()
+for (cd in muns) {
+  arq <- file.path(PARCIAIS_DIR, sprintf("%s.parquet", cd))
+  if (file.exists(arq)) next
+  t0 <- Sys.time()
+  out <- tempos_municipio(cd)
+  resumos[[cd]] <- c(attr(out, "resumo"), segundos = as.numeric(difftime(Sys.time(), t0, units = "secs")))
+  write_parquet(as.data.frame(out), arq)
+  rm(out); gc(verbose = FALSE)
+}
+if (length(resumos)) print(do.call(rbind, resumos))
+```
+
+## 4. Gravação
+
+```{r gravacao}
+tempos <- rbindlist(lapply(muns, function(cd) read_parquet(file.path(PARCIAIS_DIR, sprintf("%s.parquet", cd)))))
+write_parquet(as.data.frame(tempos), file.path(RESULTADOS_DIR, sprintf("tempo_rede_setor_local_%d%s.parquet", ano, sufixo)))
+cat(nrow(tempos), "pares setor × local,", uniqueN(tempos$cd_setor), "setores,", uniqueN(tempos$cd_mun), "município(s)\n")
+```
+
+## Conferência
+
+Todo local da saída existe nos locais do município, ids são texto e a maior
+parte dos setores alcança algum local; tempos dentro do limite.
+
+```{r conferencia}
+stopifnot(is.character(tempos$cd_setor), is.character(tempos$id_local))
+stopifnot(all(tempos$id_local %in% locais$id_local))
+stopifnot(all(tempos$minutos <= MAX_MIN))
+print(tempos[, .(setores = uniqueN(cd_setor), mediana_min = as.numeric(median(minutos)), p95_min = quantile(minutos, 0.95)), by = .(cd_mun, modo)])
+```

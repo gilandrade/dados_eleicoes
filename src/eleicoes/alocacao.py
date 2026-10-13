@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 LIMITE_PONTE_INSCRITOS = 0.05
 FRONTEIRA_MINIMA_M = 1.0  # contato só num ponto não conta como vizinhança
 MAX_ITERACOES_CONTINUIDADE = 20
+# Experimental: deixa uma ponte cortar outra zona em pedaços (padrão: recusa).
+PERMITE_PONTE_CORTAR_ZONA = False
 
 
 def decodifica_wkb(df: pd.DataFrame, coluna_geom: str = "geometry") -> gpd.GeoDataFrame:
@@ -307,6 +309,28 @@ def poligonos_voronoi_por_municipio(
     return gdf.dissolve(by=[col_id_local, col_mun]).reset_index().to_crs(CRS_SIRGAS2000)
 
 
+def local_mais_proximo_por_tempo(
+    tempos: pd.DataFrame,
+    *,
+    col_setor: str = "cd_setor",
+    col_id_local: str = "id_local",
+    col_minutos: str = "minutos",
+) -> pd.DataFrame:
+    """O local de menor tempo na rede para cada setor (saída de `03c_tempos_rede.qmd`).
+
+    Args:
+        tempos: `[col_setor, col_id_local, col_minutos, ...]`, um par por linha;
+            `col_minutos` nulo = inalcançável.
+        col_setor, col_id_local, col_minutos: nomes das colunas.
+
+    Returns:
+        `[col_setor, col_id_local, col_minutos]`, uma linha por setor com algum
+        local alcançável. Empate: o primeiro por `col_id_local` (determinístico).
+    """
+    validos = tempos.dropna(subset=[col_minutos]).sort_values([col_setor, col_minutos, col_id_local])
+    return validos.drop_duplicates(col_setor)[[col_setor, col_id_local, col_minutos]].reset_index(drop=True)
+
+
 def _zona_do_local_mais_proximo(
     setores: gpd.GeoDataFrame,
     locais: gpd.GeoDataFrame,
@@ -487,7 +511,9 @@ def _torna_zonas_continuas(
                 continue
             nova = zona.copy()
             nova[caminho] = p["zona"]
-            if any(pedacos_com_local(nova, z) > pedacos_com_local(zona, z) for z in doadoras):
+            if not PERMITE_PONTE_CORTAR_ZONA and any(
+                pedacos_com_local(nova, z) > pedacos_com_local(zona, z) for z in doadoras
+            ):
                 stats["pontes_cortariam_zona"] += 1
                 continue
             zona[caminho] = p["zona"]
@@ -563,6 +589,7 @@ def constroi_zona_mun(
     col_id_local: str = "id_local",
     col_mun: str = "cd_mun",
     col_zona: str = "nr_zona",
+    local_setor_rede: pd.DataFrame | None = None,
 ) -> gpd.GeoDataFrame:
     """Constrói a camada `id_zona_mun` (ver PLAN.md > Pesquisa > Zonas eleitorais).
 
@@ -582,6 +609,9 @@ def constroi_zona_mun(
         pesos: matriz de pesos local -> setor (de `calcula_pesos_local_setor`).
         municipios: polígonos dos municípios (geobr), com `col_mun`.
         col_setor, col_id_local, col_mun, col_zona: nomes das colunas.
+        local_setor_rede: `[col_setor, col_id_local]` com o local mais próximo
+            por tempo na rede (`local_mais_proximo_por_tempo`). Quando dado,
+            decide a zona dos setores que cobre, no lugar da regra dos adultos.
 
     Returns:
         GeoDataFrame com `id_zona_mun`, `col_mun`, `col_zona`, `n_zonas_mun`,
@@ -621,12 +651,31 @@ def constroi_zona_mun(
         .drop_duplicates(col_setor)
     )
 
+    multi = n_zonas_mun[n_zonas_mun > 1].index
+
+    # Com o tempo na rede, o local mais próximo por tempo decide a zona do
+    # setor (inclusive dos que têm adultos): é o que respeita rios e morros, que
+    # a distância em linha reta e a alocação do CNEFE ignoram. Onde a rede não
+    # chega (NA), vale a regra dos adultos abaixo.
+    if local_setor_rede is not None:
+        zona_rede = (
+            local_setor_rede[[col_setor, col_id_local]]
+            .merge(locais_zona[[col_id_local, col_mun, col_zona]], on=col_id_local, how="inner")
+            .loc[lambda d: d[col_mun].isin(multi), [col_setor, col_mun, col_zona]]
+            .drop_duplicates(col_setor)
+            .assign(adultos=0.0)
+        )
+        setor_zona = pd.concat(
+            [zona_rede, setor_zona.loc[~setor_zona[col_setor].isin(zona_rede[col_setor])]],
+            ignore_index=True,
+        )
+        logger.info("Zona pela rede em %d setores.", len(zona_rede))
+
     # Setores sem adultos alocados (parques, represas, áreas industriais ou
     # rurais sem domicílio no CNEFE) vão à zona do local mais próximo, no
     # mesmo município (regra do PLAN.md). Sem isso, a mediana de 24% da área
     # desses municípios (31,5% em São Paulo) ficava sem zona nenhuma — medido
     # em 29/09/2026 na malha de 2022.
-    multi = n_zonas_mun[n_zonas_mun > 1].index
     sem_zona = setores.loc[
         setores[col_mun].isin(multi) & ~setores[col_setor].isin(setor_zona[col_setor]),
         [col_setor, col_mun, "geometry"],
@@ -663,7 +712,10 @@ def constroi_zona_mun(
     saida["id_zona_mun"] = (
         saida[col_mun].astype(str) + saida[col_zona].astype(int).astype(str).str.zfill(4)
     )
-    return saida.to_crs(CRS_SIRGAS2000)
+    saida = saida.to_crs(CRS_SIRGAS2000)
+    # Zona de cada setor (municípios com várias zonas), para comparar abordagens.
+    saida.attrs["setor_zona"] = setor_zona[[col_setor, col_mun, col_zona]].copy()
+    return saida
 
 
 def mede_cobertura_setor(
