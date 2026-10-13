@@ -1,0 +1,76 @@
+---
+title: "03c · Recorte do OSM por município"
+search: false
+execute:
+  echo: true
+---
+
+Prepara a rede viária da etapa 03d (tempos na rede, r5r): baixa o OpenStreetMap
+da região no Geofabrik e recorta as vias de cada município com **várias zonas**
+(os de zona única não precisam de zona estimada). Uma passada por região grava
+os recortes `dados/01_bruto/aux/osm/{cd_mun}/{cd_mun}.osm.pbf` (retomável: recorte que já
+existe não é refeito). O arquivo da região (0,3 a 1 GB) fica no disco.
+
+```bash
+quarto render 03c_recorta_osm.qmd -P ano:2022 -P cd_mun:2211001,3304557
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import geopandas as gpd
+
+from eleicoes import osm
+from eleicoes.config import CD_UF_POR_SG_UF, GEOMETRIAS_DIR, PROCESSADO_DIR, REGIAO_GEOFABRIK_POR_UF
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+ano = 2022
+cd_mun = ""  # códigos IBGE de 7 dígitos, separados por vírgula; vazio = todos com várias zonas
+```
+
+```{python}
+#| label: municipios
+ano = int(ano)
+cd_mun_filtro = [c.strip() for c in str(cd_mun).split(",") if c.strip()] or None
+
+locais = gpd.read_file(GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg", columns=["cd_mun", "nr_zona"], ignore_geometry=True)
+n_zonas = locais.groupby("cd_mun")["nr_zona"].nunique()
+alvo = sorted(n_zonas[n_zonas > 1].index)
+if cd_mun_filtro:
+    alvo = [c for c in alvo if c in set(cd_mun_filtro)]
+
+municipios = gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg")
+municipios = municipios.loc[municipios["cd_mun"].isin(alvo)].copy()
+municipios["regiao"] = municipios["abbrev_state"].map(REGIAO_GEOFABRIK_POR_UF)
+print(f"{len(municipios)} município(s) com várias zonas")
+municipios.groupby("regiao").size()
+```
+
+```{python}
+#| label: recorte
+for regiao, grupo in municipios.groupby("regiao"):
+    bboxes = {r.cd_mun: tuple(r.geometry.bounds) for r in grupo.itertuples()}
+    pbf = osm.baixa_regiao(regiao)
+    osm.recorta_municipios(pbf, bboxes)
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+from eleicoes.config import OSM_DIR
+
+faltam = [c for c in municipios["cd_mun"] if not (OSM_DIR / c / f"{c}.osm.pbf").exists()]
+assert not faltam, f"sem recorte: {faltam[:10]}"
+for c in municipios["cd_mun"].head(10):
+    print(c, f"{(OSM_DIR / c / f'{c}.osm.pbf').stat().st_size / 1e6:.1f} MB")
+```

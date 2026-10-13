@@ -23,7 +23,13 @@ RAM): o pico de memória é o do maior município.
 ```bash
 quarto render 03_pesos_alocacao.qmd -P ano:2026
 quarto render 03_pesos_alocacao.qmd -P ano:2022 -P cd_mun:2211001   # só Teresina
+quarto render 03_pesos_alocacao.qmd -P ano:2022 -P cd_mun:2211001 -P usa_rede:true   # zonas pelo tempo na rede
 ```
+
+Com `usa_rede`, a zona de cada setor vem do **local de menor tempo na rede
+viária** (`03d_tempos_rede.qmd`) no lugar da regra dos adultos/linha reta, e só
+`geom_zona_mun_{ano}_rede.gpkg` é gravado (a matriz de pesos e o resto ficam
+como estão, para comparar as duas versões).
 
 ```{python}
 #| label: setup
@@ -56,6 +62,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 #| tags: [parameters]
 ano = 2022
 cd_mun = ""  # um ou mais códigos IBGE de 7 dígitos, separados por vírgula; vazio = Brasil
+usa_rede = False  # True: zona pelo tempo na rede (03d) e só grava geom_zona_mun_{ano}_rede.gpkg
+# Experimento da limpeza de continuidade (só com usa_rede): limite de inscritos da ponte
+# (padrão 0,05) e se a ponte pode cortar outra zona; o resultado ganha o sufixo `_afrouxado`.
+limite_ponte = ""
+permite_cortar = False
+rotulo = ""  # nome do lote no sufixo dos arquivos (no lugar da lista de códigos), p. ex. rms_cem_2022
 ```
 
 ```{python}
@@ -64,7 +76,17 @@ ano = int(ano)
 # `-P cd_mun:2211001` chega como inteiro; ids são sempre texto.
 cd_mun_filtro = [c.strip() for c in str(cd_mun).split(",") if c.strip()] or None
 sufixo = f"_{'_'.join(cd_mun_filtro)}" if cd_mun_filtro else ""
-print(f"ano={ano} | municípios={cd_mun_filtro or 'Brasil'}")
+if str(rotulo).strip():
+    sufixo = f"_{str(rotulo).strip()}"
+usa_rede = str(usa_rede).lower() in ("true", "1")
+variante = ""
+if str(limite_ponte).strip():
+    alocacao.LIMITE_PONTE_INSCRITOS = float(limite_ponte)
+    variante = "_afrouxado"
+if str(permite_cortar).lower() in ("true", "1"):
+    alocacao.PERMITE_PONTE_CORTAR_ZONA = True
+    variante = "_afrouxado"
+print(f"ano={ano} | municípios={cd_mun_filtro or 'Brasil'} | usa_rede={usa_rede}")
 ```
 
 ## 1. Locais de votação elegíveis
@@ -234,7 +256,14 @@ print(f"{len(muns_multi):,} municípios com várias zonas, {len(setores):,} pol�
 
 ```{python}
 #| label: zona-mun
-zona_mun = alocacao.constroi_zona_mun(setores, locais, pesos, municipios)
+local_setor_rede = None
+if usa_rede:
+    caminho_tempos = RESULTADOS_DIR / f"tempo_rede_setor_local_{ano}{sufixo}.parquet"
+    if not caminho_tempos.exists():
+        raise FileNotFoundError(f"{caminho_tempos} não existe. Rode 03c_recorta_osm.qmd e 03d_tempos_rede.qmd.")
+    local_setor_rede = alocacao.local_mais_proximo_por_tempo(pd.read_parquet(caminho_tempos))
+    print(f"{len(local_setor_rede):,} setores com local de menor tempo na rede")
+zona_mun = alocacao.constroi_zona_mun(setores, locais, pesos, municipios, local_setor_rede=local_setor_rede)
 zona_mun["geom_estimada"].value_counts()
 ```
 
@@ -245,11 +274,19 @@ zona_mun["geom_estimada"].value_counts()
 RESULTADOS_DIR.mkdir(parents=True, exist_ok=True)
 GEOMETRIAS_DIR.mkdir(parents=True, exist_ok=True)
 
-pesos.to_parquet(RESULTADOS_DIR / f"pesos_local_setor_{ano}{sufixo}.parquet", index=False)
-diagnostico.to_parquet(RESULTADOS_DIR / f"diagnostico_alocacao_{ano}{sufixo}.parquet", index=False)
-cobertura.to_parquet(RESULTADOS_DIR / f"cobertura_setor_cnefe_{ano}{sufixo}.parquet", index=False)
-areas_locais.to_file(GEOMETRIAS_DIR / f"geom_areas_locais_{ano}{sufixo}.gpkg", driver="GPKG")
-zona_mun.to_file(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}{sufixo}.gpkg", driver="GPKG")
+# Zona de cada setor (municípios com várias zonas), para comparar as abordagens.
+zona_mun.attrs["setor_zona"].to_parquet(
+    RESULTADOS_DIR / f"setor_zona_{ano}{sufixo}{'_rede' if usa_rede else ''}{variante}.parquet", index=False
+)
+if usa_rede:
+    # Só a zona muda; a matriz de pesos e o resto continuam os da linha reta.
+    zona_mun.to_file(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}{sufixo}_rede{variante}.gpkg", driver="GPKG")
+else:
+    pesos.to_parquet(RESULTADOS_DIR / f"pesos_local_setor_{ano}{sufixo}.parquet", index=False)
+    diagnostico.to_parquet(RESULTADOS_DIR / f"diagnostico_alocacao_{ano}{sufixo}.parquet", index=False)
+    cobertura.to_parquet(RESULTADOS_DIR / f"cobertura_setor_cnefe_{ano}{sufixo}.parquet", index=False)
+    areas_locais.to_file(GEOMETRIAS_DIR / f"geom_areas_locais_{ano}{sufixo}.gpkg", driver="GPKG")
+    zona_mun.to_file(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}{sufixo}.gpkg", driver="GPKG")
 ```
 
 ## Conferência

@@ -421,6 +421,45 @@ data model (geometry files vs. result files joined by a shared id).
   (local, setor): Brasil inteiro em ~4 min com pico de ~2,2 GB (antes ~44 min na
   alocação). A malha de setores só é lida para os municípios com mais de uma zona.
   Saída idêntica à anterior (conferida em Teresina).
+- **Zona pelo tempo na rede (03c/03d, 12/10/2026, piloto).** `03c_recorta_osm.qmd`
+  (Python, `osm.py`) baixa o OSM da região no Geofabrik e recorta as vias por
+  município com várias zonas; `03d_tempos_rede.qmd` (R, r5r 2.4.0) calcula o tempo
+  a pé do `point_on_surface` de cada setor até os locais do município (fallback de
+  carro se >1% dos setores não alcançar nenhum); `03_pesos_alocacao.qmd -P usa_rede:true`
+  traça a zona de cada setor pelo local de menor tempo e grava só
+  `geom_zona_mun_{ano}_rede.gpkg` e `setor_zona_{ano}{sufixo}_rede.parquet` (pesos e
+  04 não mudam). `-P rotulo:nome` troca a lista de códigos no sufixo dos arquivos
+  (com dezenas de municípios o caminho estoura os 260 caracteres do Windows).
+  `notebooks/compara_zonas_cem.py` compara com a divisão de zonas do CEM
+  (`dados/01_bruto/cem/`: `EL2022_ZE_RMBRA_CEM_V1.zip`, 16 RMs; `EL2024_ZE_RMSP_CEM.zip`).
+  Piloto 2022 contra o CEM (setores na mesma zona): Rio 91,0% (linha reta) → 91,6%
+  (rede); São Paulo 92,9% → 93,2%. Ganho pequeno; pedaços secundários de zona não
+  diminuem de forma clara no Rio (15 → 19, 6 deles de 1 local). Dos 189 municípios
+  com várias zonas só 73 estão no arquivo do CEM (36,7% dos eleitores desses ficam de
+  fora); lote `rms_cem_2022` = os 71 sem Rio e São Paulo
+  (`dados/02_processado/aux/rms_cem_2022.txt`). Achados:
+  - **O r5r descarta `options(java.parameters)`**: chama `rJava::.jinit()` com
+    parâmetros próprios e o teto vira 1/4 da RAM (~8 GB aqui). Iniciar a JVM antes,
+    com `rJava::.jinit(parameters = "-Xmx6g")`, e só então `library(r5r)`.
+  - **Poda de pares, exata a pé:** em `max_min` minutos ninguém anda além de
+    `max_min/60 × 3,6 km` em linha reta; cada bloco de setores vizinhos só recebe os
+    locais dentro do retângulo + esse raio (1° de longitude = 111 km × cos(lat)).
+    São Paulo foi de >30 min sem terminar para 7 min (pico de RAM 82%), e Teresina
+    dá resultado idêntico com e sem a poda.
+  - **Recorte do OSM: usar o `osmium-tool`, não o `pyosmium`.** O `BackReferenceWriter`
+    do pyosmium passou de 12 GB só no sudeste (MemoryError). O `osmium extract` com
+    `--config` e vários recortes também passou de 15 GB, mesmo com 5 municípios; um
+    `osmium extract -b` por município leva ~3 s e quase não usa RAM (71 municípios em
+    4,5 min). `tags-filter w/highway` da região leva ~16 s. Instalação (Windows):
+    `micromamba create -n osm -c conda-forge osmium-tool` e `OSMIUM_BIN` no `.env`
+    (ver `.env.example`).
+  - **`Get-Counter '\Memory\Available MBytes'` não existe no Windows em português**
+    (devolve 0 e parece 100% de RAM). Para vigiar RAM, usar `FreePhysicalMemory` do
+    `Win32_OperatingSystem`.
+  - O r5r devolve minutos inteiros: empates entre locais caem no menor `id_local`.
+  - Experimento da limpeza de continuidade (`-P limite_ponte:0.15 -P permite_cortar:true`,
+    `alocacao.PERMITE_PONTE_CORTAR_ZONA`): no Rio piora o encaixe com o CEM (área igual
+    88,5% → 86,6%); em São Paulo não muda nada. Manter a limpeza padrão.
 - **`SETORES_2022_GPKG` tem 914 códigos de setor repetidos** (um setor em mais
   de um polígono, em 267 municípios). Qualquer merge por `cd_setor` com a malha
   precisa juntar os pedaços antes (`dissolve`), senão cruza linhas em silêncio.
