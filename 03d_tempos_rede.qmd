@@ -110,9 +110,14 @@ pontos_origem <- function(s) {
 }
 
 # Os `n` menores tempos de cada origem (data.table, sem guardar o resto).
-menores <- function(tt, n = N_MENORES) {
+menores <- function(tt, n = N_MENORES, ids_origem = NULL) {
   tt <- as.data.table(tt)
   setnames(tt, "travel_time_p50", "minutos", skip_absent = TRUE)
+  # O r5r às vezes devolve o bloco com origem e destino trocados (visto em Belém,
+  # 1501402): sem desfazer, o "setor" da saída seria um local. Tempo a pé é simétrico.
+  if (!is.null(ids_origem) && nrow(tt) && !any(tt$from_id %in% ids_origem) && any(tt$to_id %in% ids_origem)) {
+    setnames(tt, c("from_id", "to_id"), c("to_id", "from_id"))
+  }
   tt <- tt[!is.na(minutos)]
   tt[order(from_id, minutos), head(.SD, n), by = from_id][, .(cd_setor = from_id, id_local = to_id, minutos)]
 }
@@ -147,7 +152,7 @@ tempos_por_blocos <- function(rede, origens, destinos, modo) {
       mode = modo, max_trip_duration = MAX_MIN, walk_speed = VELOCIDADE_A_PE_KMH,
       progress = FALSE, verbose = FALSE
     )
-    out <- menores(tt)
+    out <- menores(tt, ids_origem = o$id)
     rm(tt); gc(verbose = FALSE)
     rJava::.jgc()  # devolve ao sistema a memória do bloco anterior (o JVM não faz sozinho)
     out
@@ -218,5 +223,5 @@ parte dos setores alcança algum local; tempos dentro do limite.
 stopifnot(is.character(tempos$cd_setor), is.character(tempos$id_local))
 stopifnot(all(tempos$id_local %in% locais$id_local))
 stopifnot(all(tempos$minutos <= MAX_MIN))
-print(tempos[, .(setores = uniqueN(cd_setor), mediana_min = median(minutos), p95_min = quantile(minutos, 0.95)), by = .(cd_mun, modo)])
+print(tempos[, .(setores = uniqueN(cd_setor), mediana_min = as.numeric(median(minutos)), p95_min = quantile(minutos, 0.95)), by = .(cd_mun, modo)])
 ```
