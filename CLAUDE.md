@@ -74,7 +74,7 @@ data model (geometry files vs. result files joined by a shared id).
   em `candidatos_prefeito_*.parquet`); Vereador é somado por partido
   (`fontes.ler_votacao_secao(por_partido=True)`). O visualizador pinta o **partido
   mais votado** (`cores.CORES_PARTIDO`, `visualizador.exporta_*_partido`). A mudança
-  entre anos (05), o Folium (06b) e a GeoReDUS (07/08) seguem só com Presidente.
+  entre anos (05) e a GeoReDUS (07/08) seguem só com Presidente.
 - **03 (Python, `03_pesos_alocacao.qmd`, roda 1× por ano)**: aloca cada
   domicílio do CNEFE ao local de votação mais próximo do mesmo município,
   constrói a matriz de pesos `local → setor` (ponderada pela população adulta) e
@@ -88,9 +88,9 @@ data model (geometry files vs. result files joined by a shared id).
 - **06 (Python, `06_exporta_visualizador.qmd`)**: dados do **visualizador de
   mapas do site** (`src/eleicoes/visualizador.py` → `docs/mapas/dados/*.json`,
   lidos por `mapas.qmd` + `assets/mapas.js`). Cores e classes em
-  `src/eleicoes/cores.py`. Os mapas Folium (`mapas.py`, `06b_mapas_folium.qmd`)
-  são só para uso local, em `dados/mapas_folium/` — não voltar a publicá-los
-  (tamanho, ver abaixo).
+  `src/eleicoes/cores.py`. Os mapas Folium (`mapas.py`, `06b`) foram removidos
+  em 14/10/2026; mapas novos entram como dados do visualizador (ver o limite de
+  tamanho abaixo).
 - **07–08 (Python)**: `07_carga_georedus.qmd` gera os artefatos de carga
   (`table.sh`/`schema.sql`/`down.sql` e as views; helpers em `carga.py`) e
   `08_cadastro_georedus.qmd` as linhas de cadastro das camadas (`cadastro.py`).
@@ -314,7 +314,7 @@ data model (geometry files vs. result files joined by a shared id).
   nulos ficam de fora do setor (122.682.541 vs. 123.682.372 no zona_mun) —
   ordem de grandeza esperada, dado que ~262 locais são especiais e ~2.062
   ficaram sem nenhum domicílio alocado (de 91.923).
-- **Etapa 05, mapas (`src/eleicoes/mapas.py`, `06b_mapas_folium.qmd`),
+- **Etapa 05, mapas Folium (`mapas.py`/`06b`, removidos em 14/10/2026; histórico no git),
   rodou pela primeira vez em 29/09/2026** — 27 mapas por UF (setor,
   `monta_setor_uf`), 1 nacional por município (`monta_municipios`) e 1
   nacional por zona×município (`monta_zona_mun`, a camada mais fiel — ver
@@ -503,8 +503,7 @@ data model (geometry files vs. result files joined by a shared id).
 - **A chave do CARTO não tem efeito** (testado em 29/09/2026): o tile volta
   idêntico, com o aviso "API KEY REQUIRED", com ou sem `?api_key=`, de
   qualquer referer. O visualizador usa o Esri World Light Gray
-  (`config.TILES_VISUALIZADOR`, sem chave). Os Folium locais continuam com
-  CARTO e mostram o aviso.
+  (`config.TILES_VISUALIZADOR`, sem chave). (Os Folium, que usavam CARTO, foram removidos.)
 - **2018 (29/09/2026):** `eleitorado_local_votacao_2018` tem o mesmo esquema
   de 2022 nas colunas usadas pela etapa 01 (baixa via R/httr2; o Python toma
   403 do CDN). O `votacao_secao_2018` tem o código **97 ("voto anulado e

@@ -49,7 +49,6 @@ chamam.
 | `04b_resultados_municipio.qmd` | Python | resultado por município direto da seção | `ano`, `turno`, `fonte`, `baixar` |
 | `05_mudanca_votacao.qmd` | Python | mudança de votação entre dois anos | `de`, `para`, `turno` |
 | `06_exporta_visualizador.qmd` | Python | dados do visualizador do site | — |
-| `06b_mapas_folium.qmd` | Python | mapas Folium, só uso local | `ano`, `turno`, `uf`, `camadas` |
 | `07_carga_georedus.qmd` | Python | artefatos de carga no banco da GeoReDUS | `anos`, `turnos`, `saida` |
 | `08_cadastro_georedus.qmd` | Python | linhas de cadastro das camadas | `anos`, `turnos`, `saida` |
 | `09_insumos_municipio.qmd` | R | insumos de um município (perfil × voto) | `cd_mun`, `ano` |
@@ -76,7 +75,7 @@ quarto render 02_geocodificacao_locais.qmd -P ano:2018 --output 02_geocodificaca
 python -m venv venv
 venv\Scripts\activate.bat        # PowerShell: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env             # preencher CARTO_API_KEY antes de gerar os mapas Folium
+cp .env.example .env             # preencher OSMIUM_BIN (etapa 03c)
 quarto render 03_pesos_alocacao.qmd -P ano:2022
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:2
@@ -95,8 +94,6 @@ quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 quarto render 06_exporta_visualizador.qmd
 quarto render mapas.qmd
 
-# Opcional, só local: mapas Folium por setor/município/zona (dados/mapas_folium/)
-quarto render 06b_mapas_folium.qmd -P ano:2022 -P turno:1
 
 # Carga e cadastro na GeoReDUS
 quarto render 07_carga_georedus.qmd -P anos:2018,2022,2026

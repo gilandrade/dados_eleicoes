@@ -16,7 +16,6 @@ duckdb==1.5.5
 entrypoints==0.4
 executing==2.2.1
 fastjsonschema==2.22.2
-folium==0.20.0
 fonttools==4.66.0
 geopandas==1.1.4
 idna==3.20

@@ -181,7 +181,6 @@ dados_eleicoes/
 ├── 04b_resultados_municipio.qmd   # Py: por município direto da seção (validação cruzada)
 ├── 05_mudanca_votacao.qmd         # Py: mudança entre dois anos, zona × município
 ├── 06_exporta_visualizador.qmd    # Py: JSON do visualizador (docs/mapas/dados/)
-├── 06b_mapas_folium.qmd           # Py: mapas Folium, só uso local
 ├── 07_carga_georedus.qmd          # Py: table.sh / schema.sql / views
 ├── 08_cadastro_georedus.qmd       # Py: linhas de cadastro das camadas
 ├── 09_insumos_municipio.qmd       # R: insumos de um município (perfil × voto)
@@ -189,7 +188,7 @@ dados_eleicoes/
 │   ├── config.py   download.py   fontes.py   resultados.py   cores.py
 │   ├── alocacao.py   # CNEFE → local mais próximo, pesos, Voronoi, diagnóstico
 │   ├── exporta.py  carga.py  cadastro.py   # arquivos, SQL de carga, cadastro
-│   └── visualizador.py  mapas.py           # JSON do site, mapas Folium
+│   └── visualizador.py                     # JSON do site
 ├── assets/                        # mapas.js, mapas.css (visualizador)
 ├── notebooks/                     # diagnósticos avulsos
 ├── dados/01_bruto/  dados/02_processado/  dados/03_georedus/{geometrias,resultados,carga}/
