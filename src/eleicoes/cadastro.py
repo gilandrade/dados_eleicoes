@@ -33,13 +33,16 @@ RAIO_MINIMO_PX = 1
 ZOOMS_RAIO = range(4, 16)  # no zoom 15 o raio base já está no teto
 
 # Pontos agrupados por zoom: o tile traz a coluna `nivel` e cada nível tem a sua
-# referência de tamanho (senão todas as UFs e os municípios grandes saturariam no
-# mesmo raio) e um fator de pixel (o nível agregado é desenhado maior). O corte de
-# zoom de cada nível fica na função de tile.
+# referência de tamanho, o seu fator de pixel (o nível agregado é desenhado maior) e
+# o seu teto. Nos níveis agregados o raio segue √valor sem o limite de escala dos
+# locais, e quem limita é o teto em px: com o limite de escala, São Paulo ficava
+# do tamanho de Osasco. O corte de zoom de cada nível fica na função de tile.
 COLUNA_NIVEL = "nivel"
 NIVEL_UF, NIVEL_MUNICIPIO, NIVEL_LOCAL = 0, 1, 2
-REF_TAMANHO_POR_NIVEL = {NIVEL_UF: 2_500_000, NIVEL_MUNICIPIO: 40_000, NIVEL_LOCAL: REF_TAMANHO}
-FATOR_RAIO_POR_NIVEL = {NIVEL_UF: 8, NIVEL_MUNICIPIO: 2, NIVEL_LOCAL: 1}
+REF_TAMANHO_POR_NIVEL = {NIVEL_UF: 1_000_000, NIVEL_MUNICIPIO: 10_000, NIVEL_LOCAL: REF_TAMANHO}
+FATOR_RAIO_POR_NIVEL = {NIVEL_UF: 16, NIVEL_MUNICIPIO: 1.5, NIVEL_LOCAL: 1}
+ESCALA_MAX_POR_NIVEL = {NIVEL_UF: 1000, NIVEL_MUNICIPIO: 1000, NIVEL_LOCAL: ESCALA_MAX}
+RAIO_TETO_POR_NIVEL = {NIVEL_UF: 90, NIVEL_MUNICIPIO: 45, NIVEL_LOCAL: RAIO_BASE_MAX * ESCALA_MAX}
 
 FORMATO_PCT = {"number": ["pt-BR", {"style": "percent", "minimumFractionDigits": 1, "maximumFractionDigits": 1}]}
 FORMATO_PP = {"number": ["pt-BR", {"style": "percent", "signDisplay": "exceptZero", "minimumFractionDigits": 1, "maximumFractionDigits": 1}]}
@@ -73,9 +76,9 @@ def categorias(legenda: dict) -> list[dict]:
     ]
 
 
-def _escala(valor: list, referencia: float) -> list:
-    """Raio relativo: √(valor / referência), limitado a [ESCALA_MIN, ESCALA_MAX]."""
-    return ["max", ESCALA_MIN, ["min", ESCALA_MAX, ["sqrt", ["/", valor, referencia]]]]
+def _escala(valor: list, referencia: float, maximo: float = ESCALA_MAX) -> list:
+    """Raio relativo: √(valor / referência), limitado a [ESCALA_MIN, maximo]."""
+    return ["max", ESCALA_MIN, ["min", maximo, ["sqrt", ["/", valor, referencia]]]]
 
 
 def raio_proporcional(coluna: str, *, por_nivel: bool = False) -> list:
@@ -95,7 +98,7 @@ def raio_proporcional(coluna: str, *, por_nivel: bool = False) -> list:
     for zoom in ZOOMS_RAIO:
         base = min(RAIO_BASE_MAX, RAIO_BASE_ZOOM_4 * 1.25 ** (zoom - 4))
         if por_nivel:
-            raio = ["*", round(base, 2), ["var", "fator"], ["var", "escala"]]
+            raio = ["min", ["var", "teto"], ["*", round(base, 2), ["var", "fator"], ["var", "escala"]]]
         else:
             raio = ["*", round(base, 2), ["var", "escala"]]
         paradas += [zoom, ["max", RAIO_MINIMO_PX, raio]]
@@ -105,21 +108,27 @@ def raio_proporcional(coluna: str, *, por_nivel: bool = False) -> list:
         return ["let", "escala", _escala(valor, REF_TAMANHO), interpolacao]
 
     nivel = ["get", COLUNA_NIVEL]
-    ref, fator = REF_TAMANHO_POR_NIVEL, FATOR_RAIO_POR_NIVEL
-    escala = [
-        "match", nivel,
-        NIVEL_UF, _escala(["var", "valor"], ref[NIVEL_UF]),
-        NIVEL_MUNICIPIO, _escala(["var", "valor"], ref[NIVEL_MUNICIPIO]),
-        _escala(["var", "valor"], ref[NIVEL_LOCAL]),
-    ]  # fmt: skip
-    fator_px = [
-        "match", nivel,
-        NIVEL_UF, fator[NIVEL_UF],
-        NIVEL_MUNICIPIO, fator[NIVEL_MUNICIPIO],
-        fator[NIVEL_LOCAL],
-    ]  # fmt: skip
+
+    def por_nivel_de(valores: dict[int, float], *, escala: bool = False) -> list:
+        """`match` em `nivel`: o valor de cada nível (ou a escala, que usa `valor`)."""
+        pares = {
+            n: _escala(["var", "valor"], REF_TAMANHO_POR_NIVEL[n], ESCALA_MAX_POR_NIVEL[n])
+            if escala
+            else valores[n]
+            for n in (NIVEL_UF, NIVEL_MUNICIPIO, NIVEL_LOCAL)
+        }
+        return ["match", nivel, NIVEL_UF, pares[NIVEL_UF], NIVEL_MUNICIPIO, pares[NIVEL_MUNICIPIO], pares[NIVEL_LOCAL]]
+
     # `let` não enxerga as variáveis do próprio `let`: `valor` fica no externo.
-    return ["let", "valor", valor, ["let", "escala", escala, "fator", fator_px, interpolacao]]
+    return [
+        "let", "valor", valor,
+        ["let",
+            "escala", por_nivel_de({}, escala=True),
+            "fator", por_nivel_de(FATOR_RAIO_POR_NIVEL),
+            "teto", por_nivel_de(RAIO_TETO_POR_NIVEL),
+            interpolacao,
+        ],
+    ]  # fmt: skip
 
 
 def fonte_por_zoom(view: str) -> str:
