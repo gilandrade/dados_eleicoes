@@ -313,6 +313,7 @@ def sql_funcao_tile(
     com_nivel: bool,
     padroes: dict[str, str] | None = None,
     titulos: dict[int, str] | None = None,
+    ocultar: tuple[str, ...] = (),
 ) -> str:
     """SQL da função de tile que escolhe o nível pelo `z`.
 
@@ -327,6 +328,8 @@ def sql_funcao_tile(
             tem (ex.: `{"geom_estimada": "false"}`: a fronteira do IBGE não é estimada).
         titulos: SQL do atributo `titulo` de cada nível (alias `v`). O título do
             tooltip da zona leva o número da zona, que o nível agrupado não tem.
+        ocultar: colunas enviadas nulas nos níveis agrupados (o tooltip não mostra campo
+            nulo). Ex.: `nm_mun`, que já é o título do tooltip dos pontos agrupados.
 
     Returns:
         O SQL (`DROP`, `CREATE OR REPLACE FUNCTION` e `GRANT`).
@@ -336,7 +339,9 @@ def sql_funcao_tile(
     ramos = []
     for i, (vista, nivel) in enumerate(niveis):
         atributos = [
-            f"v.{col}" if col in vista.colunas else f"{padroes.get(col, 'NULL::text')} AS {col}"
+            f"v.{col}"
+            if col in vista.colunas and not (col in ocultar and i < len(niveis) - 1)
+            else f"{padroes.get(col, 'NULL::text')} AS {col}"
             for col in saida
         ]
         if titulos:
@@ -382,6 +387,7 @@ def gera_funcao_tile(
     com_nivel: bool = False,
     padroes: dict[str, str] | None = None,
     titulos: dict[int, str] | None = None,
+    ocultar: tuple[str, ...] = (),
 ) -> str:
     """Escreve o `schema.sql`/`down.sql` da função de tile de uma camada.
 
@@ -391,7 +397,7 @@ def gera_funcao_tile(
         niveis: ver `sql_funcao_tile`.
         pasta_raiz: `collections/public_read_api/tse`.
         schema_api: `schema.sql` de `public_read_api`.
-        com_nivel, padroes, titulos: ver `sql_funcao_tile`.
+        com_nivel, padroes, titulos, ocultar: ver `sql_funcao_tile`.
 
     Returns:
         O nome da função.
@@ -405,7 +411,9 @@ def gera_funcao_tile(
             for req in requires(pasta, schema_api, *[vista.schema for vista, _ in niveis])
         )
         + "\n"
-        + sql_funcao_tile(nome, niveis, com_nivel=com_nivel, padroes=padroes, titulos=titulos),
+        + sql_funcao_tile(
+            nome, niveis, com_nivel=com_nivel, padroes=padroes, titulos=titulos, ocultar=ocultar
+        ),
     )
     exporta._escreve_texto(
         pasta / "down.sql",

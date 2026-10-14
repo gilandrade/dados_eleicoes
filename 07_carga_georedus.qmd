@@ -438,7 +438,7 @@ for ano, turno in eleicoes:
                 "malha.cd_mun",
                 "malha.nm_mun",
                 "malha.sigla_uf",
-                "malha.nm_mun || ' – ' || malha.sigla_uf AS nm_local_votacao",
+                "malha.nm_mun AS nm_local_votacao",
             ]
             tabela_malha, chave = carga.TABELA_PONTO["municipio"], "cd_mun"
         else:
@@ -665,6 +665,7 @@ for ano, turno in eleicoes:
             (vistas["local", *chave], NIVEL_LOCAL),
         ],
         com_nivel=True,
+        ocultar=("nm_mun",),  # já é o título do tooltip nos pontos agrupados
     )
 
 for chave in sorted(k[1:] for k in vistas if k[0] == "mudanca_uf"):
