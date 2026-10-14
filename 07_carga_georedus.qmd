@@ -184,6 +184,23 @@ for ano in anos:
             tabelas.append(f"tse.{eleicao}_{nivel}")
 ```
 
+## 4b. Geometrias dos níveis agrupados
+
+Quatro materialized views, iguais para todos os anos e turnos: o ponto de cada
+município e de cada UF (`ST_PointOnSurface`) e as malhas simplificadas
+(`carga.TOLERANCIA_SIMPLIFICACAO`), cada uma com índice GIST. Sem elas, cada tile
+dos zooms 5 a 7 recalculava os pontos das 5.570 geometrias e processava os 17,9 milhões
+de vértices da malha de municípios (~1 s por tile). Depois de recarregar a malha do
+IBGE, rodar `bin/refresh_all_mv.sh tse` no db-manager.
+
+```{python}
+#| label: geom-agregada
+schema_geom = carga.gera_geom_agregada(
+    dir_tse, schema_raiz=schema_raiz, schema_municipio=schema_municipio, schema_uf=schema_uf
+)
+tabelas += [*carga.TABELA_PONTO.values(), *carga.TABELA_MALHA_SIMPLIFICADA.values()]
+```
+
 ## 5. View de zona × município
 
 Malha + resultados + nome do município, com os votos válidos (`qt_validos`, para
@@ -267,9 +284,44 @@ for ano, turno in eleicoes:
     tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_municipio_{ano}_t{turno}")
 ```
 
+## 5b2. View de município para o zoom afastado
+
+A mesma view de município, sobre a malha simplificada (`tse.malha_municipio_simplificada`).
+É o nível município dos zooms 5 a 7 das camadas de zona e de município; do zoom 8 em
+diante a camada de município volta para a geometria completa.
+
+```{python}
+#| label: view-municipio-agrupado
+for ano, turno in eleicoes:
+    eleicao = f"presidente_{ano}_t{turno}"
+    tipos_mun = tipos_res[ano, turno, "municipio"]
+    pasta = dir_api / SCHEMA_PG / f"malha_municipio_agrupado_{ano}_t{turno}"
+    vistas["municipio_agrupado", ano, turno] = carga.gera_vista(
+        f"{SCHEMA_PG}_malha_municipio_agrupado_{ano}_t{turno}",
+        [
+            "malha.cd_mun AS id",
+            "malha.cd_mun",
+            "malha.nm_mun",
+            "malha.sigla_uf",
+            "malha.geom",
+            *colunas_res[ano, turno, "municipio"],
+            f"{carga.sql_qt_validos(tipos_mun)} AS qt_validos",
+            *carga.colunas_margem(ano, tipos_mun),
+        ],
+        from_sql=(
+            f"FROM\n  {carga.TABELA_MALHA_SIMPLIFICADA['municipio']} AS malha\n"
+            f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_municipio AS res\n"
+            "    ON malha.cd_mun = res.cd_mun"
+        ),
+        diretorio_saida=pasta,
+        requires=carga.requires(pasta, dir_api / "schema.sql", schema_geom, schemas_res[ano, turno, "municipio"]),
+    )
+    tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_municipio_agrupado_{ano}_t{turno}")
+```
+
 ## 5c. View de UF
 
-A UF como unidade, a partir de `ibge.malha_br_uf_2024`: é o nível mais agrupado
+A UF como unidade, a partir da malha simplificada (`tse.malha_uf_simplificada`): é o nível mais agrupado
 das camadas de polígonos ao dar zoom out. O nome da UF vai em `nm_mun`, para o
 tooltip e a função de tile usarem as mesmas colunas dos outros níveis.
 
@@ -292,12 +344,12 @@ for ano, turno in eleicoes:
             *carga.colunas_margem(ano, tipos_uf),
         ],
         from_sql=(
-            f"FROM\n  {carga.TABELA_UF} AS malha\n"
+            f"FROM\n  {carga.TABELA_MALHA_SIMPLIFICADA['uf']} AS malha\n"
             f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_uf AS res\n"
             "    ON malha.cd_uf = res.cd_uf"
         ),
         diretorio_saida=pasta,
-        requires=carga.requires(pasta, dir_api / "schema.sql", schema_uf, schemas_res[ano, turno, "uf"]),
+        requires=carga.requires(pasta, dir_api / "schema.sql", schema_geom, schemas_res[ano, turno, "uf"]),
     )
     tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_uf_{ano}_t{turno}")
 ```
@@ -367,8 +419,8 @@ for ano, turno in eleicoes:
 ## 6b. Locais de votação agrupados por município e por UF
 
 Ao dar zoom out os pontos viram um por município e, mais longe, um por UF. É um
-ponto por unidade (`ST_PointOnSurface` da malha, que cai sempre dentro do
-polígono), com as mesmas colunas e classes da view de locais, calculadas das
+ponto por unidade (`tse.ponto_municipio` e `tse.ponto_uf`: `ST_PointOnSurface` da
+malha, que cai sempre dentro do polígono), com as mesmas colunas e classes da view de locais, calculadas das
 contagens somadas. O nome vai em `nm_local_votacao`, que é o título do tooltip
 dos locais, e os aptos em `qt_eleitores`. O tamanho vem de `qt_validos`,
 `qt_comparecimento` ou `qt_aptos`, como nos locais.
@@ -388,7 +440,7 @@ for ano, turno in eleicoes:
                 "malha.sigla_uf",
                 "malha.nm_mun || ' – ' || malha.sigla_uf AS nm_local_votacao",
             ]
-            tabela_malha, chave, schema_malha = carga.TABELA_MUNICIPIO, "cd_mun", schema_municipio
+            tabela_malha, chave = carga.TABELA_PONTO["municipio"], "cd_mun"
         else:
             identificacao = [
                 "malha.cd_uf AS id",
@@ -397,13 +449,13 @@ for ano, turno in eleicoes:
                 "malha.sigla_uf",
                 "malha.nm_uf AS nm_local_votacao",
             ]
-            tabela_malha, chave, schema_malha = carga.TABELA_UF, "cd_uf", schema_uf
+            tabela_malha, chave = carga.TABELA_PONTO["uf"], "cd_uf"
         vistas[f"pontos_{nivel}", ano, turno] = carga.gera_vista(
             f"{SCHEMA_PG}_pontos_{nivel}_{ano}_t{turno}",
             [
                 *identificacao,
                 "res.qt_aptos AS qt_eleitores",
-                "ST_PointOnSurface(malha.geom)::geometry(Point, 4674) AS geom",
+                "malha.geom",
                 *colunas_res[ano, turno, nivel],
                 f"{carga.sql_qt_validos(tipos)} AS qt_validos",
                 *carga.colunas_margem(ano, tipos),
@@ -415,9 +467,7 @@ for ano, turno in eleicoes:
                 f"    ON malha.{chave} = res.{chave}"
             ),
             diretorio_saida=pasta,
-            requires=carga.requires(
-                pasta, dir_api / "schema.sql", schema_malha, schemas_res[ano, turno, nivel]
-            ),
+            requires=carga.requires(pasta, dir_api / "schema.sql", schema_geom, schemas_res[ano, turno, nivel]),
         )
         tabelas.append(f"public_read_api.{SCHEMA_PG}_pontos_{nivel}_{ano}_t{turno}")
 ```
@@ -513,11 +563,11 @@ for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
             else:
                 identificacao = ["malha.cd_uf AS id", "malha.cd_uf", "malha.nm_uf AS nm_mun", "malha.sigla_uf"]
                 origem = (
-                    f"FROM\n  {carga.TABELA_UF} AS malha\n"
+                    f"FROM\n  {carga.TABELA_MALHA_SIMPLIFICADA['uf']} AS malha\n"
                     f"  LEFT JOIN {SCHEMA_PG}.{nome}_{nivel} AS res\n"
                     "    ON malha.cd_uf = res.cd_uf"
                 )
-                requisitos = [schema_uf, schema_mudanca]
+                requisitos = [schema_geom, schema_mudanca]
 
             vistas[f"mudanca_{nivel}", ano_antes, ano_depois, turno] = carga.gera_vista(
                 f"{SCHEMA_PG}_{prefixo_view}_{ano_antes}_{ano_depois}_t{turno}",
@@ -535,6 +585,26 @@ for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
                 f"tse.{nome}_{nivel}",
                 f"public_read_api.{SCHEMA_PG}_{prefixo_view}_{ano_antes}_{ano_depois}_t{turno}",
             ]
+            if nivel == "municipio":  # o mesmo, sobre a malha simplificada (zooms 5 a 7)
+                nome_agrupado = f"malha_municipio_agrupado_mudanca_{ano_antes}_{ano_depois}_t{turno}"
+                pasta_agrupado = dir_api / SCHEMA_PG / nome_agrupado
+                vistas["mudanca_municipio_agrupado", ano_antes, ano_depois, turno] = carga.gera_vista(
+                    f"{SCHEMA_PG}_{nome_agrupado}",
+                    [
+                        *identificacao,
+                        "malha.geom",
+                        *[f"res.{col}" for col in colunas if col != chave],
+                        f"{classe} AS classe_mudanca",
+                    ],
+                    from_sql=(
+                        f"FROM\n  {carga.TABELA_MALHA_SIMPLIFICADA['municipio']} AS malha\n"
+                        f"  LEFT JOIN {SCHEMA_PG}.{nome}_{nivel} AS res\n"
+                        "    ON malha.cd_mun = res.cd_mun"
+                    ),
+                    diretorio_saida=pasta_agrupado,
+                    requires=carga.requires(pasta_agrupado, dir_api / "schema.sql", schema_geom, schema_mudanca),
+                )
+                tabelas.append(f"public_read_api.{SCHEMA_PG}_{nome_agrupado}")
 ```
 
 ## 8. Funções de tile por zoom
@@ -573,11 +643,17 @@ def gera_funcao(niveis, **opcoes):
 
 for ano, turno in eleicoes:
     chave = (ano, turno)
-    gera_funcao([(vistas["uf", *chave], NIVEL_UF), (vistas["municipio", *chave], NIVEL_MUNICIPIO)])
     gera_funcao(
         [
             (vistas["uf", *chave], NIVEL_UF),
-            (vistas["municipio", *chave], NIVEL_MUNICIPIO),
+            (vistas["municipio_agrupado", *chave], NIVEL_MUNICIPIO),
+            (vistas["municipio", *chave], NIVEL_LOCAL),
+        ]
+    )
+    gera_funcao(
+        [
+            (vistas["uf", *chave], NIVEL_UF),
+            (vistas["municipio_agrupado", *chave], NIVEL_MUNICIPIO),
             (vistas["zona_mun", *chave], NIVEL_LOCAL),
         ],
         **OPCOES_ZONA,
@@ -592,12 +668,18 @@ for ano, turno in eleicoes:
     )
 
 for chave in sorted(k[1:] for k in vistas if k[0] == "mudanca_uf"):
-    gera_funcao([(vistas["mudanca_uf", *chave], NIVEL_UF), (vistas["mudanca_municipio", *chave], NIVEL_MUNICIPIO)])
+    gera_funcao(
+        [
+            (vistas["mudanca_uf", *chave], NIVEL_UF),
+            (vistas["mudanca_municipio_agrupado", *chave], NIVEL_MUNICIPIO),
+            (vistas["mudanca_municipio", *chave], NIVEL_LOCAL),
+        ]
+    )
     if ("mudanca_zona_mun", *chave) in vistas:
         gera_funcao(
             [
                 (vistas["mudanca_uf", *chave], NIVEL_UF),
-                (vistas["mudanca_municipio", *chave], NIVEL_MUNICIPIO),
+                (vistas["mudanca_municipio_agrupado", *chave], NIVEL_MUNICIPIO),
                 (vistas["mudanca_zona_mun", *chave], NIVEL_LOCAL),
             ],
             **OPCOES_ZONA,

@@ -40,6 +40,17 @@ JOIN_MUNICIPIO = f"  LEFT JOIN {TABELA_MUNICIPIO} AS mun\n    ON malha.cd_mun = 
 TABELA_UF = "ibge.malha_br_uf_2024"
 SCHEMA_UF = Path("ibge") / "malha" / "br_uf_2024" / "schema.sql"
 
+# Geometrias do nível agrupado, materializadas: pontos já calculados e malhas simplificadas
+# (tolerância em graus, ~400 m no município e ~2 km na UF). A malha do IBGE tem 17,9
+# milhões de vértices no município; em zoom 5-7 isso custava ~1 s por tile.
+TOLERANCIA_SIMPLIFICACAO = {"municipio": 0.004, "uf": 0.02}
+GEOM_AGREGADA = "geom_agregada"  # pasta da collection, em `collections/tse/`
+TABELA_PONTO = {"municipio": f"{SCHEMA_PG}.ponto_municipio", "uf": f"{SCHEMA_PG}.ponto_uf"}
+TABELA_MALHA_SIMPLIFICADA = {
+    "municipio": f"{SCHEMA_PG}.malha_municipio_simplificada",
+    "uf": f"{SCHEMA_PG}.malha_uf_simplificada",
+}
+
 # Último tile z de cada nível agrupado. O mapa de zoom Z usa tiles z = floor(Z),
 # então UF até o zoom 5 e município até o 8, os mesmos cortes do censo
 # (`GeoReDUS.jsx`: intramun acima de 8, intrauf acima de 5). O nível mais
@@ -401,3 +412,80 @@ def gera_funcao_tile(
         f"DROP FUNCTION IF EXISTS public_read_api.{nome}(integer, integer, integer, jsonb);\n",
     )
     return nome
+
+
+def sql_geom_agregada() -> str:
+    """SQL das 4 materialized views de geometria dos níveis agrupados.
+
+    Pontos (`ST_PointOnSurface`, que cai sempre dentro do polígono) e malhas
+    simplificadas de município e UF, cada uma com índice único na chave e GIST na
+    geometria. A simplificação usa `ST_CoverageSimplify`, que mantém as fronteiras
+    de vizinhos coladas (PostGIS 3.4 ou mais); antes disso, `ST_SimplifyPreserveTopology`.
+    """
+    unidades = {
+        "municipio": ("cd_mun", "cd_mun, nm_mun, sigla_uf", TABELA_MUNICIPIO),
+        "uf": ("cd_uf", "cd_uf, nm_uf, sigla_uf", TABELA_UF),
+    }
+    blocos = []
+    for nivel, (chave, colunas, origem) in unidades.items():
+        ponto = TABELA_PONTO[nivel]
+        nome = ponto.split(".")[1]
+        blocos.append(
+            f"CREATE MATERIALIZED VIEW IF NOT EXISTS {ponto} AS\n"
+            f"SELECT {colunas}, ST_PointOnSurface(geom)::geometry(Point, 4674) AS geom\n"
+            f"FROM {origem};\n"
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {nome}_{chave} ON {ponto} ({chave});\n"
+            f"CREATE INDEX IF NOT EXISTS {nome}_geom ON {ponto} USING GIST (geom);\n"
+        )
+    for nivel, (chave, colunas, origem) in unidades.items():
+        malha = TABELA_MALHA_SIMPLIFICADA[nivel]
+        nome = malha.split(".")[1]
+        tolerancia = TOLERANCIA_SIMPLIFICACAO[nivel]
+        blocos.append(
+            "DO $$\n"
+            "DECLARE simplifica text;\n"
+            "BEGIN\n"
+            "  IF (split_part(postgis_geos_version(), '.', 1)::int,"
+            " split_part(postgis_geos_version(), '.', 2)::int) >= (3, 12) THEN\n"
+            f"    simplifica := 'ST_CoverageSimplify(geom, {tolerancia}) OVER ()';\n"
+            "  ELSE\n"
+            f"    simplifica := 'ST_SimplifyPreserveTopology(geom, {tolerancia})';\n"
+            "  END IF;\n"
+            f"  EXECUTE format($mv$\n"
+            f"    CREATE MATERIALIZED VIEW IF NOT EXISTS {malha} AS\n"
+            f"    SELECT {colunas},\n"
+            "      ST_Multi(ST_CollectionExtract(ST_MakeValid(CASE WHEN ST_IsEmpty(simplificada) THEN original ELSE simplificada END), 3))"
+            "::geometry(MultiPolygon, 4674) AS geom\n"
+            f"    FROM (SELECT {colunas}, geom AS original, %s AS simplificada FROM {origem}) AS t\n"
+            "  $mv$, simplifica);\n"
+            "END\n"
+            "$$;\n"
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {nome}_{chave} ON {malha} ({chave});\n"
+            f"CREATE INDEX IF NOT EXISTS {nome}_geom ON {malha} USING GIST (geom);\n"
+        )
+    return "\n".join(blocos)
+
+
+def gera_geom_agregada(
+    pasta_tse: Path, *, schema_raiz: Path, schema_municipio: Path, schema_uf: Path
+) -> Path:
+    """Escreve o `schema.sql`/`down.sql` das geometrias dos níveis agrupados.
+
+    Depois de recarregar a malha do IBGE, rodar `bin/refresh_all_mv.sh tse` do db-manager.
+
+    Returns:
+        O caminho do `schema.sql` (para o `-- requires` das views).
+    """
+    pasta = pasta_tse / GEOM_AGREGADA
+    schema = exporta._escreve_texto(
+        pasta / "schema.sql",
+        "".join(f"-- requires: {req}\n" for req in requires(pasta, schema_raiz, schema_municipio, schema_uf))
+        + "\n"
+        + sql_geom_agregada(),
+    )
+    vistas = [*TABELA_PONTO.values(), *TABELA_MALHA_SIMPLIFICADA.values()]
+    exporta._escreve_texto(
+        pasta / "down.sql",
+        "".join(f"DROP MATERIALIZED VIEW IF EXISTS {vista} CASCADE;\n" for vista in vistas),
+    )
+    return schema
