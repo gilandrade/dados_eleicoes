@@ -38,6 +38,7 @@ FORMATO_INTEIRO = {"number": ["pt-BR", {"maximumFractionDigits": 0}]}
 FORMATO_SIM_NAO = {"boolean": {"true": "Sim", "false": "Não"}}
 
 TITULO_ZONA = "${nm_mun} – ${sigla_uf} · zona ${nr_zona}"
+TITULO_MUNICIPIO = "${nm_mun} – ${sigla_uf}"
 ENTRADAS_LOCAL = [
     {"key": "nm_mun", "label": "Município"},
     {"key": "sigla_uf", "label": "UF"},
