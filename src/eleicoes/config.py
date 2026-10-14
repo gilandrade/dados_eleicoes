@@ -28,17 +28,17 @@ CARGA_DIR = GEOREDUS_DIR / "carga"
 
 # CNEFE 2022 por município (cnefetools, IBGE), já filtrado às espécies de
 # domicílio e com `cd_setor` de 15 dígitos (sem o "P" do `COD_SETOR` original).
-# Gerado por `00b_insumos_brasil.qmd` (Brasil) ou
+# Gerado por `00_insumos.qmd` (Brasil) ou
 # `09_insumos_municipio.qmd` (um município); sem repos irmãos.
 CNEFE_MUN_DIR = BRUTO_DIR / "cnefe"
 
-# pop18 por setor: calculado em R na etapa 00 (00_auxiliares.qmd), a partir dos
+# pop18 por setor: calculado em R na etapa 00 (00_insumos.qmd), a partir dos
 # indicadores já nomeados do cn22-pop (não das variáveis brutas do IBGE) — ver
 # CLAUDE.md > Conventions e gotchas. Python só lê o resultado.
 POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 
 # Malha de setores censitários 2022 (geobr, ~472 mil polígonos, ~1,5 GB),
-# gerada por `00b_insumos_brasil.qmd`. `CD_SETOR` tem 15 dígitos, sem
+# gerada por `00_insumos.qmd`. `CD_SETOR` tem 15 dígitos, sem
 # sufixo (diferente do `COD_SETOR` do CNEFE, que tem um "P" no final). Para um
 # município só, `SETORES_MUN_DIR` (`09_insumos_municipio.qmd`).
 SETORES_MUN_DIR = BRUTO_DIR / "aux" / "setores"

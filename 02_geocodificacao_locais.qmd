@@ -387,7 +387,7 @@ locais_final |> count(fonte_coord) |> mutate(pc = round(100 * n / sum(n), 2))
 `st_as_sf()` não aceita coordenada nula — os locais sem nenhuma coordenada
 (`fonte_coord == "sem_coord"`, na prática só o exterior, sem `cd_mun` e por
 isso sem centróide de fallback) ficam de fora da camada de pontos, como o
-próprio `00_auxiliares.qmd` já documenta para o exterior ("mantê-lo nos
+próprio `00_insumos.qmd` já documenta para o exterior ("mantê-lo nos
 totais" — não nos mapas). O total permanece disponível em `locais_final`
 (sem geometria), só a camada espacial exclui essas linhas.
 

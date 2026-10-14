@@ -15,7 +15,7 @@ voto, sem depender dos repos irmãos (cnefe-etl, cn22-pop, process_gtfs):
 - malha de setores 2022 (geobr);
 - pontos dos locais de votação, com a coordenada do TSE validada.
 
-Pré-requisito: `00_auxiliares.qmd` e `01_locais_votacao.qmd` (do mesmo ano) já
+Pré-requisito: `00_insumos.qmd` e `01_locais_votacao.qmd` (do mesmo ano) já
 renderizados.
 
 ```bash
@@ -142,7 +142,7 @@ c(domicilios = nrow(cnefe), descartados_sem_coordenada = n_sem_coord_cnefe)
 ## 3. Censo 2022 por setor
 
 `code_tract` é `double` no censobr; vira texto com `sprintf` (ver
-`00_auxiliares.qmd`). `V06004` e `V06006` são a média e a mediana do rendimento
+`00_insumos.qmd`). `V06004` e `V06006` são a média e a mediana do rendimento
 nominal mensal dos responsáveis com rendimento (dicionário do IBGE de
 08/05/2026).
 

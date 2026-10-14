@@ -172,8 +172,7 @@ CDN do TSE: `https://cdn.tse.jus.br/estatistica/sead/odsele/`. Os arquivos são 
 dados_eleicoes/
 ├── README.md  PLAN.md  .gitignore  _quarto.yml  .Rprofile  renv.lock
 ├── index.qmd  mapas.qmd           # páginas do site (com 00–02)
-├── 00_auxiliares.qmd              # R: crosswalk, malhas, pop18 por setor
-├── 00b_insumos_brasil.qmd         # R: malha de setores e CNEFE do Brasil
+├── 00_insumos.qmd                 # R: crosswalk, malhas, pop18, setores e CNEFE do Brasil
 ├── 01_locais_votacao.qmd          # R: locais e seções por ano, chaves
 ├── 02_geocodificacao_locais.qmd   # R: validação + fallbacks
 ├── 03_pesos_alocacao.qmd          # Py: 1× por ano (antes da eleição)
@@ -298,7 +297,7 @@ Plano B, se o D+3 for lento: coletor dos BUs por seção em `resultados.tse.jus.
   (confirmado pelo Gil em 25/09/2026) a rede em R funciona normalmente.
 - **Confirmado (25/09/2026):** `geobr::read_municipality(..., showProgress = FALSE)`
   devolve `NULL` em silêncio ao renderizar via `quarto render`. Corrigido em
-  `00_auxiliares.qmd` (deixar `showProgress` no padrão) — ver CLAUDE.md.
+  `00_insumos.qmd` (deixar `showProgress` no padrão) — ver CLAUDE.md.
 - **Resolvido (28/09/2026):** as etapas 00 e 01 rodaram de ponta a ponta com
   dados reais de 2022. Três bugs corrigidos no caminho — detalhes em
   CLAUDE.md: (1) crosswalk sem zero à esquerda em `cd_mun_tse` (join falhava

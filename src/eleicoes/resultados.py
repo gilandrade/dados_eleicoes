@@ -25,7 +25,7 @@ from .config import (
 )
 
 # Prefixo de id_zona_mun para locais sem cd_mun (o exterior, sem crosswalk —
-# ver 00_auxiliares.qmd). 8 caracteres, não colide com nenhum cd_mun real
+# ver 00_insumos.qmd). 8 caracteres, não colide com nenhum cd_mun real
 # (7 dígitos).
 SENTINELA_EXTERIOR = "EXTERIOR"
 
@@ -154,7 +154,7 @@ def agrega_por_zona_mun(
     base = resultados_secao_com_id.dropna(subset=["id_local"]).merge(
         locais[[col_id_local, col_cd_mun]], on=col_id_local, how="left"
     )
-    # cd_mun nulo = exterior (locais sem crosswalk, ver 00_auxiliares.qmd).
+    # cd_mun nulo = exterior (locais sem crosswalk, ver 00_insumos.qmd).
     # `.astype(str)` numa coluna de texto nula do pandas devolve NaN de
     # verdade (não a string "nan"), e a concatenação propaga isso — sem o
     # fillna, pivot_table() descarta esses grupos por padrão (dropna=True) e

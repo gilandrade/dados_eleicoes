@@ -56,7 +56,7 @@ print(f"ano={ano} | turno={turno} | cargo={cargo} | fonte={fonte} | baixar={baix
 #| label: leitura
 caminho_crosswalk = PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet"
 if not caminho_crosswalk.exists():
-    raise FileNotFoundError(f"{caminho_crosswalk} não existe — rode 00_auxiliares.qmd.")
+    raise FileNotFoundError(f"{caminho_crosswalk} não existe — rode 00_insumos.qmd.")
 crosswalk = pd.read_parquet(caminho_crosswalk)
 
 resultados_secao = fontes.obtem_resultados_secao(ano, turno, fonte, bool(baixar), cargo=cargo)

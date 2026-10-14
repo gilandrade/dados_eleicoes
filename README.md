@@ -27,7 +27,7 @@ os resultados no território (locais → setores censitários) e o cronograma.
 
 ## Stack
 
-- **R + Quarto + renv** — locais de votação e geocodificação (`00_auxiliares.qmd`,
+- **R + Quarto + renv** — locais de votação e geocodificação (`00_insumos.qmd`,
   `01_locais_votacao.qmd`, `02_geocodificacao_locais.qmd`).
 - **Python + Quarto** — resultados, distribuição espacial e exportação
   (`03_*.qmd` a `08_*.qmd`; as funções ficam em `src/eleicoes/`).
@@ -40,8 +40,7 @@ chamam.
 
 | Notebook | Linguagem | O que faz | Parâmetros (`-P`) |
 |---|---|---|---|
-| `00_auxiliares.qmd` | R | crosswalk TSE↔IBGE, municípios, `pop18` por setor | — |
-| `00b_insumos_brasil.qmd` | R | malha de setores e CNEFE do Brasil | `etapa`, `uf` |
+| `00_insumos.qmd` | R | crosswalk TSE↔IBGE, municípios, `pop18` por setor, malha de setores e CNEFE do Brasil | `etapa`, `uf` |
 | `01_locais_votacao.qmd` | R | locais e seções, chaves | `ano` |
 | `02_geocodificacao_locais.qmd` | R | validação e fallback de coordenada | `ano` |
 | `03_pesos_alocacao.qmd` | Python | matriz de pesos local → setor, zona × município | `ano`, `cd_mun` |
@@ -63,7 +62,7 @@ daquela etapa.
 ```bash
 # R (00 uma vez; 01 e 02 por ano — o ano padrão é 2022)
 Rscript -e "renv::restore()"
-quarto render 00_auxiliares.qmd
+quarto render 00_insumos.qmd
 quarto render 01_locais_votacao.qmd
 quarto render 02_geocodificacao_locais.qmd
 # outro ano: saída com outro nome, para não sobrescrever a página de 2022

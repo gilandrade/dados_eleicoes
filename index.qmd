@@ -15,7 +15,7 @@ Presidente (2018, 2022, 2026) e Prefeito e Vereador (2020, 2024), nos dois turno
 
 ## Etapas
 
-- [00 · Auxiliares](00_auxiliares.qmd) — crosswalk TSE↔IBGE, malhas, população adulta por setor.
+- [00 · Insumos](00_insumos.qmd) — crosswalk TSE↔IBGE, malhas, população adulta por setor.
 - [01 · Locais de votação](01_locais_votacao.qmd) — download e chaves dos locais e seções (2022;
   [2018](01_locais_votacao_2018.html)).
 - [02 · Geocodificação](02_geocodificacao_locais.qmd) — validação e fallback de coordenada (2022;

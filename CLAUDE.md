@@ -20,7 +20,7 @@ R / Quarto (locais de votação + geocodificação):
 
 ```bash
 Rscript -e "renv::restore()"
-quarto render 00_auxiliares.qmd
+quarto render 00_insumos.qmd
 quarto render 01_locais_votacao.qmd
 quarto render 02_geocodificacao_locais.qmd
 ```
@@ -49,7 +49,7 @@ Nas etapas locais, `--profile local` (`_quarto-local.yml`) manda o HTML e as
 `quarto render 03_pesos_alocacao.qmd --profile local -P ano:2022`. Sem o perfil
 o comportamento é o antigo (HTML na raiz).
 
-As etapas 00b e 03–09 não fazem parte do site (`project: render:` no
+As etapas 03–09 não fazem parte do site (`project: render:` no
 `_quarto.yml` lista só as páginas publicadas): o HTML delas sai na raiz, ao lado
 do `.qmd`, e é git-ignorado.
 
@@ -66,7 +66,7 @@ CLI scripts — `scripts/` was removed on 11/10/2026). See `PLAN.md` for the ful
 data model (geometry files vs. result files joined by a shared id).
 
 - **00–02 (R)**: crosswalk TSE↔IBGE, malhas, `pop18` por setor; download e chaves
-  dos locais/seções; validação e geocodificação das coordenadas. `00b_insumos_brasil.qmd`
+  dos locais/seções; validação e geocodificação das coordenadas. `00_insumos.qmd`
   (R) baixa a malha de setores e o CNEFE do Brasil.
 - **Eleições municipais (2020, 2024, branch `eleicoes-municipais`)**: reaproveitam
   01–04 sem mudança de método; só o cargo muda (`config.CARGOS`, `-P cargo:prefeito|vereador`
@@ -100,7 +100,7 @@ data model (geometry files vs. result files joined by a shared id).
 ## Conventions and gotchas
 
 - **CNEFE 2022 e malha de setores não vêm mais de repos irmãos** (05/10/2026):
-  `00b_insumos_brasil.qmd` gera `dados/01_bruto/cnefe/cnefe_{cd_mun}.parquet`
+  `00_insumos.qmd` gera `dados/01_bruto/cnefe/cnefe_{cd_mun}.parquet`
   (cnefetools, 5.570 municípios, ~90,7 milhões de domicílios, `cd_setor` já sem o
   "P", lat/lon em EPSG:4674) e `dados/01_bruto/aux/setores/BR_setores_CD2022.gpkg`
   (geobr 2.1.0, 468.097 setores). É retomável e aceita `-P etapa:cnefe -P uf:35`.
@@ -153,7 +153,7 @@ data model (geometry files vs. result files joined by a shared id).
   com o `renv.lock` restaurado. Para renderizar por fora do RStudio:
   ```bash
   R_HOME="/c/Program Files/R/R-4.5.2" PATH="/c/Program Files/R/R-4.5.2/bin:$PATH" \
-    quarto render 00_auxiliares.qmd
+    quarto render 00_insumos.qmd
   ```
 - **Esquema real de `eleitorado_local_votacao_{ano}.csv`** (confirmado contra o
   arquivo de 2022 em 28/09/2026 — não adivinhar de novo, olhar o cabeçalho real
@@ -179,7 +179,7 @@ data model (geometry files vs. result files joined by a shared id).
     de origem do crosswalk (`yuripassuelo/codigos_mun_tse_ibge`) guarda
     `cd_mun_tse` **sem** esse padding (`"1120"`) — sem `str_pad(..., 5, "0")`
     no crosswalk, o join da etapa 01 falha silenciosamente para ~15% dos
-    locais (não só o exterior). Corrigido em `00_auxiliares.qmd`.
+    locais (não só o exterior). Corrigido em `00_insumos.qmd`.
   - Resultado real (2022, ambos os turnos): 993.712 seções×turno, 92.393 locais,
     262 flags especiais, 0 coordenadas nulas, 181 municípios sem crosswalk —
     **todos** com `SG_UF = "ZZ"` (exterior; ex.: Katmandu), como esperado.

@@ -205,7 +205,7 @@ def pop18_por_setor(
     Censo 2022 (`cn22-pop`), supondo distribuição uniforme dentro da faixa
     15–19 (3 dos 5 anos são maiores de idade).
 
-    NÃO é o caminho usado pelo pipeline: `00_auxiliares.qmd` (R) já calcula e
+    NÃO é o caminho usado pelo pipeline: `00_insumos.qmd` (R) já calcula e
     grava `pop18_setor.parquet`, e `03_pesos_alocacao.qmd` só lê esse
     arquivo (`config.POP18_SETOR_PARQUET`) — ver CLAUDE.md. Esta função existe
     como referência da mesma conta em Python e para reuso fora do pipeline

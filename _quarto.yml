@@ -1,11 +1,11 @@
 project:
   type: website
   output-dir: docs
-  # Só estas páginas formam o site. As demais etapas (00b, 03 em diante) são
+  # Só estas páginas formam o site. As demais etapas (03 em diante) são
   # notebooks de execução local: `quarto render 03_pesos_alocacao.qmd -P ano:2026`.
   render:
     - index.qmd
-    - 00_auxiliares.qmd
+    - 00_insumos.qmd
     - 01_locais_votacao.qmd
     - 02_geocodificacao_locais.qmd
     - mapas.qmd
@@ -22,8 +22,8 @@ website:
     left:
       - href: index.qmd
         text: Início
-      - href: 00_auxiliares.qmd
-        text: 00 · Auxiliares
+      - href: 00_insumos.qmd
+        text: 00 · Insumos
       - href: 01_locais_votacao.qmd
         text: 01 · Locais de votação
       - href: 02_geocodificacao_locais.qmd
