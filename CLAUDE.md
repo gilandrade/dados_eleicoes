@@ -44,6 +44,11 @@ quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
 ```
 
+Nas etapas locais, `--profile local` (`_quarto-local.yml`) manda o HTML e as
+`*_files` para `dados/relatorios/` em vez da raiz, ex.:
+`quarto render 03_pesos_alocacao.qmd --profile local -P ano:2022`. Sem o perfil
+o comportamento é o antigo (HTML na raiz).
+
 As etapas 00b e 03–09 não fazem parte do site (`project: render:` no
 `_quarto.yml` lista só as páginas publicadas): o HTML delas sai na raiz, ao lado
 do `.qmd`, e é git-ignorado.

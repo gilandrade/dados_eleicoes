@@ -1,0 +1,10 @@
+# Perfil das etapas de execução local (00b, 03 em diante): o HTML e as pastas
+# *_files saem em dados/relatorios/ (git-ignorado) em vez da raiz.
+#   quarto render 03_pesos_alocacao.qmd --profile local -P ano:2022
+# Não usar para as páginas do site (index, 00, 01, 02, mapas): essas vão para docs/.
+project:
+  type: default
+  output-dir: dados/relatorios
+  render:
+    - "*.qmd"
+  resources: []
