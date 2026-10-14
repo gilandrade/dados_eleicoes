@@ -13,6 +13,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from .cadastro import fonte_por_zoom
 from .config import CRS_SIRGAS2000
 
 
@@ -251,6 +252,7 @@ def linha_cadastro(
     unit: str = "",
     metodology: str = "",
     source_label: str = "TSE",
+    agrupa_por_zoom: bool = False,
 ) -> dict[str, str]:
     """Monta uma linha da aba `eleicoes` do cadastro da GeoReDUS.
 
@@ -273,19 +275,24 @@ def linha_cadastro(
         unit: unidade da legenda de cor (`vector_polygon_continuous`).
         metodology: texto ou link da nota metodológica.
         source_label: fonte exibida no mapa.
+        agrupa_por_zoom: se verdadeiro, os tiles vêm da função que agrupa por UF e
+            município ao dar zoom out (`cadastro.fonte_por_zoom`), em vez da view.
+            O download continua sendo o da view.
 
     Returns:
         A linha, com as chaves de `COLUNAS_CADASTRO`.
     """
     # JSON em linha única: célula com quebra de linha atrapalha o colar na planilha.
     em_linha = lambda obj: json.dumps(obj, ensure_ascii=False, separators=(", ", ": "))
+    # O Martin chama as tabelas de `{view}.{coluna}` e as funções só pelo nome.
+    fonte = fonte_por_zoom(view) if agrupa_por_zoom else f"{view}.geom"
     return {
         "id": id_camada,
         "collection_id": collection_id,
         "indicator_id": indicator_id,
         "preset": preset,
-        "tiles": f"${{VECTOR_TILE_SERVER_ENDPOINT}}/{view}.geom/{{z}}/{{x}}/{{y}}",
-        "source_layer": f"{view}.geom",
+        "tiles": f"${{VECTOR_TILE_SERVER_ENDPOINT}}/{fonte}/{{z}}/{{x}}/{{y}}",
+        "source_layer": fonte,
         "path": path,
         "label": label,
         "shortDescription": descricao,

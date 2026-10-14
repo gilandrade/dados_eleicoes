@@ -128,6 +128,7 @@ linhas_brancos_nulos = {
             "classe_brancos_nulos",
             cores.legenda_sequencial(TITULO_BRANCO_NULO, cores.QUEBRAS_BRANCO_NULO, rampa=cores.RAMPA_CINZA),
             "qt_comparecimento",
+            por_nivel=True,
         ),
         tooltip={
             "title": "nm_local_votacao",
@@ -137,6 +138,7 @@ linhas_brancos_nulos = {
                 {"key": "qt_comparecimento", "label": "Comparecimento (votos)", "format": FORMATO_INTEIRO},
             ],
         },
+        agrupa_por_zoom=True,
         **comum,
     )
     for ano, turno in eleicoes
@@ -164,6 +166,7 @@ linhas_abstencao = {
             "classe_abstencao",
             cores.legenda_sequencial(TITULO_ABSTENCAO, cores.QUEBRAS_ABSTENCAO),
             "qt_aptos",
+            por_nivel=True,
         ),
         tooltip={
             "title": "nm_local_votacao",
@@ -173,6 +176,7 @@ linhas_abstencao = {
                 {"key": "qt_aptos", "label": "Inscritos", "format": FORMATO_INTEIRO},
             ],
         },
+        agrupa_por_zoom=True,
         **comum,
     )
     for ano, turno in eleicoes
@@ -205,7 +209,7 @@ for ano, turno in eleicoes:
         path=f"{caminho_menu(ano, turno)} / Locais de votação",
         label=ROTULO_PRESIDENTE,
         descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos. Tamanho: votos válidos.",
-        style=estilo_pontos("classe_margem", legenda, "qt_validos"),
+        style=estilo_pontos("classe_margem", legenda, "qt_validos", por_nivel=True),
         tooltip={
             "title": "nm_local_votacao",
             "entries": [
@@ -214,6 +218,7 @@ for ano, turno in eleicoes:
                 {"key": "qt_validos", "label": "Votos válidos", "format": FORMATO_INTEIRO},
             ],
         },
+        agrupa_por_zoom=True,
         **comum,
     )
     linhas_presidente_zona[ano, turno] = exporta.linha_cadastro(
@@ -233,6 +238,7 @@ for ano, turno in eleicoes:
                 ENTRADA_FRONTEIRA,
             ],
         },
+        agrupa_por_zoom=True,
         **comum,
     )
     linhas_presidente_municipio[ano, turno] = exporta.linha_cadastro(
@@ -251,6 +257,7 @@ for ano, turno in eleicoes:
                 {"key": "qt_comparecimento", "label": "Comparecimento (votos)", "format": FORMATO_INTEIRO},
             ],
         },
+        agrupa_por_zoom=True,
         **comum,
     )
 ```
@@ -350,6 +357,7 @@ for ano_antes, ano_depois in zip(anos[1:], anos):
                         *([ENTRADA_FRONTEIRA] if nivel == "zona_mun" else []),
                     ],
                 },
+                agrupa_por_zoom=True,
                 **comum,
             )
 ```

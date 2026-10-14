@@ -28,9 +28,17 @@ sys.path.insert(0, "src")
 
 import pandas as pd
 
-from eleicoes import carga, cores, exporta
+from eleicoes import carga, cores, exporta, resultados
+from eleicoes.cadastro import NIVEL_LOCAL, NIVEL_MUNICIPIO, NIVEL_UF
 from eleicoes.carga import SCHEMA_PG
-from eleicoes.config import CARGA_DIR, GEOMETRIAS_DIR, PROCESSADO_DIR, RESULTADOS_DIR
+from eleicoes.config import (
+    CARGA_DIR,
+    GEOMETRIAS_DIR,
+    NR_BOLSONARO_POR_ANO,
+    NR_PT,
+    PROCESSADO_DIR,
+    RESULTADOS_DIR,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
 ```
@@ -52,6 +60,7 @@ saida = (Path(saida) if saida else CARGA_DIR).resolve()
 dir_tse = saida / "collections" / SCHEMA_PG
 dir_api = saida / "collections" / "public_read_api"
 schema_municipio = saida / "collections" / carga.SCHEMA_MUNICIPIO
+schema_uf = saida / "collections" / carga.SCHEMA_UF
 print(f"anos={anos} | turnos={turnos}\nsaída: {saida}")
 ```
 
@@ -65,6 +74,7 @@ schema_raiz = exporta._escreve_texto(
 )
 exporta._escreve_texto(dir_tse / "down.sql", f"-- migrate:down\nDROP SCHEMA IF EXISTS {SCHEMA_PG};\n")
 tabelas = []  # o que foi gerado, para a conferência
+vistas = {}  # (tipo, ano, turno) -> carga.Vista, para as funções de tile por zoom
 ```
 
 ## 2. Malhas: zona × município e locais de votação
@@ -134,6 +144,10 @@ Uma tabela por nível observado (`zona_mun`, `local`, `municipio`). Ano × turno
 sem resultado em disco fica fora da carga. O município não tem malha própria:
 a view usa a do IBGE (`ibge.malha_br_municipio_2024`), a mesma de todos os anos.
 
+A UF é a soma dos municípios, sem o exterior (`carga.agrega_uf`): as contagens
+são somadas e os indicadores recalculados. Alimenta o nível agrupado das
+camadas ao dar zoom out (seção 8).
+
 ```{python}
 #| label: resultados
 schemas_res, tipos_res, colunas_res = {}, {}, {}
@@ -145,7 +159,16 @@ for ano in anos:
             print(f"{ano}, turno {turno}: sem resultados — fora da carga")
             continue
         eleicoes.append((ano, turno))
-        for nivel, chave in (("zona_mun", "id_zona_mun"), ("local", "id_local"), ("municipio", "cd_mun")):
+        exporta.escreve_resultados(
+            carga.agrega_uf(pd.read_parquet(carga.exige(RESULTADOS_DIR / f"res_{eleicao}_municipio.parquet"))),
+            RESULTADOS_DIR / f"res_{eleicao}_uf.parquet",
+        )
+        for nivel, chave in (
+            ("zona_mun", "id_zona_mun"),
+            ("local", "id_local"),
+            ("municipio", "cd_mun"),
+            ("uf", "cd_uf"),
+        ):
             parquet = carga.exige(RESULTADOS_DIR / f"res_{eleicao}_{nivel}.parquet")
             colunas = carga.colunas_parquet(parquet)
             schemas_res[ano, turno, nivel] = carga.gera_tabela(
@@ -173,7 +196,7 @@ for ano, turno in eleicoes:
     eleicao = f"presidente_{ano}_t{turno}"
     tipos_zona = tipos_res[ano, turno, "zona_mun"]
     pasta = dir_api / SCHEMA_PG / f"malha_zona_mun_{ano}_t{turno}"
-    exporta.gera_view_publica(
+    vistas["zona_mun", ano, turno] = carga.gera_vista(
         f"{SCHEMA_PG}_malha_zona_mun_{ano}_t{turno}",
         [
             "malha.id_zona_mun AS id",
@@ -219,7 +242,7 @@ for ano, turno in eleicoes:
     eleicao = f"presidente_{ano}_t{turno}"
     tipos_mun = tipos_res[ano, turno, "municipio"]
     pasta = dir_api / SCHEMA_PG / f"malha_municipio_{ano}_t{turno}"
-    exporta.gera_view_publica(
+    vistas["municipio", ano, turno] = carga.gera_vista(
         f"{SCHEMA_PG}_malha_municipio_{ano}_t{turno}",
         [
             "malha.cd_mun AS id",
@@ -244,6 +267,41 @@ for ano, turno in eleicoes:
     tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_municipio_{ano}_t{turno}")
 ```
 
+## 5c. View de UF
+
+A UF como unidade, a partir de `ibge.malha_br_uf_2024`: é o nível mais agrupado
+das camadas de polígonos ao dar zoom out. O nome da UF vai em `nm_mun`, para o
+tooltip e a função de tile usarem as mesmas colunas dos outros níveis.
+
+```{python}
+#| label: view-uf
+for ano, turno in eleicoes:
+    eleicao = f"presidente_{ano}_t{turno}"
+    tipos_uf = tipos_res[ano, turno, "uf"]
+    pasta = dir_api / SCHEMA_PG / f"malha_uf_{ano}_t{turno}"
+    vistas["uf", ano, turno] = carga.gera_vista(
+        f"{SCHEMA_PG}_malha_uf_{ano}_t{turno}",
+        [
+            "malha.cd_uf AS id",
+            "malha.cd_uf",
+            "malha.nm_uf AS nm_mun",
+            "malha.sigla_uf",
+            "malha.geom",
+            *colunas_res[ano, turno, "uf"],
+            f"{carga.sql_qt_validos(tipos_uf)} AS qt_validos",
+            *carga.colunas_margem(ano, tipos_uf),
+        ],
+        from_sql=(
+            f"FROM\n  {carga.TABELA_UF} AS malha\n"
+            f"  LEFT JOIN {SCHEMA_PG}.{eleicao}_uf AS res\n"
+            "    ON malha.cd_uf = res.cd_uf"
+        ),
+        diretorio_saida=pasta,
+        requires=carga.requires(pasta, dir_api / "schema.sql", schema_uf, schemas_res[ano, turno, "uf"]),
+    )
+    tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_uf_{ano}_t{turno}")
+```
+
 ## 6. View de locais de votação
 
 Pontos + nome e endereço + resultados, com as três classes de cor (margem,
@@ -259,7 +317,7 @@ for ano, turno in eleicoes:
     eleicao = f"presidente_{ano}_t{turno}"
     tipos_local = tipos_res[ano, turno, "local"]
     pasta = dir_api / SCHEMA_PG / f"malha_locais_votacao_{ano}_t{turno}"
-    exporta.gera_view_publica(
+    vistas["local", ano, turno] = carga.gera_vista(
         f"{SCHEMA_PG}_malha_locais_votacao_{ano}_t{turno}",
         [
             "malha.id_local AS id",
@@ -282,12 +340,7 @@ for ano, turno in eleicoes:
             *colunas_res[ano, turno, "local"],
             f"{carga.sql_qt_validos(tipos_local)} AS qt_validos",
             *carga.colunas_margem(ano, tipos_local),
-            f"{carga.sql_pct('pc_brancos_nulos')} AS pct_brancos_nulos",
-            carga.sql_classe_sequencial(carga.sql_pc_brancos_nulos(tipos_local), cores.QUEBRAS_BRANCO_NULO)
-            + " AS classe_brancos_nulos",
-            f"{carga.sql_pct('pc_abstencao')} AS pct_abstencao",
-            carga.sql_classe_sequencial(carga.sql_pc_abstencao(), cores.QUEBRAS_ABSTENCAO)
-            + " AS classe_abstencao",
+            *carga.colunas_brancos_abstencao(tipos_local),
         ],
         from_sql=(
             f"FROM\n  {SCHEMA_PG}.malha_locais_votacao_{ano} AS malha\n"
@@ -311,9 +364,67 @@ for ano, turno in eleicoes:
     tabelas.append(f"public_read_api.{SCHEMA_PG}_malha_locais_votacao_{ano}_t{turno}")
 ```
 
+## 6b. Locais de votação agrupados por município e por UF
+
+Ao dar zoom out os pontos viram um por município e, mais longe, um por UF. É um
+ponto por unidade (`ST_PointOnSurface` da malha, que cai sempre dentro do
+polígono), com as mesmas colunas e classes da view de locais, calculadas das
+contagens somadas. O nome vai em `nm_local_votacao`, que é o título do tooltip
+dos locais, e os aptos em `qt_eleitores`. O tamanho vem de `qt_validos`,
+`qt_comparecimento` ou `qt_aptos`, como nos locais.
+
+```{python}
+#| label: view-pontos-agrupados
+for ano, turno in eleicoes:
+    eleicao = f"presidente_{ano}_t{turno}"
+    for nivel in ("municipio", "uf"):
+        tipos = tipos_res[ano, turno, nivel]
+        pasta = dir_api / SCHEMA_PG / f"pontos_{nivel}_{ano}_t{turno}"
+        if nivel == "municipio":
+            identificacao = [
+                "malha.cd_mun AS id",
+                "malha.cd_mun",
+                "malha.nm_mun",
+                "malha.sigla_uf",
+                "malha.nm_mun || ' – ' || malha.sigla_uf AS nm_local_votacao",
+            ]
+            tabela_malha, chave, schema_malha = carga.TABELA_MUNICIPIO, "cd_mun", schema_municipio
+        else:
+            identificacao = [
+                "malha.cd_uf AS id",
+                "malha.cd_uf",
+                "malha.nm_uf AS nm_mun",
+                "malha.sigla_uf",
+                "malha.nm_uf AS nm_local_votacao",
+            ]
+            tabela_malha, chave, schema_malha = carga.TABELA_UF, "cd_uf", schema_uf
+        vistas[f"pontos_{nivel}", ano, turno] = carga.gera_vista(
+            f"{SCHEMA_PG}_pontos_{nivel}_{ano}_t{turno}",
+            [
+                *identificacao,
+                "res.qt_aptos AS qt_eleitores",
+                "ST_PointOnSurface(malha.geom)::geometry(Point, 4674) AS geom",
+                *colunas_res[ano, turno, nivel],
+                f"{carga.sql_qt_validos(tipos)} AS qt_validos",
+                *carga.colunas_margem(ano, tipos),
+                *carga.colunas_brancos_abstencao(tipos),
+            ],
+            from_sql=(
+                f"FROM\n  {tabela_malha} AS malha\n"
+                f"  JOIN {SCHEMA_PG}.{eleicao}_{nivel} AS res\n"
+                f"    ON malha.{chave} = res.{chave}"
+            ),
+            diretorio_saida=pasta,
+            requires=carga.requires(
+                pasta, dir_api / "schema.sql", schema_malha, schemas_res[ano, turno, nivel]
+            ),
+        )
+        tabelas.append(f"public_read_api.{SCHEMA_PG}_pontos_{nivel}_{ano}_t{turno}")
+```
+
 ## 7. Mudança de votação entre anos consecutivos
 
-Tabela e view por par de anos × turno × nível (`zona_mun` e `municipio`), com os
+Tabela e view por par de anos × turno × nível (`zona_mun`, `municipio` e `uf`), com os
 ids e a malha do ano mais recente (a do IBGE, no município). As colunas do mapa
 "de onde veio a mudança" (sobre o eleitorado apto) ficam fora do banco: ainda
 não foram validadas. A cor é de quem cresceu mais nos votos válidos.
@@ -324,6 +435,7 @@ NIVEIS_MUDANCA = {
     # nível: (chave, prefixo da view)
     "zona_mun": ("id_zona_mun", "malha_zona_mun_mudanca"),
     "municipio": ("cd_mun", "malha_municipio_mudanca"),
+    "uf": ("cd_uf", "malha_uf_mudanca"),
 }
 
 for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
@@ -331,6 +443,20 @@ for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
         for nivel, (chave, prefixo_view) in NIVEIS_MUDANCA.items():
             nome = f"presidente_mudanca_{ano_antes}_{ano_depois}_t{turno}"
             parquet = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_{nivel}.parquet"
+            municipio_existe = parquet.with_name(parquet.name.replace("_uf.", "_municipio.")).exists()
+            if nivel == "uf" and municipio_existe and {(ano_antes, turno), (ano_depois, turno)} <= set(eleicoes):
+                # Mesma conta da etapa 05, sobre os resultados de UF dos dois anos: as
+                # contagens somadas, não a média das mudanças dos municípios.
+                exporta.escreve_resultados(
+                    resultados.mudanca_votacao(
+                        pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano_antes}_t{turno}_uf.parquet"),
+                        pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano_depois}_t{turno}_uf.parquet"),
+                        ano_antes=ano_antes, ano_depois=ano_depois, nr_pt=NR_PT, chave="cd_uf",
+                        nr_bolsonaro_antes=NR_BOLSONARO_POR_ANO[ano_antes],
+                        nr_bolsonaro_depois=NR_BOLSONARO_POR_ANO[ano_depois],
+                    ),
+                    parquet,
+                )
             if not parquet.exists():
                 print(f"{parquet.name} não existe — fora da carga")
                 continue
@@ -376,7 +502,7 @@ for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
                     f"{carga.JOIN_MUNICIPIO}"
                 )
                 requisitos = [schema_zona[ano_depois], schema_mudanca, schema_municipio]
-            else:
+            elif nivel == "municipio":
                 identificacao = ["malha.cd_mun AS id", "malha.cd_mun", "malha.nm_mun", "malha.sigla_uf"]
                 origem = (
                     f"FROM\n  {carga.TABELA_MUNICIPIO} AS malha\n"
@@ -384,8 +510,16 @@ for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
                     "    ON malha.cd_mun = res.cd_mun"
                 )
                 requisitos = [schema_municipio, schema_mudanca]
+            else:
+                identificacao = ["malha.cd_uf AS id", "malha.cd_uf", "malha.nm_uf AS nm_mun", "malha.sigla_uf"]
+                origem = (
+                    f"FROM\n  {carga.TABELA_UF} AS malha\n"
+                    f"  LEFT JOIN {SCHEMA_PG}.{nome}_{nivel} AS res\n"
+                    "    ON malha.cd_uf = res.cd_uf"
+                )
+                requisitos = [schema_uf, schema_mudanca]
 
-            exporta.gera_view_publica(
+            vistas[f"mudanca_{nivel}", ano_antes, ano_depois, turno] = carga.gera_vista(
                 f"{SCHEMA_PG}_{prefixo_view}_{ano_antes}_{ano_depois}_t{turno}",
                 [
                     *identificacao,
@@ -401,6 +535,74 @@ for ano_antes, ano_depois in zip(sorted(anos), sorted(anos)[1:]):
                 f"tse.{nome}_{nivel}",
                 f"public_read_api.{SCHEMA_PG}_{prefixo_view}_{ano_antes}_{ano_depois}_t{turno}",
             ]
+```
+
+## 8. Funções de tile por zoom
+
+Uma função em `public_read_api` por camada, que escolhe a view pelo `z` do tile:
+UF até o zoom 5, município até o 8 e, daí em diante, a zona ou o local de votação
+(`carga.Z_MAX_POR_NIVEL`, os mesmos cortes do censo). O Martin publica as funções
+sozinho; o cadastro aponta para ela (`cadastro.fonte_por_zoom`). Nos pontos o tile
+traz também a coluna `nivel`, que o raio das bolinhas usa.
+
+Os atributos do tile são os da view mais detalhada; o que o nível agrupado não
+tem (número da zona, endereço do local etc.) vai nulo e não entra no tile.
+
+Nas zonas, o tile traz também `titulo` (o título do tooltip, que leva o número da
+zona só no nível das zonas) e a fronteira interna estimada vale `false` nos
+níveis agrupados: o limite do município e da UF vem do IBGE.
+
+```{python}
+#| label: funcoes-tile
+funcoes = []
+OPCOES_ZONA = {
+    "padroes": {"geom_estimada": "false"},
+    "titulos": {
+        NIVEL_UF: "v.nm_mun || ' – ' || v.sigla_uf",
+        NIVEL_MUNICIPIO: "v.nm_mun || ' – ' || v.sigla_uf",
+        NIVEL_LOCAL: "v.nm_mun || ' – ' || v.sigla_uf || ' · zona ' || v.nr_zona",
+    },
+}
+
+
+def gera_funcao(niveis, **opcoes):
+    nome = carga.gera_funcao_tile(niveis, pasta_raiz=dir_api / SCHEMA_PG, schema_api=dir_api / "schema.sql", **opcoes)
+    funcoes.append(nome)
+    tabelas.append(f"public_read_api.{nome}")
+
+
+for ano, turno in eleicoes:
+    chave = (ano, turno)
+    gera_funcao([(vistas["uf", *chave], NIVEL_UF), (vistas["municipio", *chave], NIVEL_MUNICIPIO)])
+    gera_funcao(
+        [
+            (vistas["uf", *chave], NIVEL_UF),
+            (vistas["municipio", *chave], NIVEL_MUNICIPIO),
+            (vistas["zona_mun", *chave], NIVEL_LOCAL),
+        ],
+        **OPCOES_ZONA,
+    )
+    gera_funcao(
+        [
+            (vistas["pontos_uf", *chave], NIVEL_UF),
+            (vistas["pontos_municipio", *chave], NIVEL_MUNICIPIO),
+            (vistas["local", *chave], NIVEL_LOCAL),
+        ],
+        com_nivel=True,
+    )
+
+for chave in sorted(k[1:] for k in vistas if k[0] == "mudanca_uf"):
+    gera_funcao([(vistas["mudanca_uf", *chave], NIVEL_UF), (vistas["mudanca_municipio", *chave], NIVEL_MUNICIPIO)])
+    if ("mudanca_zona_mun", *chave) in vistas:
+        gera_funcao(
+            [
+                (vistas["mudanca_uf", *chave], NIVEL_UF),
+                (vistas["mudanca_municipio", *chave], NIVEL_MUNICIPIO),
+                (vistas["mudanca_zona_mun", *chave], NIVEL_LOCAL),
+            ],
+            **OPCOES_ZONA,
+        )
+print(f"{len(funcoes)} funções de tile")
 ```
 
 ## Conferência
