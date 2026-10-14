@@ -5,8 +5,10 @@ execute:
   echo: true
 ---
 
-Compara dois anos por **zona × município**, no mesmo turno, e grava
-`mudanca_presidente_{de}_{para}_t{turno}_zona_mun.parquet`.
+Compara dois anos por **zona × município** (`-P nivel:zona_mun`, o padrão) ou por
+**município** (`-P nivel:municipio`), no mesmo turno, e grava
+`mudanca_presidente_{de}_{para}_t{turno}_{nivel}.parquet`. O município é a única
+unidade com limite oficial: não precisa de alinhamento de zonas.
 
 Pensado para o 2º turno (dois candidatos). No 1º turno funciona com Lula/Haddad
 × bolsonarista: os demais candidatos entram no "não-voto" da base do eleitorado
@@ -19,6 +21,7 @@ locais na mesma zona) — ver PLAN.md.
 ```bash
 quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:1
+quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:1 -P nivel:municipio
 ```
 
 ```{python}
@@ -42,20 +45,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 de = 2018
 para = 2022
 turno = 2
+nivel = "zona_mun"  # ou "municipio"
 ```
 
 ```{python}
 #| label: parametros-derivados
 ano_antes, ano_depois, turno = int(de), int(para), int(turno)
-print(f"{ano_antes} -> {ano_depois} | {turno}º turno")
+nivel = str(nivel)
+assert nivel in ("zona_mun", "municipio"), nivel
+CHAVE = "id_zona_mun" if nivel == "zona_mun" else "cd_mun"
+print(f"{ano_antes} -> {ano_depois} | {turno}º turno | {nivel}")
 ```
 
 ## 1. Resultados dos dois anos
 
 ```{python}
 #| label: leitura
-def le_zona_mun(ano):
-    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_zona_mun.parquet"
+def le_resultados(ano):
+    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_{nivel}.parquet"
     if not caminho.exists():
         raise FileNotFoundError(
             f"{caminho} não existe — rode 04_resultados_turno.qmd -P ano:{ano} -P turno:{turno}."
@@ -63,9 +70,9 @@ def le_zona_mun(ano):
     return pd.read_parquet(caminho)
 
 
-res_antes_bruto = le_zona_mun(ano_antes)
-res_depois = le_zona_mun(ano_depois)
-print(f"{len(res_antes_bruto):,} zonas × município em {ano_antes}, {len(res_depois):,} em {ano_depois}")
+res_antes_bruto = le_resultados(ano_antes)
+res_depois = le_resultados(ano_depois)
+print(f"{len(res_antes_bruto):,} linhas em {ano_antes}, {len(res_depois):,} em {ano_depois}")
 ```
 
 ## 2. Alinhamento das zonas
@@ -75,9 +82,13 @@ o id do ano anterior é trocado pelo do ano mais recente.
 
 ```{python}
 #| label: alinhamento
-res_antes = resultados.alinha_zona_mun(res_antes_bruto, res_depois)
-n_trocados = int((res_antes["id_zona_mun"] != res_antes_bruto["id_zona_mun"]).sum())
-print(f"{n_trocados} zonas com o id realinhado")
+if nivel == "zona_mun":
+    res_antes = resultados.alinha_zona_mun(res_antes_bruto, res_depois)
+    n_trocados = int((res_antes["id_zona_mun"] != res_antes_bruto["id_zona_mun"]).sum())
+    print(f"{n_trocados} zonas com o id realinhado")
+else:
+    res_antes = res_antes_bruto
+    print("município: nada a alinhar")
 ```
 
 ## 3. Mudança de votação
@@ -92,11 +103,11 @@ de lado.
 #| label: mudanca
 mudanca = resultados.mudanca_votacao(
     res_antes, res_depois,
-    ano_antes=ano_antes, ano_depois=ano_depois, nr_pt=NR_PT, chave="id_zona_mun",
+    ano_antes=ano_antes, ano_depois=ano_depois, nr_pt=NR_PT, chave=CHAVE,
     nr_bolsonaro_antes=NR_BOLSONARO_POR_ANO[ano_antes],
     nr_bolsonaro_depois=NR_BOLSONARO_POR_ANO[ano_depois],
 )
-print(f"{len(mudanca):,} zonas × município")
+print(f"{len(mudanca):,} linhas ({nivel})")
 mudanca["sentido_virada"].value_counts().to_frame()
 ```
 
@@ -110,7 +121,7 @@ mudanca["tipo_mudanca"].value_counts(dropna=False).to_frame()
 ```{python}
 #| label: gravacao
 #| output: false
-caminho = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+caminho = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_{nivel}.parquet"
 exporta.escreve_resultados(mudanca, caminho)
 ```
 
@@ -121,11 +132,11 @@ Zonas do território (sem o exterior) que ficaram sem par depois do alinhamento.
 ```{python}
 #| label: conferencia-pares
 def territorio(df):
-    return set(df.loc[~df["id_zona_mun"].str.startswith(resultados.SENTINELA_EXTERIOR), "id_zona_mun"])
+    return set(df.loc[~df[CHAVE].str.startswith(resultados.SENTINELA_EXTERIOR), CHAVE])
 
 
-sem_par_antes = territorio(res_antes) - set(mudanca["id_zona_mun"])
-sem_par_depois = territorio(res_depois) - set(mudanca["id_zona_mun"])
+sem_par_antes = territorio(res_antes) - set(mudanca[CHAVE])
+sem_par_depois = territorio(res_depois) - set(mudanca[CHAVE])
 print(f"sem par: {len(sem_par_antes)} em {ano_antes}, {len(sem_par_depois)} em {ano_depois}")
 print("exemplos:", sorted(sem_par_antes | sem_par_depois)[:5])
 ```

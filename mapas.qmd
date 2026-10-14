@@ -29,6 +29,13 @@ sobre um ponto ou uma área para ver os números.
         <option value="mudanca">Mudança de votação entre eleições</option>
         <option value="mudanca_tipo">De onde veio a mudança (% do eleitorado)</option>
       </optgroup>
+      <optgroup label="Município (áreas)">
+        <option value="municipio_presidente">Presidente — % dos votos válidos</option>
+        <option value="municipio_prefeito">Prefeito — partido mais votado</option>
+        <option value="municipio_vereador">Vereador — partido mais votado</option>
+        <option value="municipio_mudanca">Mudança de votação entre eleições</option>
+        <option value="municipio_mudanca_tipo">De onde veio a mudança (% do eleitorado)</option>
+      </optgroup>
     </select>
   </label>
   <label>Ano <select id="sel-ano"></select></label>
@@ -66,6 +73,10 @@ sobre um ponto ou uma área para ver os números.
   formaram. O 2º turno só existe para Prefeito, nas cidades que o tiveram; o
   resto do mapa fica sem dado. Nos anos municipais, brancos e nulos são os da
   votação para Prefeito.
+- Os mapas de **município** usam o limite oficial do IBGE: é a menor unidade com
+  fronteira que não precisa de estimativa. Os valores são os do TSE somados por
+  município, e a **mudança de votação** é a mesma dos mapas de zona, calculada
+  por município.
 - Nas cidades com mais de uma zona eleitoral, a fronteira *entre* as zonas é
   estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando
   for o caso.

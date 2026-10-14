@@ -114,14 +114,49 @@ for ano in ANOS_MUNICIPAIS:
 municipais
 ```
 
-## 5. Configuração do visualizador
+## 5. Município (áreas)
+
+Mapas por município, a única unidade com limite oficial (a fronteira entre
+zonas é estimada). Uma geometria só, sem ano, e um arquivo de valores por ano ×
+turno (× cargo). Não substitui os mapas de zona × município. A mudança de
+votação vem da etapa 05 com `-P nivel:municipio`.
+
+```{python}
+#| label: municipio
+municipio = {
+    "municipio_presidente": [], "municipio_prefeito": [], "municipio_vereador": [], "municipio_mudanca": [],
+}
+if (visualizador.PROCESSADO_DIR / "aux" / "municipios.gpkg").exists():
+    visualizador.exporta_municipio_geom()
+    for ano in ANOS:
+        for turno in TURNOS:
+            if (RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet").exists():
+                visualizador.exporta_municipio_turno(ano, turno)
+                municipio["municipio_presidente"].append((ano, turno))
+    for ano in ANOS_MUNICIPAIS:
+        for cargo in CARGOS_MUNICIPAIS:
+            for turno in TURNOS:
+                if (RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}_municipio.parquet").exists():
+                    visualizador.exporta_municipio_partido(ano, turno, cargo)
+                    municipio[f"municipio_{cargo}"].append((ano, turno))
+    for ano_antes in ANOS:
+        for ano_depois in ANOS:
+            for turno in TURNOS:
+                nome = f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_municipio.parquet"
+                if (RESULTADOS_DIR / nome).exists():
+                    visualizador.exporta_municipio_mudanca(ano_antes, ano_depois, turno)
+                    municipio["municipio_mudanca"].append((ano_antes, ano_depois, turno))
+municipio
+```
+
+## 6. Configuração do visualizador
 
 `config.json` lista o que foi exportado, com as legendas e cores de `cores.py`.
 
 ```{python}
 #| label: config
 #| output: false
-visualizador.exporta_config(pontos, zona_mun, mudancas, municipais)
+visualizador.exporta_config(pontos, zona_mun, mudancas, municipais, municipio)
 ```
 
 ## Conferência

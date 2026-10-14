@@ -388,6 +388,17 @@ def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
     mud = pd.read_parquet(
         RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
     )
+    return _escreve_json(
+        {
+            "dados": dict(zip(mud["id_zona_mun"], _linhas_mudanca(mud, ano_antes, ano_depois))),
+            "candidatos": {str(a): nomes_candidatos(a, turno) for a in (ano_antes, ano_depois)},
+        },
+        DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t{turno}.json",
+    )
+
+
+def _linhas_mudanca(mud: pd.DataFrame, ano_antes: int, ano_depois: int) -> list[list]:
+    """Os 23 valores de cada linha de `exporta_mudanca`, na ordem do `mud`."""
     colunas = zip(
         cores.classifica_crescimento(mud["cresceu_mais_validos"], mud["var_pc_validos_maior"]).tolist(),
         _por_mil(mud[f"pc_validos_pt_{ano_antes}"]),
@@ -413,12 +424,100 @@ def exporta_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
         _por_mil(mud[f"pc_validos_terceiro_{ano_antes}"]),
         _por_mil(mud[f"pc_validos_terceiro_{ano_depois}"]),
     )
+    return [list(c) for c in colunas]
+
+
+# ==== Polígonos (município) ====================================================
+# O município é a menor unidade com limite oficial (IBGE): sem fronteira
+# estimada, e a malha é uma só para todos os anos. Mesmos formatos de valores
+# das zonas × município, com `cd_mun` no lugar de `id_zona_mun`.
+
+
+def exporta_municipio_geom() -> Path:
+    """`municipio_geo.json`, simplificado como cobertura (sem frestas)."""
+    gdf = gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg").to_crs(CRS_SIRGAS2000)
+    gdf = gdf.sort_values("cd_mun").reset_index(drop=True)
+
+    geometria = shapely.coverage_simplify(gdf.geometry.values, TOLERANCIA_SIMPLIFICACAO)
+    gdf["geometry"] = shapely.set_precision(geometria, grid_size=GRADE_COORDENADA)
+    n_vazias = int(gdf.geometry.is_empty.sum())
+    if n_vazias:
+        logger.warning("município: %d geometrias vazias depois de simplificar — descartadas.", n_vazias)
+        gdf = gdf.loc[~gdf.geometry.is_empty]
+
+    nome_mun = _nome_municipio()
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"id": cd, "rot": nome_mun.get(cd, cd), "est": False},
+            "geometry": _geojson_arredondado(geometria),
+        }
+        for cd, geometria in zip(gdf["cd_mun"], gdf.geometry)
+    ]
+    return _escreve_json(
+        {"type": "FeatureCollection", "features": features}, DADOS_VISUALIZADOR_DIR / "municipio_geo.json"
+    )
+
+
+def _res_municipio(cargo: str, ano: int, turno: int) -> pd.DataFrame:
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}_municipio.parquet")
+    return res.loc[~res["cd_mun"].str.startswith(SENTINELA_EXTERIOR)].reset_index(drop=True)
+
+
+def exporta_municipio_turno(ano: int, turno: int) -> Path:
+    """`municipio_{ano}_t{turno}.json`: `{cd_mun: [classe, pt, bo, margem, comparecimento, vencedor]}`."""
+    res = _res_municipio("presidente", ano, turno)
+    margem = _margem_pt_bolsonaro(res, ano)
+    colunas = zip(
+        cores.classifica_divergente(margem, cores.QUEBRAS_MARGEM).tolist(),
+        _por_mil(res[f"pc_validos_{NR_PT}"]),
+        _por_mil(res[f"pc_validos_{NR_BOLSONARO_POR_ANO[ano]}"]),
+        _por_mil(margem),
+        _inteiro(res["qt_comparecimento"]),
+        _inteiro(res["nr_vencedor"]),
+    )
     return _escreve_json(
         {
-            "dados": dict(zip(mud["id_zona_mun"], (list(c) for c in colunas))),
+            "dados": dict(zip(res["cd_mun"], (list(c) for c in colunas))),
+            "candidatos": nomes_candidatos(ano, turno),
+        },
+        DADOS_VISUALIZADOR_DIR / f"municipio_{ano}_t{turno}.json",
+    )
+
+
+def exporta_municipio_partido(ano: int, turno: int, cargo: str) -> Path:
+    """`municipio_{ano}_t{turno}_{cargo}.json`, no formato de `exporta_zona_mun_partido`."""
+    res = _res_municipio(cargo, ano, turno)
+    siglas = siglas_partidos(ano)
+    cols_validos = [c for c in res.columns if c.startswith("pc_validos_")]
+    vencedor = res["nr_vencedor"].where(res[cols_validos].notna().any(axis=1))
+    nrs, pcs = _tres_mais_votados(res)
+    colunas = zip(
+        cores.classifica_partido(vencedor, siglas).tolist(),
+        nrs[0], pcs[0], nrs[1], pcs[1], nrs[2], pcs[2],
+        _inteiro(res["qt_comparecimento"]),
+    )
+    saida = {
+        "dados": dict(zip(res["cd_mun"], (list(c) for c in colunas))),
+        "partidos": {str(nr): sigla for nr, sigla in siglas.items()},
+    }
+    nomes = _nomes_candidatos_municipio(ano, turno, cargo, "cd_mun")
+    if nomes is not None:
+        saida["nomes"] = nomes
+    return _escreve_json(saida, DADOS_VISUALIZADOR_DIR / f"municipio_{ano}_t{turno}_{cargo}.json")
+
+
+def exporta_municipio_mudanca(ano_antes: int, ano_depois: int, turno: int) -> Path:
+    """`municipio_mudanca_{a}_{b}_t{turno}.json`, com os mesmos 23 valores de `exporta_mudanca`."""
+    mud = pd.read_parquet(
+        RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_municipio.parquet"
+    )
+    return _escreve_json(
+        {
+            "dados": dict(zip(mud["cd_mun"], _linhas_mudanca(mud, ano_antes, ano_depois))),
             "candidatos": {str(a): nomes_candidatos(a, turno) for a in (ano_antes, ano_depois)},
         },
-        DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t{turno}.json",
+        DADOS_VISUALIZADOR_DIR / f"municipio_mudanca_{ano_antes}_{ano_depois}_t{turno}.json",
     )
 
 
@@ -436,27 +535,38 @@ def exporta_config(
     zona_mun: list[tuple[int, int]],
     mudancas: list[tuple[int, int, int]],
     municipais: dict[str, list[tuple[int, int]]] | None = None,
+    municipio: dict[str, list[tuple]] | None = None,
 ) -> Path:
     """`config.json`: fundo do mapa, legendas e combinações disponíveis.
 
     `municipais` é `{"pontos_prefeito": [(ano, turno), ...], "zona_mun_prefeito":
     ..., "pontos_vereador": ..., "zona_mun_vereador": ...}` — a chave é a do
     mapa em `assets/mapas.js`.
+
+    `municipio` é o mesmo para os mapas de município: `{"municipio_presidente":
+    [(ano, turno)], "municipio_prefeito": ..., "municipio_vereador": ...,
+    "municipio_mudanca": [(ano_antes, ano_depois, turno)]}`.
     """
+    municipio = municipio or {}
     municipais = municipais or {}
+    municipais_municipio = {
+        chave: combos for chave, combos in municipio.items() if chave.split("_")[-1] in TITULO_LEGENDA_PARTIDO
+    }
     anos_municipais = sorted({a for combos in municipais.values() for a, _ in combos})
     legendas_partido = {
         chave: {
             str(a): cores.legenda_partido(TITULO_LEGENDA_PARTIDO[chave.split("_")[-1]], siglas_partidos(a))
             for a in sorted({a for a, _ in combos})
         }
-        for chave, combos in municipais.items()
+        for chave, combos in {**municipais, **municipais_municipio}.items()
     }
-    anos = sorted({a for a, _ in pontos} | {a for a, _ in zona_mun})
+    municipio_presidente = municipio.get("municipio_presidente", [])
+    anos = sorted({a for a, _ in pontos} | {a for a, _ in zona_mun} | {a for a, _ in municipio_presidente})
     legenda_presidente = {str(a): cores.legenda_margem(NOME_PT_POR_ANO[a]) for a in anos}
     chave = lambda a, b, t: f"{a}-{b}-{t}"
-    legendas_mudanca = {chave(*m): cores.legenda_mudanca(*m) for m in mudancas}
-    legendas_mudanca_tipo = {chave(*m): cores.legenda_tipo_mudanca(*m) for m in mudancas}
+    todas_mudancas = sorted(set(mudancas) | set(municipio.get("municipio_mudanca", [])))
+    legendas_mudanca = {chave(*m): cores.legenda_mudanca(*m) for m in todas_mudancas}
+    legendas_mudanca_tipo = {chave(*m): cores.legenda_tipo_mudanca(*m) for m in todas_mudancas}
     return _escreve_json(
         {
             "cores_tipo_mudanca": cores.cores_tipo_mudanca(),
@@ -475,6 +585,7 @@ def exporta_config(
                 **legendas_partido,
                 "pontos_presidente": legenda_presidente,
                 "zona_mun_presidente": legenda_presidente,
+                "municipio_presidente": legenda_presidente,
                 "pontos_branco_nulo": cores.legenda_sequencial(
                     "Brancos e nulos (% do total de votos)", cores.QUEBRAS_BRANCO_NULO
                 ),
@@ -489,6 +600,7 @@ def exporta_config(
                 "zona_mun": [list(x) for x in zona_mun],
                 "mudanca": [list(x) for x in mudancas],
                 **{chave: [list(x) for x in combos] for chave, combos in municipais.items()},
+                **{chave: [list(x) for x in combos] for chave, combos in municipio.items()},
             },
         },
         DADOS_VISUALIZADOR_DIR / "config.json",
