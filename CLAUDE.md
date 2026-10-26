@@ -44,6 +44,7 @@ quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa d
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
+cp assets/mapas.js assets/mapas.css docs/assets/   # o render de uma página só não copia assets/
 ```
 
 Nas etapas locais, `--profile local` (`_quarto-local.yml`) manda o HTML e as
