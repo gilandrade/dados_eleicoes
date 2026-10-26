@@ -131,6 +131,14 @@ URL_VOTACAO_CANDIDATO_MUNZONA = (
 # CDN de dados abertos). Padrão de nome observado em eleições anteriores.
 URL_BWEB = "https://resultados.tse.jus.br/oficial/ele{ano}/{pleito}/dados-simplificados/{uf}/{uf}-c0001-e{pleito}-r.json"
 
+# Portal de divulgação (a apuração da noite da eleição): resultado de Presidente
+# por zona × município (`dados/{uf}/{uf}{cd_mun_tse}-z{zona}-c0001-e{cd:06d}-u.json`)
+# e o índice de municípios e zonas (`config/mun-e{cd:06d}-cm.json`). Sai antes do
+# `votacao_secao` (no 2º turno de 2026, D+0 contra D+2). Códigos das eleições em
+# `oficial/comum/config/ele-c.json` (conferido em 26/10/2026).
+URL_DIVULGACAO = "https://resultados.tse.jus.br/oficial/ele{ano}/{cd_eleicao}"
+CD_ELEICAO_DIVULGACAO = {(2026, 1): 6257, (2026, 2): 6258}
+
 # Fallback: fontes de terceiros usadas para geocodificação/validação (ver etapa 02)
 URL_HIDALGO_RELEASE = (
     "https://github.com/fdhidalgo/geocode_br_polling_stations/releases/latest/download/"

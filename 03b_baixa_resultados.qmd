@@ -3,6 +3,7 @@ title: "03b · Download dos resultados"
 search: false
 params:
   ano: 2024
+  atualizar: false
 ---
 
 Baixa do CDN do TSE os zips que a etapa 04 lê, para `dados/01_bruto/{ano}/`.
@@ -15,8 +16,13 @@ estiver em disco.
 - Nos dois casos, `detalhe_votacao_secao_{ano}.zip` (aptos e comparecimento por
   seção) e `consulta_cand_{ano}.zip` (candidatos e siglas dos partidos).
 
+Com `-P atualizar:true`, baixa de novo o que já existe (ex.: o `votacao_secao`
+de um ano geral, que só tem o 1º turno até o TSE publicar o 2º); a versão
+anterior vai para `backup/`, com a data do arquivo no nome.
+
 ```bash
 quarto render 03b_baixa_resultados.qmd -P ano:2024
+quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true
 ```
 
 ```{r setup}
@@ -24,6 +30,7 @@ quarto render 03b_baixa_resultados.qmd -P ano:2024
 library(httr2)
 
 ano <- as.integer(params$ano)
+atualizar <- isTRUE(as.logical(params$atualizar))
 BRUTO_DIR <- file.path("dados/01_bruto", ano)
 dir.create(BRUTO_DIR, showWarnings = FALSE, recursive = TRUE)
 
@@ -77,8 +84,27 @@ baixar_com_retry <- function(url, destino, tentativas = 3) {
   invisible(destino)
 }
 
+# A versão anterior só sai do lugar depois que a nova chegou inteira (`.part`).
+baixar_de_novo <- function(url, destino) {
+  if (!file.exists(destino)) {
+    return(baixar_com_retry(url, destino))
+  }
+  novo <- paste0(destino, ".novo")
+  baixar_com_retry(url, novo)
+  dir.create(file.path(BRUTO_DIR, "backup"), showWarnings = FALSE)
+  data <- format(file.mtime(destino), "%Y%m%d")
+  file.rename(destino, file.path(BRUTO_DIR, "backup", sub("\\.zip$", paste0("_", data, ".zip"), basename(destino))))
+  file.rename(novo, destino)
+  invisible(destino)
+}
+
 for (arquivo in arquivos_tse) {
-  baixar_com_retry(file.path(TSE_CDN_BASE, arquivo), file.path(BRUTO_DIR, basename(arquivo)))
+  destino <- file.path(BRUTO_DIR, basename(arquivo))
+  if (atualizar) {
+    baixar_de_novo(file.path(TSE_CDN_BASE, arquivo), destino)
+  } else {
+    baixar_com_retry(file.path(TSE_CDN_BASE, arquivo), destino)
+  }
 }
 ```
 

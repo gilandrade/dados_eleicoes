@@ -81,8 +81,8 @@ sobre um ponto ou uma área para ver os números.
   estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando
   for o caso.
 - A **mudança de votação** compara Haddad (2018) e Lula (2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio
-  Bolsonaro em 2026), zona a zona, no mesmo turno: 2º turno 2018 → 2022 e 1º turno
-  2022 → 2026. No 1º turno os demais candidatos entram em "abstenção, brancos,
+  Bolsonaro em 2026), zona a zona, no mesmo turno: 2018 → 2022 no 2º turno e 2022 → 2026
+  nos dois turnos. No 1º turno os demais candidatos entram em "abstenção, brancos,
   nulos e outros". Entre as duas eleições as
   zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor
   é de quem mais cresceu *nos votos válidos*, e o tom, o quanto ele cresceu; se os

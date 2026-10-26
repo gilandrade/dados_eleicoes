@@ -80,15 +80,21 @@ anos = sorted((int(a) for a in str(anos).split(",") if a.strip()), reverse=True)
 turnos = sorted(int(t) for t in str(turnos).split(",") if t.strip())
 saida = Path(saida) if saida else CARGA_DIR / "cadastro_georedus.csv"
 
-# Ano × turno com resultado em disco; os demais ficam fora do cadastro.
+# Ano × turno com resultado em disco; os demais ficam fora do cadastro. A versão
+# preliminar da etapa 04c não tem resultado por local: fica sem as camadas de pontos.
 eleicoes = [
     (ano, turno)
     for ano in anos
     for turno in turnos
+    if (RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_zona_mun.parquet").exists()
+]
+com_local = [
+    (ano, turno)
+    for ano, turno in eleicoes
     if (RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet").exists()
 ]
 comum = {"collection_id": COLLECTION_ID, "indicator_id": INDICATOR_ID}
-print(f"com resultado: {eleicoes}")
+print(f"com resultado: {eleicoes} | com resultado por local: {com_local}")
 
 
 def view_locais(ano, turno):
@@ -141,7 +147,7 @@ linhas_brancos_nulos = {
         agrupa_por_zoom=True,
         **comum,
     )
-    for ano, turno in eleicoes
+    for ano, turno in com_local
 }
 ```
 
@@ -179,7 +185,7 @@ linhas_abstencao = {
         agrupa_por_zoom=True,
         **comum,
     )
-    for ano, turno in eleicoes
+    for ano, turno in com_local
 }
 ```
 
@@ -202,25 +208,26 @@ for ano, turno in eleicoes:
     nome_pt, nome_bolsonaro = NOME_PT_POR_ANO[ano], NOME_BOLSONARO_POR_ANO[ano]
     legenda = cores.legenda_margem(nome_pt)
 
-    linhas_presidente_locais[ano, turno] = exporta.linha_cadastro(
-        id_camada=f"{view_locais(ano, turno)}.classe_margem",
-        view=view_locais(ano, turno),
-        preset=PRESET_PONTOS,
-        path=f"{caminho_menu(ano, turno)} / Locais de votação",
-        label=ROTULO_PRESIDENTE,
-        descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos. Tamanho: votos válidos.",
-        style=estilo_pontos("classe_margem", legenda, "qt_validos", por_nivel=True),
-        tooltip={
-            "title": "nm_local_votacao",
-            "entries": [
-                *ENTRADAS_LOCAL,
-                *entradas_presidente(ano),
-                {"key": "qt_validos", "label": "Votos válidos", "format": FORMATO_INTEIRO},
-            ],
-        },
-        agrupa_por_zoom=True,
-        **comum,
-    )
+    if (ano, turno) in com_local:
+        linhas_presidente_locais[ano, turno] = exporta.linha_cadastro(
+            id_camada=f"{view_locais(ano, turno)}.classe_margem",
+            view=view_locais(ano, turno),
+            preset=PRESET_PONTOS,
+            path=f"{caminho_menu(ano, turno)} / Locais de votação",
+            label=ROTULO_PRESIDENTE,
+            descricao=f"Diferença entre {nome_pt} e {nome_bolsonaro} nos votos válidos. Tamanho: votos válidos.",
+            style=estilo_pontos("classe_margem", legenda, "qt_validos", por_nivel=True),
+            tooltip={
+                "title": "nm_local_votacao",
+                "entries": [
+                    *ENTRADAS_LOCAL,
+                    *entradas_presidente(ano),
+                    {"key": "qt_validos", "label": "Votos válidos", "format": FORMATO_INTEIRO},
+                ],
+            },
+            agrupa_por_zoom=True,
+            **comum,
+        )
     linhas_presidente_zona[ano, turno] = exporta.linha_cadastro(
         id_camada=f"{view_zona(ano, turno)}.margem_pt_bolsonaro",
         view=view_zona(ano, turno),

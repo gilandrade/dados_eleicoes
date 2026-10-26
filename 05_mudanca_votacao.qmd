@@ -22,6 +22,8 @@ locais na mesma zona) — ver PLAN.md.
 quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:1
 quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:1 -P nivel:municipio
+quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:2
+quarto render 05_mudanca_votacao.qmd -P de:2022 -P para:2026 -P turno:2 -P nivel:municipio
 ```
 
 ```{python}

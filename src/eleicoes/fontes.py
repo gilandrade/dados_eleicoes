@@ -46,10 +46,15 @@ from .config import (
     BRUTO_DIR,
     CARGO_PRESIDENTE,
     CARGOS,
+    CD_ELEICAO_DIVULGACAO,
+    CODIGO_ANULADO_APURADO_SEPARADO,
+    CODIGO_BRANCO,
+    CODIGO_NULO,
     CODIGOS_NAO_CANDIDATO,
     UFS_27,
     URL_BWEB,
     URL_DETALHE_VOTACAO_SECAO,
+    URL_DIVULGACAO,
     URL_VOTACAO_SECAO,
 )
 from .download import baixar
@@ -339,6 +344,18 @@ def extrai_csv_do_zip(caminho_zip: Path, caminho_csv: Path, *, nome_interno: str
             shutil.copyfileobj(origem, saida, length=1 << 24)
 
 
+def _precisa_extrair(caminho_zip: Path, caminho_csv: Path) -> bool:
+    """True se o CSV não existe ou é mais velho que o zip.
+
+    O zip do 1º turno é substituído pelo dos dois turnos quando o TSE publica o
+    2º; sem comparar as datas, o CSV extraído antes seria lido de novo e o 2º
+    turno sairia vazio.
+    """
+    if not caminho_csv.exists():
+        return True
+    return caminho_zip.exists() and caminho_zip.stat().st_mtime > caminho_csv.stat().st_mtime
+
+
 def converte_zip_em_parquet(
     caminho_zip: Path,
     caminho_parquet: Path,
@@ -446,7 +463,7 @@ def obtem_resultados_secao(
         caminho_votos = destino / f"votacao_secao_{ano}_BR.csv"
         if deve_baixar:
             baixar(URL_VOTACAO_SECAO.format(ano=ano), caminho_zip)
-        if not caminho_votos.exists():
+        if _precisa_extrair(caminho_zip, caminho_votos):
             extrai_csv_do_zip(caminho_zip, caminho_votos)
 
         # detalhe_votacao_secao é opcional: dá qt_aptos real por seção em vez
@@ -456,7 +473,7 @@ def obtem_resultados_secao(
         # opcional) — só usa se já estiver em disco.
         caminho_zip_detalhe = destino / f"detalhe_votacao_secao_{ano}.zip"
         caminho_detalhe = destino / f"detalhe_votacao_secao_{ano}_BR.csv"
-        if not caminho_detalhe.exists() and caminho_zip_detalhe.exists():
+        if caminho_zip_detalhe.exists() and _precisa_extrair(caminho_zip_detalhe, caminho_detalhe):
             extrai_csv_do_zip(
                 caminho_zip_detalhe, caminho_detalhe,
                 nome_interno=f"detalhe_votacao_secao_{ano}_BR.csv",
@@ -473,3 +490,100 @@ def obtem_resultados_secao(
         return ler_votacao_secao(caminho_votos, ano, turno, caminho_detalhe=caminho_detalhe)
 
     raise ValueError(f"Fonte desconhecida: {fonte!r} (use 'bweb' ou 'votacao_secao')")
+
+
+# ==== Portal de divulgação (resultado por zona × município) ====================
+
+
+def baixa_divulgacao(ano: int, turno: int, *, workers: int = 8) -> Path:
+    """Baixa do portal de divulgação o resultado de Presidente por zona × município.
+
+    Um JSON por (município, zona) do índice `config/mun-e{cd}-cm.json` (6.292 no
+    2º turno de 2026, com as 186 cidades do exterior), mais o total do país
+    (`br-...-u.json`) para a conferência. Grava em
+    `dados/01_bruto/{ano}/divulgacao_t{turno}/` e não baixa de novo o que já
+    estiver lá — para atualizar (apuração ainda não totalizada), apagar a pasta.
+
+    Returns:
+        A pasta com os JSON.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    cd = CD_ELEICAO_DIVULGACAO[ano, turno]
+    base = URL_DIVULGACAO.format(ano=ano, cd_eleicao=cd)
+    pasta = BRUTO_DIR / str(ano) / f"divulgacao_t{turno}"
+    indice = baixar(f"{base}/config/mun-e{cd:06d}-cm.json", pasta / "indice_municipios.json")
+    baixar(f"{base}/dados/br/br-c0001-e{cd:06d}-u.json", pasta / "br.json")
+
+    pedidos = [
+        (
+            f"{base}/dados/{uf['cd']}/{uf['cd']}{mun['cd']}-z{zona}-c0001-e{cd:06d}-u.json",
+            pasta / uf["cd"] / f"{mun['cd']}_{zona}.json",
+        )
+        for uf in _le_json(indice)["abr"]
+        for mun in uf["mu"]
+        for zona in mun["z"]
+    ]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(lambda p: baixar(*p), pedidos))
+    logger.info("%d arquivos de zona × município em %s", len(pedidos), pasta)
+    return pasta
+
+
+def _le_json(caminho: Path) -> dict:
+    import json
+
+    with open(caminho, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def candidatos_divulgacao(dados: dict) -> list[dict]:
+    """Candidatos a Presidente de um JSON da divulgação: número, nome e votos."""
+    (cargo,) = [c for c in dados["carg"] if int(c["cd"]) == CARGO_PRESIDENTE]
+    return [
+        {"nr_votavel": int(cand["n"]), "nm_votavel": cand["nm"], "qt_votos": int(cand["vap"])}
+        for agr in cargo["agr"]
+        for par in agr["par"]
+        for cand in par["cand"]
+    ]
+
+
+def totais_divulgacao(dados: dict) -> dict[str, int]:
+    """Votos por candidato, brancos, nulos, comparecimento e aptos, no formato
+    largo dos resultados (`qt_votos_{nr}`).
+
+    Nulos é `tvn` (nulos + nulos técnicos); anulados apurados em separado (`van`)
+    só viram coluna quando houver algum, como no `votacao_secao`.
+    """
+    linha = {f"qt_votos_{c['nr_votavel']}": c["qt_votos"] for c in candidatos_divulgacao(dados)}
+    linha[f"qt_votos_{CODIGO_BRANCO}"] = int(dados["v"]["vb"])
+    linha[f"qt_votos_{CODIGO_NULO}"] = int(dados["v"]["tvn"])
+    if int(dados["v"]["van"]):
+        linha[f"qt_votos_{CODIGO_ANULADO_APURADO_SEPARADO}"] = int(dados["v"]["van"])
+    linha["qt_comparecimento"] = int(dados["e"]["c"])
+    linha["qt_aptos"] = int(dados["e"]["te"])
+    return linha
+
+
+def ler_divulgacao_zona_mun(pasta: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Lê os JSON de `baixa_divulgacao`.
+
+    Returns:
+        Uma linha por (cd_mun_tse, nr_zona), com `sg_uf` e as colunas de
+        `totais_divulgacao` (0 onde o candidato não teve voto), e os candidatos
+        (`nr_votavel`, `nm_votavel`) do país.
+    """
+    linhas = []
+    for caminho in sorted(pasta.glob("*/*.json")):
+        cd_mun_tse, nr_zona = caminho.stem.split("_")
+        dados = _le_json(caminho)
+        if dados.get("tf") != "s":
+            logger.warning("%s: apuração não totalizada (tf=%s)", caminho.name, dados.get("tf"))
+        linhas.append(
+            {"sg_uf": caminho.parent.name.upper(), "cd_mun_tse": cd_mun_tse, "nr_zona": int(nr_zona), **totais_divulgacao(dados)}
+        )
+    res = pd.DataFrame(linhas)
+    colunas_qt = [c for c in res.columns if c.startswith("qt_")]
+    res[colunas_qt] = res[colunas_qt].fillna(0).astype("int64")
+    nomes = pd.DataFrame(candidatos_divulgacao(_le_json(pasta / "br.json")))[["nr_votavel", "nm_votavel"]]
+    return res, nomes

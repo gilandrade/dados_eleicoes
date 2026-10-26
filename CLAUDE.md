@@ -37,8 +37,10 @@ cp .env.example .env             # preencher CARTO_API_KEY (ver Conventions abai
 export QUARTO_PYTHON="$PWD/venv/Scripts/python.exe"   # se o venv não estiver ativado
 quarto render 03_pesos_alocacao.qmd -P ano:2022
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
+quarto render 04c_resultados_divulgacao.qmd -P ano:2026 -P turno:2   # preliminar, antes do votacao_secao
 quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 quarto render 03b_baixa_resultados.qmd -P ano:2024        # zips de resultado (R; 26 UFs nos municipais)
+quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa de novo; o antigo vai para backup/
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
@@ -83,6 +85,10 @@ data model (geometry files vs. result files joined by a shared id).
   ou `votacao_secao`), agrega por local, por zona × município e, multiplicando
   pela matriz de pesos, por setor. `04b_resultados_municipio.qmd` agrega por
   município direto da seção (ano sem locais processados; validação cruzada).
+  `04c_resultados_divulgacao.qmd` é a versão preliminar da noite da eleição: zona ×
+  município e município do portal de divulgação (`resultados.tse.jus.br`), sem local
+  nem setor; a 04 sobrescreve quando o `votacao_secao` sair. 06, 07 e 08 aceitam um
+  turno sem `res_..._local` (ficam só as áreas, sem os pontos).
 - **05 (Python, `05_mudanca_votacao.qmd`)**: mudança de votação entre
   dois anos, no mesmo turno, por zona × município.
 - **06 (Python, `06_exporta_visualizador.qmd`)**: dados do **visualizador de
@@ -548,3 +554,16 @@ data model (geometry files vs. result files joined by a shared id).
   ~55 min, 44 só na alocação dos domicílios). `06_mudanca_votacao.py` aceita
   `--turno` (2022→2026 no 1º turno: Lula × bolsonarista, demais candidatos no
   "não-voto" da base dos aptos).
+- **2026, 2º turno (26/10/2026):** o `eleitorado_local_votacao_2026.zip` foi
+  republicado em 25/10 com os dois turnos e com o 1º turno revisto (461 seções com
+  outro local, 171 locais novos e 127 a menos); 01–03 de 2026 rodaram de novo com
+  ele. As versões de 06/10 e 23/10 estão em `dados/01_bruto/2026/backup/`, e as
+  saídas antigas em `dados/backup/2026_antes_t2/`. Em D+1 o `votacao_secao` e o
+  boletim de urna ainda não tinham o 2º turno, mas o portal de divulgação já tinha
+  o resultado por zona × município (`config.URL_DIVULGACAO`, eleição 6258; 6.292
+  arquivos com as 186 cidades do exterior, todas na zona 0001): daí a 04c. Lula
+  64.256.232, Flávio 59.826.041, comparecimento 128.236.074, aptos 158.745.502.
+  Na divulgação, nulos = `tvn` (nulos + nulos técnicos) e aptos = `e.te`.
+  - **CSV extraído velho:** a 04 só extraía o `votacao_secao_{ano}_BR.csv` se ele
+    não existisse, e com o zip novo (dois turnos) leria o CSV do 1º turno, deixando
+    o 2º vazio. `fontes._precisa_extrair` compara as datas.

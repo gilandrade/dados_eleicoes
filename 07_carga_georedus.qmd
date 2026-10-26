@@ -141,7 +141,9 @@ for ano in anos:
 ## 4. Resultados por ano × turno
 
 Uma tabela por nível observado (`zona_mun`, `local`, `municipio`). Ano × turno
-sem resultado em disco fica fora da carga. O município não tem malha própria:
+sem resultado em disco fica fora da carga. A versão preliminar da etapa 04c
+(sem o `votacao_secao`) tem só zona × município e município: entra sem o nível
+`local` e sem as camadas de pontos. O município não tem malha própria:
 a view usa a do IBGE (`ibge.malha_br_municipio_2024`), a mesma de todos os anos.
 
 A UF é a soma dos municípios, sem o exterior (`carga.agrega_uf`): as contagens
@@ -152,13 +154,18 @@ camadas ao dar zoom out (seção 8).
 #| label: resultados
 schemas_res, tipos_res, colunas_res = {}, {}, {}
 eleicoes = []  # (ano, turno) com resultado
+com_local = []  # os que também têm resultado por local de votação
 for ano in anos:
     for turno in turnos:
         eleicao = f"presidente_{ano}_t{turno}"
-        if not (RESULTADOS_DIR / f"res_{eleicao}_local.parquet").exists():
+        if not (RESULTADOS_DIR / f"res_{eleicao}_zona_mun.parquet").exists():
             print(f"{ano}, turno {turno}: sem resultados — fora da carga")
             continue
         eleicoes.append((ano, turno))
+        if (RESULTADOS_DIR / f"res_{eleicao}_local.parquet").exists():
+            com_local.append((ano, turno))
+        else:
+            print(f"{ano}, turno {turno}: sem resultado por local — só as áreas")
         exporta.escreve_resultados(
             carga.agrega_uf(pd.read_parquet(carga.exige(RESULTADOS_DIR / f"res_{eleicao}_municipio.parquet"))),
             RESULTADOS_DIR / f"res_{eleicao}_uf.parquet",
@@ -169,6 +176,8 @@ for ano in anos:
             ("municipio", "cd_mun"),
             ("uf", "cd_uf"),
         ):
+            if nivel == "local" and (ano, turno) not in com_local:
+                continue
             parquet = carga.exige(RESULTADOS_DIR / f"res_{eleicao}_{nivel}.parquet")
             colunas = carga.colunas_parquet(parquet)
             schemas_res[ano, turno, nivel] = carga.gera_tabela(
@@ -365,7 +374,7 @@ colunas `pc_*` (ver o comentário em `carga.py`).
 
 ```{python}
 #| label: view-locais
-for ano, turno in eleicoes:
+for ano, turno in com_local:
     eleicao = f"presidente_{ano}_t{turno}"
     tipos_local = tipos_res[ano, turno, "local"]
     pasta = dir_api / SCHEMA_PG / f"malha_locais_votacao_{ano}_t{turno}"
@@ -427,7 +436,7 @@ dos locais, e os aptos em `qt_eleitores`. O tamanho vem de `qt_validos`,
 
 ```{python}
 #| label: view-pontos-agrupados
-for ano, turno in eleicoes:
+for ano, turno in com_local:
     eleicao = f"presidente_{ano}_t{turno}"
     for nivel in ("municipio", "uf"):
         tipos = tipos_res[ano, turno, nivel]
@@ -658,6 +667,8 @@ for ano, turno in eleicoes:
         ],
         **OPCOES_ZONA,
     )
+    if chave not in com_local:
+        continue
     gera_funcao(
         [
             (vistas["pontos_uf", *chave], NIVEL_UF),

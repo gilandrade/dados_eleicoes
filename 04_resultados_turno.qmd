@@ -17,6 +17,10 @@ candidato, que é o do partido — a pessoa muda de município para município
 (nomes em `candidatos_prefeito_{ano}_t{turno}.parquet`). Em Vereador, os votos
 são somados por partido (nominais + legenda).
 
+Antes de o `votacao_secao` do turno sair, `04c_resultados_divulgacao.qmd` grava
+uma versão preliminar da zona × município e do município; esta etapa a
+sobrescreve com os mesmos números.
+
 ```bash
 quarto render 04_resultados_turno.qmd -P ano:2026 -P turno:1 -P fonte:bweb -P baixar:true
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1

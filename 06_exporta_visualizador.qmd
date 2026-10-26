@@ -72,7 +72,9 @@ zona_mun
 
 ## 3. Mudança de votação
 
-Todo par de anos × turno com parquet de mudança (etapa 05).
+Todo par de anos × turno com parquet de mudança (etapa 05). Um parquet anterior a
+`cresceu_mais_validos` (o de 2018 → 2022 por zona, que fica assim para não mudar a
+camada já cadastrada na GeoReDUS) mantém o JSON que já está no site.
 
 ```{python}
 #| label: mudanca
@@ -80,10 +82,15 @@ mudancas = []
 for ano_antes in ANOS:
     for ano_depois in ANOS:
         for turno in TURNOS:
-            nome = f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
-            if (RESULTADOS_DIR / nome).exists():
+            parquet = RESULTADOS_DIR / f"mudanca_presidente_{ano_antes}_{ano_depois}_t{turno}_zona_mun.parquet"
+            if not parquet.exists():
+                continue
+            json_site = visualizador.DADOS_VISUALIZADOR_DIR / f"mudanca_{ano_antes}_{ano_depois}_t{turno}.json"
+            if "cresceu_mais_validos" not in pd.read_parquet(parquet).columns and json_site.exists():
+                print(f"{parquet.name}: anterior a cresceu_mais_validos — mantém {json_site.name}")
+            else:
                 visualizador.exporta_mudanca(ano_antes, ano_depois, turno)
-                mudancas.append((ano_antes, ano_depois, turno))
+            mudancas.append((ano_antes, ano_depois, turno))
 mudancas
 ```
 

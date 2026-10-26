@@ -88,7 +88,11 @@ def _nome_municipio() -> pd.Series:
 
 
 def nomes_candidatos(ano: int, turno: int) -> dict[str, str]:
-    """`{nr: nome}` dos candidatos a Presidente, lidos do `votacao_secao` bruto."""
+    """`{nr: nome}` dos candidatos a Presidente, lidos do `votacao_secao` bruto.
+
+    Turno que ainda não está no `votacao_secao` (versão preliminar da etapa 04c)
+    usa os nomes gravados por ela, `candidatos_presidente_{ano}_t{turno}.parquet`.
+    """
     caminho = BRUTO_DIR / str(ano) / f"votacao_secao_{ano}_BR.csv"
     linhas = duckdb.sql(
         f"""select distinct cast(nr_votavel as integer) as nr, nm_votavel
@@ -96,6 +100,9 @@ def nomes_candidatos(ano: int, turno: int) -> dict[str, str]:
             where cast(cd_cargo as integer) = {CARGO_PRESIDENTE}
               and cast(nr_turno as integer) = {turno}"""
     ).fetchall()
+    if not linhas:
+        nomes = pd.read_parquet(RESULTADOS_DIR / f"candidatos_presidente_{ano}_t{turno}.parquet")
+        linhas = list(nomes[["nr_votavel", "nm_votavel"]].itertuples(index=False, name=None))
     # Ordenado: o `distinct` do duckdb não tem ordem fixa, e o JSON mudaria a
     # cada exportação sem nada ter mudado.
     return {

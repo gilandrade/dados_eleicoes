@@ -1,0 +1,166 @@
+---
+title: "04c · Resultados por zona × município, do portal de divulgação"
+search: false
+execute:
+  echo: true
+---
+
+Versão **preliminar** de um turno, enquanto o TSE não publica o `votacao_secao`
+(no 2º turno de 2026 ele sai em D+2). Lê do portal de divulgação
+(`resultados.tse.jus.br`) o resultado de Presidente por zona × município, que
+sai na noite da eleição, e grava os mesmos `res_presidente_{ano}_t{turno}_zona_mun`
+e `_municipio` da etapa 04. Não tem local nem setor: os dois precisam da seção.
+
+Quando o `votacao_secao` sair, rodar a 04 normalmente: ela sobrescreve estes
+dois arquivos e tem de dar os mesmos números, zona a zona.
+
+```bash
+quarto render 04c_resultados_divulgacao.qmd -P ano:2026 -P turno:2
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import pandas as pd
+import pyogrio
+
+from eleicoes import exporta, fontes, resultados
+from eleicoes.config import (
+    CODIGOS_NAO_CANDIDATO,
+    GEOMETRIAS_DIR,
+    NOME_BOLSONARO_POR_ANO,
+    NOME_PT_POR_ANO,
+    NR_BOLSONARO_POR_ANO,
+    NR_PT,
+    PROCESSADO_DIR,
+    RESULTADOS_DIR,
+)
+
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s", force=True)
+```
+
+```{python}
+#| label: parametros
+#| tags: [parameters]
+ano = 2026
+turno = 2
+```
+
+```{python}
+#| label: parametros-derivados
+ano, turno = int(ano), int(turno)
+prefixo = f"res_presidente_{ano}_t{turno}"
+print(f"ano={ano} | turno={turno}")
+```
+
+## 1. Download
+
+Um JSON por zona × município (~6,3 mil, ~8 min na primeira vez). O que já está
+em disco não é baixado de novo; para pegar uma apuração mais recente, apagar
+`dados/01_bruto/{ano}/divulgacao_t{turno}/`.
+
+```{python}
+#| label: download
+pasta = fontes.baixa_divulgacao(ano, turno)
+res_bruto, nomes = fontes.ler_divulgacao_zona_mun(pasta)
+print(f"{len(res_bruto):,} zonas × município, {res_bruto['sg_uf'].nunique()} UFs (com o exterior, ZZ)")
+nomes
+```
+
+## 2. Por zona × município
+
+O `cd_mun` vem do crosswalk, como na etapa 04 (via `locais`): município sem
+crosswalk (o exterior) vira `SENTINELA_EXTERIOR`. As 186 cidades do exterior
+estão todas na zona 0001 e viram uma linha só, `EXTERIOR0001`.
+
+```{python}
+#| label: zona-mun
+crosswalk = pd.read_parquet(PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet")
+base = res_bruto.merge(crosswalk[["cd_mun_tse", "cd_mun"]], on="cd_mun_tse", how="left")
+base["id_zona_mun"] = base["cd_mun"].fillna(resultados.SENTINELA_EXTERIOR) + base["nr_zona"].astype(str).str.zfill(4)
+
+candidatos = sorted(int(c.removeprefix("qt_votos_")) for c in base.columns if c.startswith("qt_votos_"))
+cols_votos = [f"qt_votos_{c}" for c in candidatos]
+cols_votos_validos = [f"qt_votos_{c}" for c in candidatos if c not in CODIGOS_NAO_CANDIDATO]
+
+res_zona_mun = base.groupby("id_zona_mun")[[*cols_votos, "qt_comparecimento", "qt_aptos"]].sum().reset_index()
+res_zona_mun = resultados.calcula_indicadores(res_zona_mun, cols_votos_validos=cols_votos_validos)
+res_zona_mun.shape
+```
+
+## 3. Por município
+
+```{python}
+#| label: municipio
+res_municipio = resultados.agrega_zona_mun_por_municipio(res_zona_mun)
+res_municipio = resultados.calcula_indicadores(res_municipio, cols_votos_validos=cols_votos_validos)
+res_municipio.shape
+```
+
+## 4. Gravação
+
+Os nomes dos candidatos vão num arquivo à parte: o visualizador os lê do
+`votacao_secao`, que ainda não tem este turno.
+
+```{python}
+#| label: gravacao
+#| output: false
+exporta.escreve_resultados(res_zona_mun, RESULTADOS_DIR / f"{prefixo}_zona_mun.parquet")
+exporta.escreve_resultados(res_municipio, RESULTADOS_DIR / f"{prefixo}_municipio.parquet")
+nomes.to_parquet(RESULTADOS_DIR / f"candidatos_presidente_{ano}_t{turno}.parquet", index=False)
+```
+
+## Conferência
+
+Em cada zona, o comparecimento é a soma dos votos (válidos, brancos e nulos).
+
+```{python}
+#| label: conferencia-zona
+assert (res_zona_mun[cols_votos].sum(axis=1) == res_zona_mun["qt_comparecimento"]).all(), "comparecimento ≠ soma dos votos"
+print("comparecimento = soma dos votos em todas as zonas")
+```
+
+Total do país: zona × município, município e o total publicado pela divulgação
+(`br.json`) têm de bater.
+
+```{python}
+#| label: conferencia-totais
+total_br = pd.Series(fontes.totais_divulgacao(fontes._le_json(pasta / "br.json")))
+totais = pd.DataFrame({
+    "zona_mun": res_zona_mun[total_br.index].sum(),
+    "municipio": res_municipio[total_br.index].sum(),
+    "divulgação (BR)": total_br,
+}).astype("int64")
+assert (totais.nunique(axis=1) == 1).all(), "totais diferentes entre os níveis"
+totais
+```
+
+Toda zona × município do território tem polígono em `geom_zona_mun_{ano}.gpkg`
+(etapa 03).
+
+```{python}
+#| label: conferencia-geometria
+ids_geom = set(
+    pyogrio.read_dataframe(GEOMETRIAS_DIR / f"geom_zona_mun_{ano}.gpkg", columns=["id_zona_mun"], read_geometry=False)["id_zona_mun"]
+)
+territorio = res_zona_mun.loc[~res_zona_mun["id_zona_mun"].str.startswith(resultados.SENTINELA_EXTERIOR), "id_zona_mun"]
+sem_geom = sorted(set(territorio) - ids_geom)
+print(f"{len(sem_geom)} zonas × município sem polígono; {len(ids_geom - set(territorio))} polígonos sem resultado")
+assert not sem_geom, sem_geom[:5]
+```
+
+Lula e o bolsonarista do ano, para comparar com o número oficial.
+
+```{python}
+#| label: conferencia-candidatos
+pd.Series({
+    NOME_PT_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_PT}"].sum()),
+    NOME_BOLSONARO_POR_ANO[ano]: int(res_zona_mun[f"qt_votos_{NR_BOLSONARO_POR_ANO[ano]}"].sum()),
+    "comparecimento": int(res_zona_mun["qt_comparecimento"].sum()),
+    "aptos": int(res_zona_mun["qt_aptos"].sum()),
+})
+```
