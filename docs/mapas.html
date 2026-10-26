@@ -2,13 +2,16 @@
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
 
 <meta charset="utf-8">
-<meta name="generator" content="quarto-1.8.27">
+<meta name="generator" content="quarto-1.9.36">
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
 <title>Mapas – dados_eleicoes</title>
 <style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
 div.columns{display: flex; gap: min(4vw, 1.5em);}
@@ -32,15 +35,14 @@ ul.task-list li input[type="checkbox"] {
 <meta name="quarto:offset" content="./">
 <script src="site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
 <script src="site_libs/quarto-html/popper.min.js"></script>
 <script src="site_libs/quarto-html/tippy.umd.min.js"></script>
 <script src="site_libs/quarto-html/anchor.min.js"></script>
 <link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
-<link href="site_libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
 <script src="site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-e31584831b205ffbb2d98406f31c2a5b.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-a0f9fd0d421825b736dc1bbcbcba2219.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "navbar",
   "copy-button": false,
@@ -95,8 +97,8 @@ ul.task-list li input[type="checkbox"] {
 <span class="menu-text">Início</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./00_auxiliares.html"> 
-<span class="menu-text">00 · Auxiliares</span></a>
+    <a class="nav-link" href="./00_insumos.html"> 
+<span class="menu-text">00 · Insumos</span></a>
   </li>  
   <li class="nav-item">
     <a class="nav-link" href="./01_locais_votacao.html"> 
@@ -165,6 +167,13 @@ ul.task-list li input[type="checkbox"] {
         <option value="mudanca">Mudança de votação entre eleições</option>
         <option value="mudanca_tipo">De onde veio a mudança (% do eleitorado)</option>
       </optgroup>
+      <optgroup label="Município (áreas)">
+        <option value="municipio_presidente">Presidente — % dos votos válidos</option>
+        <option value="municipio_prefeito">Prefeito — partido mais votado</option>
+        <option value="municipio_vereador">Vereador — partido mais votado</option>
+        <option value="municipio_mudanca">Mudança de votação entre eleições</option>
+        <option value="municipio_mudanca_tipo">De onde veio a mudança (% do eleitorado)</option>
+      </optgroup>
     </select>
   </label>
   <label>Ano <select id="sel-ano"></select></label>
@@ -187,8 +196,9 @@ ul.task-list li input[type="checkbox"] {
 <li><strong>Locais de votação</strong> e <strong>zona × município</strong> mostram valores <em>observados</em>, exatamente como o TSE publica.</li>
 <li>Nos locais de votação, a <strong>cor</strong> é o percentual e o <strong>tamanho</strong> da bolinha é a base desse percentual: votos válidos (Presidente), total de votos (brancos e nulos) ou inscritos (abstenção). A área é proporcional à quantidade, na mesma escala em todos os anos.</li>
 <li><strong>Prefeito e Vereador</strong> (2020 e 2024) pintam o <strong>partido mais votado</strong> em cada local ou zona — não o eleito no município. Onze partidos têm cor própria (os que mais venceram em 2024, mais PSOL e PRTB), com as cores oficiais de cada um; onde duas coincidem, vale uma cor secundária do partido (PSB em laranja, União em azul-claro). Os demais ficam em cinza, e o tooltip lista os três mais votados com a sigla. Em Prefeito, o voto é do candidato e a cor é a do partido dele; em Vereador, somam-se os votos nominais e de legenda de cada partido. Em 2020 a cor do União aparece como DEM, um dos dois partidos que o formaram. O 2º turno só existe para Prefeito, nas cidades que o tiveram; o resto do mapa fica sem dado. Nos anos municipais, brancos e nulos são os da votação para Prefeito.</li>
+<li>Os mapas de <strong>município</strong> usam o limite oficial do IBGE: é a menor unidade com fronteira que não precisa de estimativa. Os valores são os do TSE somados por município, e a <strong>mudança de votação</strong> é a mesma dos mapas de zona, calculada por município.</li>
 <li>Nas cidades com mais de uma zona eleitoral, a fronteira <em>entre</em> as zonas é estimada, porque o TSE não publica polígonos de zona. O tooltip avisa quando for o caso.</li>
-<li>A <strong>mudança de votação</strong> compara Haddad (2018) e Lula (2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio Bolsonaro em 2026), zona a zona, no mesmo turno: 2º turno 2018 → 2022 e 1º turno 2022 → 2026. No 1º turno os demais candidatos entram em “abstenção, brancos, nulos e outros”. Entre as duas eleições as zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor é de quem mais cresceu <em>nos votos válidos</em>, e o tom, o quanto ele cresceu; se os dois caíram (só acontece no 1º turno), a zona vai para o 3º lugar, o mais votado fora os dois em cada eleição. Não enxerga mudança na abstenção, nos brancos e nos nulos.</li>
+<li>A <strong>mudança de votação</strong> compara Haddad (2018) e Lula (2022 e 2026) contra o candidato bolsonarista (Bolsonaro em 2018 e 2022, Flávio Bolsonaro em 2026), zona a zona, no mesmo turno: 2018 → 2022 no 2º turno e 2022 → 2026 nos dois turnos. No 1º turno os demais candidatos entram em “abstenção, brancos, nulos e outros”. Entre as duas eleições as zonas quase não mudaram: 99,8% dos locais continuaram na mesma zona. A cor é de quem mais cresceu <em>nos votos válidos</em>, e o tom, o quanto ele cresceu; se os dois caíram (só acontece no 1º turno), a zona vai para o 3º lugar, o mais votado fora os dois em cada eleição. Não enxerga mudança na abstenção, nos brancos e nos nulos.</li>
 <li><strong>De onde veio a mudança</strong> repete a comparação sobre o <em>eleitorado inscrito</em>: Lula/Haddad, Bolsonaro e abstenção+brancos+nulos somam 100%, então a cor mostra quem teve o saldo e se o movimento veio de um candidato crescer enquanto o outro cai ou de os dois crescerem (a abstenção encolheu). É o saldo agregado da zona, não eleitores que trocaram de lado.</li>
 <li>Os filtros de <strong>UF e município</strong> valem para todos os mapas; o de <strong>bairro</strong>, só para os mapas de pontos (fica desativado nos mapas de áreas). O bairro é o campo preenchido pelos cartórios no cadastro do TSE: os nomes são informais e um mesmo bairro pode aparecer com grafias diferentes.</li>
 <li>Locais sem coordenada confiável (≈0,2%, quase todos em zona rural sem nome de rua) ficam fora do mapa de pontos, mas entram nos totais — nenhum ponto é desenhado no centro do município.</li>
