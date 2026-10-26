@@ -35,8 +35,19 @@
       tamanho: "val", rotuloTamanho: "votos válidos",
     },
     zona_mun_vereador: { tipo: "zona_mun", cores: "part", legendaPorAno: true, cargo: "vereador" },
+    // Município: a única unidade com limite oficial. Mesmos formatos de valores
+    // das zonas, com `municipio_*` nos arquivos; `legendaDe` reaproveita a legenda.
+    municipio_presidente: { tipo: "zona_mun", nivel: "municipio", cores: "div", legendaPorAno: true },
+    municipio_prefeito: { tipo: "zona_mun", nivel: "municipio", cores: "part", legendaPorAno: true, cargo: "prefeito" },
+    municipio_vereador: { tipo: "zona_mun", nivel: "municipio", cores: "part", legendaPorAno: true, cargo: "vereador" },
+    municipio_mudanca: { tipo: "mudanca", nivel: "municipio", cores: "mud", legendaDe: "mudanca" },
+    municipio_mudanca_tipo: { tipo: "mudanca", nivel: "municipio", cores: "tipo", posClasse: 5, legendaDe: "mudanca_tipo" },
   };
   const ehMapaMudanca = (chave) => MAPAS[chave].tipo === "mudanca";
+  const ehMunicipio = (chave) => MAPAS[chave].nivel === "municipio";
+  // Pares (antes, depois, turno) de mudança disponíveis para o mapa.
+  const paresMudanca = (chave) =>
+    (ehMunicipio(chave) ? config.disponivel.municipio_mudanca : config.disponivel.mudanca) || [];
 
   const el = (id) => document.getElementById(id);
   const cache = {};
@@ -98,6 +109,7 @@
   function combinacoes(chaveMapa) {
     const spec = MAPAS[chaveMapa];
     if (spec.cargo) return config.disponivel[chaveMapa] || [];
+    if (spec.nivel === "municipio") return config.disponivel.municipio_presidente || [];
     if (spec.tipo !== "pontos") return config.disponivel.zona_mun;
     // Brancos e nulos e abstenção existem também nos anos municipais, pelos
     // números de Prefeito (o cargo majoritário, como Presidente nos gerais).
@@ -117,7 +129,7 @@
     const selTurno = el("sel-turno");
     if (ehMapaMudanca(estado.mapa)) {
       // Aqui "ano" é o par de eleições ("2018-2022-2"): o turno vem junto.
-      const pares = config.disponivel.mudanca.map(([a, b, t]) => ({ id: `${a}-${b}-${t}`, a, b, t }));
+      const pares = paresMudanca(estado.mapa).map(([a, b, t]) => ({ id: `${a}-${b}-${t}`, a, b, t }));
       if (!pares.some((p) => p.id === estado.par)) estado.par = pares[pares.length - 1].id;
       selAno.innerHTML = pares.map((p) => `<option value="${p.id}">${p.a} → ${p.b} (${p.t}º turno)</option>`).join("");
       selAno.value = estado.par;
@@ -175,12 +187,14 @@
     else el("sel-bairro").disabled = true;
   }
 
-  // UF e município de cada zona, tirados do rótulo ("Município – UF · zona N") —
-  // os mesmos nomes dos filtros dos mapas de pontos.
+  // UF e município de cada zona, tirados do rótulo ("Município – UF · zona N",
+  // ou só "Município – UF" no mapa de municípios) — os mesmos nomes dos filtros
+  // dos mapas de pontos.
   function recorteZonas(geo) {
     return (geo._recorte ??= geo.features.map((f) => {
       const rot = f.properties.rot;
-      const mun = rot.slice(0, rot.lastIndexOf(" · zona "));
+      const iZona = rot.lastIndexOf(" · zona ");
+      const mun = iZona < 0 ? rot : rot.slice(0, iZona);
       const corte = mun.lastIndexOf(" – ");
       return { uf: corte < 0 ? "" : mun.slice(corte + 3), mun };
     }));
@@ -194,10 +208,10 @@
   // ==== Legenda ==============================================================
 
   function specLegenda(estado) {
-    const chave = estado.mapa;
+    const chave = MAPAS[estado.mapa].legendaDe || estado.mapa;
     const spec = config.legendas[chave];
-    if (ehMapaMudanca(chave)) return spec[estado.par];
-    return MAPAS[chave].legendaPorAno ? spec[String(estado.ano)] : spec;
+    if (ehMapaMudanca(estado.mapa)) return spec[estado.par];
+    return MAPAS[estado.mapa].legendaPorAno ? spec[String(estado.ano)] : spec;
   }
 
   function desenhaLegenda(spec, estado) {
@@ -350,10 +364,13 @@
     const paleta = MAPAS[estado.mapa].cores;
     const [anoAntes, anoDepois, turnoMud] = ehMudanca ? estado.par.split("-").map(Number) : [null, estado.ano, null];
     const cargo = MAPAS[estado.mapa].cargo;
+    // Município: geometria única (sem ano) e arquivos de valores `municipio_*`.
+    const pre = ehMunicipio(estado.mapa) ? "municipio" : "zona_mun";
     const arquivoDados = ehMudanca
-      ? `mudanca_${anoAntes}_${anoDepois}_t${turnoMud}.json`
-      : `zona_mun_${estado.ano}_t${estado.turno}${sufixoCargo(cargo)}.json`;
-    const [geo, res] = await Promise.all([carrega(`zona_mun_${anoDepois}_geo.json`), carrega(arquivoDados)]);
+      ? (pre === "municipio" ? "municipio_" : "") + `mudanca_${anoAntes}_${anoDepois}_t${turnoMud}.json`
+      : `${pre}_${estado.ano}_t${estado.turno}${sufixoCargo(cargo)}.json`;
+    const arquivoGeo = pre === "municipio" ? "municipio_geo.json" : `zona_mun_${anoDepois}_geo.json`;
+    const [geo, res] = await Promise.all([carrega(arquivoGeo), carrega(arquivoDados)]);
     const dados = res.dados;
     const recorte = recorteZonas(geo);
     preencheFiltros(recorte.length, (i) => recorte[i].uf, (i) => recorte[i].mun, null);
@@ -418,7 +435,7 @@
             linhaTerceiro + cresceuMais) +
           (d[4] === 1 ? "<br><b>Trocou de vencedor</b>" : "");
       } else if (cargo) {
-        // id_zona_mun começa pelo código IBGE do município (7 dígitos).
+        // id_zona_mun (ou cd_mun) começa pelo código IBGE do município (7 dígitos).
         const nomesMun = res.nomes && res.nomes[p.id.slice(0, 7)];
         html += linhasPartidos([d[1], d[3], d[5]], [d[2], d[4], d[6]], res.partidos, nomesMun) +
           `<br>Comparecimento: ${fmtNum(d[7])} votos`;
@@ -490,7 +507,8 @@
     Object.assign(filtro, { uf: inicial.uf, mun: inicial.mun, bairro: inicial.bairro });
     // Mapa sem dado exportado (ex.: ano municipal ainda não processado) sai do seletor.
     for (const opcao of [...el("sel-mapa").options]) {
-      if (!ehMapaMudanca(opcao.value) && !combinacoes(opcao.value).length) opcao.remove();
+      const vazio = ehMapaMudanca(opcao.value) ? !paresMudanca(opcao.value).length : !combinacoes(opcao.value).length;
+      if (vazio) opcao.remove();
     }
     if (inicial.mapa && MAPAS[inicial.mapa] && [...el("sel-mapa").options].some((o) => o.value === inicial.mapa))
       el("sel-mapa").value = inicial.mapa;
