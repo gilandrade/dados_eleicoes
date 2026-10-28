@@ -565,6 +565,13 @@ data model (geometry files vs. result files joined by a shared id).
   arquivos com as 186 cidades do exterior, todas na zona 0001): daí a 04c. Lula
   64.256.232, Flávio 59.826.041, comparecimento 128.236.074, aptos 158.745.502.
   Na divulgação, nulos = `tvn` (nulos + nulos técnicos) e aptos = `e.te`.
+  - **Resultado por seção do 2º turno (28/10/2026):** o `votacao_secao_2026_BR.zip`
+    (242 MB) e o `detalhe_votacao_secao_2026.zip` saíram em 26/10 (D+1, não D+2);
+    `03b -P atualizar:true` + 04 do T1 e do T2 rodaram, com os zips antigos em
+    `dados/01_bruto/2026/backup/` e a versão preliminar da 04c em
+    `dados/backup/2026_t2_preliminar/`. Votos idênticos à 04c em todas as zonas e
+    municípios; só o `qt_aptos` do exterior difere (04: 916.158, divulgação: 916.683).
+    Local: Lula 64.256.232, Flávio 59.826.041.
   - **CSV extraído velho:** a 04 só extraía o `votacao_secao_{ano}_BR.csv` se ele
     não existisse, e com o zip novo (dois turnos) leria o CSV do 1º turno, deixando
     o 2º vazio. `fontes._precisa_extrair` compara as datas.
