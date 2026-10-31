@@ -575,3 +575,30 @@ data model (geometry files vs. result files joined by a shared id).
   - **CSV extraído velho:** a 04 só extraía o `votacao_secao_{ano}_BR.csv` se ele
     não existisse, e com o zip novo (dois turnos) leria o CSV do 1º turno, deixando
     o 2º vazio. `fontes._precisa_extrair` compara as datas.
+- **Perfil da urna × voto sobre os aptos (31/10/2026, 2º turno de 2022 e 2026)**, a
+  pedido de Sergio Simoni Jr. (artigo "Bases sociais do PT e do bolsonarismo",
+  *Estudos Avançados* 40(117)): `notebooks/urna_aptos_base.ipynb` (`-p ANO`, `-p TURNO`,
+  `-p UFS PI` para testar) gera `dados/04_analise/urna/urna_presidente_{ano}_t2.{parquet,xlsx}`
+  e `notebooks/urna_aptos_analise.ipynb` as regressões e os gráficos (funções em
+  `src/eleicoes/urna.py`). Sempre descrever como associação condicional ecológica.
+  - **A unidade é a urna** (seção principal + agregadas, `eleitorado_local_votacao` do mesmo
+    turno): o voto sai na principal. Na planilha de 2018 do Sergio, 16.965 linhas (3,78%)
+    têm mais votos válidos que eleitores no perfil por isso. Sobre os válidos o β quase não
+    muda (2022: −0,490 por urna, −0,488 seção a seção); sobre os aptos daria % acima de 100.
+  - **Aptos = `QT_APTOS` do `detalhe_votacao_secao` = soma de `QT_ELEITOR_ELEICAO_FEDERAL`
+    das seções da urna (100% das urnas, 2022 e 2026).** `QT_ELEITOR_SECAO` difere em 63% das
+    urnas (trânsito, presos). Em 2022 há 618 seções "distribuídas de ofício" (572 na PB), com
+    `QT_ELEITOR_SECAO` > 0 e aptos federal 0, sem voto nem perfil: ficam fora.
+  - **`perfil_eleitor_secao` só existe por UF** (`_BR` dá 404): 2,7 GB em 2026, 774 MB em 2022.
+    O de 2026 não tem `TP_OBRIGATORIEDADE_VOTO` (o voto facultativo é derivado: 16-17 anos,
+    70+ e analfabetos; em 2022 bate com a coluna oficial, 16,7%), e alguns UFs de 2022 não
+    têm `cd_raca_cor`. `urna.le_perfil_brasil` extrai um UF por vez para o temporário do
+    sistema e guarda parquet em `dados/02_processado/perfil/`.
+  - **`quarto render`/`Rscript` do projeto ficaram minutos em CPU alta só para abrir**
+    (`.Rprofile`/renv); `Rscript --no-init-file` abre na hora. Os 54 zips de perfil foram
+    baixados por `curl -A "Mozilla/5.0"` (o CDN aceita); o `-P perfil:true` do
+    `03b_baixa_resultados.qmd` tem a sintaxe conferida, mas não foi executado.
+  - Conferência: Lula/Bolsonaro 2022 T2 60.345.999/58.206.354 e 2026 T2 64.256.232/59.826.041,
+    iguais ao `res_presidente_*_t2_zona_mun`; planilha de 2018 reproduz a Tabela 1 (β −0,601,
+    R² aj. 0,295, N 448.827). Em 2026, +10 p.p. de `pobres` na urna associam-se a +3,4 p.p.
+    dos aptos para o PT, −3,8 para o bolsonarista, +0,4 para a abstenção (2022: +3,2, −4,1, +1,0).
