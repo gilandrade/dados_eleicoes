@@ -4,6 +4,7 @@ search: false
 params:
   ano: 2024
   atualizar: false
+  perfil: false
 ---
 
 Baixa do CDN do TSE os zips que a etapa 04 lê, para `dados/01_bruto/{ano}/`.
@@ -16,6 +17,10 @@ estiver em disco.
 - Nos dois casos, `detalhe_votacao_secao_{ano}.zip` (aptos e comparecimento por
   seção) e `consulta_cand_{ano}.zip` (candidatos e siglas dos partidos).
 
+Com `-P perfil:true`, baixa também o cadastro dos eleitores por seção
+(`perfil_eleitor_secao_{ano}_{UF}.zip`, um por UF com o DF; ~2,8 GB em 2026 e
+~0,8 GB em 2022), usado pela análise por urna (`notebooks/urna_aptos_base.ipynb`).
+
 Com `-P atualizar:true`, baixa de novo o que já existe (ex.: o `votacao_secao`
 de um ano geral, que só tem o 1º turno até o TSE publicar o 2º); a versão
 anterior vai para `backup/`, com a data do arquivo no nome.
@@ -23,6 +28,7 @@ anterior vai para `backup/`, com a data do arquivo no nome.
 ```bash
 quarto render 03b_baixa_resultados.qmd -P ano:2024
 quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true
+quarto render 03b_baixa_resultados.qmd -P ano:2026 -P perfil:true
 ```
 
 ```{r setup}
@@ -31,6 +37,7 @@ library(httr2)
 
 ano <- as.integer(params$ano)
 atualizar <- isTRUE(as.logical(params$atualizar))
+perfil <- isTRUE(as.logical(params$perfil))
 BRUTO_DIR <- file.path("dados/01_bruto", ano)
 dir.create(BRUTO_DIR, showWarnings = FALSE, recursive = TRUE)
 
@@ -48,10 +55,16 @@ votacao_secao <- if (ano %in% ANOS_MUNICIPAIS) {
 } else {
   sprintf("votacao_secao/votacao_secao_%d_BR.zip", ano)
 }
+perfil_eleitor <- if (perfil) {
+  sprintf("perfil_eleitor_secao/perfil_eleitor_secao_%d_%s.zip", ano, c(UFS_26, "DF"))
+} else {
+  character()
+}
 arquivos_tse <- c(
   votacao_secao,
   sprintf("detalhe_votacao_secao/detalhe_votacao_secao_%d.zip", ano),
-  sprintf("consulta_cand/consulta_cand_%d.zip", ano)
+  sprintf("consulta_cand/consulta_cand_%d.zip", ano),
+  perfil_eleitor
 )
 length(arquivos_tse)
 ```
