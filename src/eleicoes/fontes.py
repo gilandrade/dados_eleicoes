@@ -255,6 +255,118 @@ def ler_votacao_secao(
     return _executa(con, query, por_partido)
 
 
+def ler_perfil_eleitor_secao(caminho_perfil: Path) -> pd.DataFrame:
+    """Lê `perfil_eleitor_secao_{ano}_{UF}.csv`: o cadastro por seção.
+
+    O arquivo tem uma linha por seção × gênero × estado civil × faixa etária ×
+    escolaridade (e, a partir de 2026, raça/cor), com a contagem de eleitores.
+    Aqui sai somado por seção × gênero × faixa etária × escolaridade.
+
+    O nome da coluna de contagem muda entre os anos (conferido nos arquivos
+    reais do PI em 03/10/2026): `QT_ELEITORES_PERFIL` em 2022, `QT_ELEITORES`
+    em 2026.
+
+    Args:
+        caminho_perfil: CSV do perfil (inteiro ou já filtrado por
+            `extrai_municipio_do_zip`).
+
+    Returns:
+        DataFrame com `cd_mun_tse`, `nr_zona`, `nr_secao`, `cd_genero`,
+        `cd_faixa_etaria`, `cd_grau_escolaridade` e `qt_eleitores`.
+    """
+    con = duckdb.connect()
+    sql_perfil = _sql_read_csv(caminho_perfil)
+    colunas = {c.lower() for c in con.sql(f"select * from {sql_perfil} limit 0").columns}
+    col_qt = "qt_eleitores_perfil" if "qt_eleitores_perfil" in colunas else "qt_eleitores"
+
+    query = f"""
+        select
+            lpad(cd_municipio, 5, '0') as cd_mun_tse,
+            cast(nr_zona as integer) as nr_zona,
+            cast(nr_secao as integer) as nr_secao,
+            cast(cd_genero as integer) as cd_genero,
+            cast(cd_faixa_etaria as integer) as cd_faixa_etaria,
+            cast(cd_grau_escolaridade as integer) as cd_grau_escolaridade,
+            sum(cast({col_qt} as integer)) as qt_eleitores
+        from {sql_perfil}
+        group by all
+    """
+    return con.execute(query).df()
+
+
+# Idade inicial das faixas do cadastro (CD_FAIXA_ETARIA = limites juntos: 4549 = 45 a 49).
+# Voto facultativo: 16 e 17 anos, 70 ou mais e analfabetos (CD_GRAU_ESCOLARIDADE = 1).
+# O perfil de 2026 não traz mais TP_OBRIGATORIEDADE_VOTO, por isso é derivado nos dois anos.
+IDADE_MIN_FACULTATIVO_IDOSO = 70
+FAIXAS_IDADE_PERFIL = {"16a24": (16, 25), "25a34": (25, 35), "35a44": (35, 45), "45a59": (45, 60), "60mais": (60, 200)}
+
+
+def ler_perfil_secao_largo(caminho_perfil: Path) -> pd.DataFrame:
+    """Lê `perfil_eleitor_secao_{ano}_{UF}.csv` com uma linha por seção.
+
+    Diferente de `ler_perfil_eleitor_secao` (seção × gênero × faixa × escolaridade),
+    já devolve as contagens em colunas, para somar por urna depois.
+
+    Args:
+        caminho_perfil: CSV do perfil de uma UF.
+
+    Returns:
+        DataFrame com `cd_mun_tse`, `nr_zona`, `nr_secao`, `sg_uf` e contagens:
+        `qt_eleitores_perfil`, `qt_esc_{0..8}`, `qt_facultativo`, `qt_idade_{faixa}`,
+        `qt_idade_valida`, `qt_idade_soma`, `qt_genero_feminino`, `qt_genero_masculino`
+        e `qt_raca_{1..5}` (raça/cor só vem preenchida a partir de 2026).
+    """
+    con = duckdb.connect()
+    sql_perfil = _sql_read_csv(caminho_perfil)
+    colunas = {c.lower() for c in con.sql(f"select * from {sql_perfil} limit 0").columns}
+    col_qt = "qt_eleitores_perfil" if "qt_eleitores_perfil" in colunas else "qt_eleitores"
+
+    # raça/cor não existe em todos os arquivos de 2022 (e vem "#NE" nos que têm)
+    raca = "try_cast(cd_raca_cor as integer)" if "cd_raca_cor" in colunas else "cast(null as integer)"
+    idade = "(try_cast(cd_faixa_etaria as integer) // 100)"
+    valida = "try_cast(cd_faixa_etaria as integer) > 0"
+    soma = [
+        "sum(qt) as qt_eleitores_perfil",
+        *(f"coalesce(sum(qt) filter (where esc = {c}), 0) as qt_esc_{c}" for c in range(9)),
+        (
+            "coalesce(sum(qt) filter (where esc = 1 or (idade_valida and "
+            f"(idade between 16 and 17 or idade >= {IDADE_MIN_FACULTATIVO_IDOSO}))), 0) as qt_facultativo"
+        ),
+        *(
+            f"coalesce(sum(qt) filter (where idade_valida and idade >= {a} and idade < {b}), 0) as qt_idade_{n}"
+            for n, (a, b) in FAIXAS_IDADE_PERFIL.items()
+        ),
+        "coalesce(sum(qt) filter (where idade_valida), 0) as qt_idade_valida",
+        "coalesce(sum(qt * idade_media) filter (where idade_valida), 0) as qt_idade_soma",
+        "coalesce(sum(qt) filter (where genero = 4), 0) as qt_genero_feminino",
+        "coalesce(sum(qt) filter (where genero = 2), 0) as qt_genero_masculino",
+        *(f"coalesce(sum(qt) filter (where raca = {c}), 0) as qt_raca_{c}" for c in range(1, 6)),
+    ]
+    query = f"""
+        with base as (
+            select
+                lpad(cd_municipio, 5, '0') as cd_mun_tse,
+                cast(nr_zona as integer) as nr_zona,
+                cast(nr_secao as integer) as nr_secao,
+                sg_uf as sg_uf,
+                cast({col_qt} as integer) as qt,
+                try_cast(cd_grau_escolaridade as integer) as esc,
+                try_cast(cd_genero as integer) as genero,
+                {raca} as raca,
+                {valida} as idade_valida,
+                {idade} as idade,
+                -- ponto médio da faixa (4549 -> 47); a última faixa é aberta (9999 = 100+)
+                ({idade} + case when try_cast(cd_faixa_etaria as integer) % 100 > 0
+                                then try_cast(cd_faixa_etaria as integer) % 100 else {idade} end) / 2.0 as idade_media
+            from {sql_perfil}
+        )
+        select cd_mun_tse, nr_zona, nr_secao, any_value(sg_uf) as sg_uf, {", ".join(soma)}
+        from base
+        group by cd_mun_tse, nr_zona, nr_secao
+    """
+    return con.execute(query).df()
+
+
 def ler_bweb(caminho_bweb_uf: Path, ano: int, turno: int, sg_uf: str) -> pd.DataFrame:
     """Lê um arquivo de boletim de urna simplificado (`bweb`) de uma UF.
 
