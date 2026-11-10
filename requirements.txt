@@ -14,6 +14,7 @@ debugpy==1.8.22
 defusedxml==0.7.1
 duckdb==1.5.5
 entrypoints==0.4
+esda==2.10.0
 executing==2.2.1
 fastjsonschema==2.22.2
 fonttools==4.66.0
@@ -24,12 +25,14 @@ ipython==9.17.1
 ipython_pygments_lexers==1.1.1
 jedi==0.20.0
 Jinja2==3.1.6
+joblib==1.6.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 jupyter_client==8.10.0
 jupyter_core==5.9.1
 jupyterlab_pygments==0.3.0
 kiwisolver==1.5.1
+libpysal==4.15.1
 MarkupSafe==3.0.3
 matplotlib==3.11.2
 matplotlib-inline==0.2.2
@@ -61,12 +64,14 @@ pyzmq==27.2.0
 referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.6.3
+scikit-learn==1.9.1
 scipy==1.18.1
 shapely==2.1.2
 six==1.17.0
 soupsieve==2.10
 stack-data==0.6.3
 tenacity==9.2.1
+threadpoolctl==3.8.0
 tinycss2==1.5.1
 tornado==6.5.10
 traitlets==5.16.1

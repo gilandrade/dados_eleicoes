@@ -261,6 +261,13 @@ def legenda_tipo_mudanca(ano_antes: int, ano_depois: int, turno: int) -> dict:
     )
 
 
+# ==== Moran Local (LISA) =====================================================
+
+# Cores padrão do GeoDa, na ordem de `autocorrelacao.CLASSES_LISA`:
+# Alto-Alto, Baixo-Baixo, Baixo-Alto, Alto-Baixo, Não significativo.
+CORES_LISA = ["#e31a1c", "#2c62c9", "#a7adf9", "#f4ada8", "#eeeeee"]
+
+
 def legenda_sequencial(
     titulo: str, quebras: tuple[float, ...], rampa: list[str] = RAMPA_SEQUENCIAL
 ) -> dict:

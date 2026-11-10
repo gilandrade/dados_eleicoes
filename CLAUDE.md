@@ -42,6 +42,8 @@ quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 quarto render 03b_baixa_resultados.qmd -P ano:2024        # zips de resultado (R; 26 UFs nos municipais)
 quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa de novo; o antigo vai para backup/
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
+quarto render 10_autocorrelacao_espacial.qmd --profile local   # Moran/LISA do PT por município
+quarto render autocorrelacao.qmd             # página do site com o resultado da 10
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
 cp assets/mapas.js assets/mapas.css docs/assets/   # o render de uma página só não copia assets/
@@ -103,6 +105,22 @@ data model (geometry files vs. result files joined by a shared id).
   `08_cadastro_georedus.qmd` as linhas de cadastro das camadas (`cadastro.py`).
 - **09 (R, `09_insumos_municipio.qmd`)**: insumos de um município só, para a
   análise perfil do eleitorado × voto.
+- **10 (Python, `10_autocorrelacao_espacial.qmd`)**: Moran global e LISA do % dos
+  válidos do PT por município, 2º turno de 2018/2022/2026, replicando Soares e Terron
+  (2008), "Dois Lulas" (contiguidade Queen padronizada, ilhas ligadas ao vizinho mais
+  próximo, 9.999 permutações, p < 0,05; Tabelas 1–3 e Mapas 2 e 5 do artigo). Funções
+  em `autocorrelacao.py`; saídas em `dados/03_saida/` (`moran_`, `lisa_`,
+  `dinamica_pt_municipio.parquet` e `lisa_pt_municipio.gpkg`). No site, a página
+  própria `autocorrelacao.qmd` (sem código, só lê essas saídas; não mexe no
+  visualizador): `quarto render autocorrelacao.qmd` depois da 10. As figuras dela
+  (`docs/autocorrelacao_files/`) têm exceção no `.gitignore`. Os votos dos resultados
+  vêm em int32: `100 * soma` estoura, converter para float antes.
+- **Renderizar a 06 regrava todos os JSON do site** com os dados locais atuais: se
+  eles divergem do que foi publicado (ex.: locais de 2018/2022), o `git status` mostra
+  arquivos alterados que não fazem parte da mudança; conferir antes de commitar.
+- **Render de página do site ou com `--profile local` pode criar `docs/dados/relatorios/`**
+  (cópias recursivas de `mapas.js`/`mapas.css` vindas de `dados/relatorios/docs/`).
+  É lixo de render: apagar antes de commitar.
 
 ## Conventions and gotchas
 

@@ -25,6 +25,8 @@ GEOREDUS_DIR = DADOS_DIR / "03_georedus"
 GEOMETRIAS_DIR = GEOREDUS_DIR / "geometrias"
 RESULTADOS_DIR = GEOREDUS_DIR / "resultados"
 CARGA_DIR = GEOREDUS_DIR / "carga"
+# Saídas de análise fora da GeoReDUS (ex.: Moran/LISA da etapa 10).
+SAIDA_DIR = DADOS_DIR / "03_saida"
 
 # CNEFE 2022 por município (cnefetools, IBGE), já filtrado às espécies de
 # domicílio e com `cd_setor` de 15 dígitos (sem o "P" do `COD_SETOR` original).

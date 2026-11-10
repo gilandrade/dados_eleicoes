@@ -1,0 +1,400 @@
+---
+title: "10 · Autocorrelação espacial do voto no PT (Moran e LISA)"
+search: false
+execute:
+  echo: true
+---
+
+Replica a análise geográfica de Soares e Terron (2008), "Dois Lulas: a geografia
+eleitoral da reeleição" (*Opinião Pública*, 14(2), p. 269–301), no **2º turno** de
+2018, 2022 e 2026, para o candidato do PT (Haddad em 2018, Lula em 2022 e 2026; sempre
+o número 13).
+
+Como no artigo:
+
+- unidade: **município**, o Brasil inteiro;
+- vizinhança por **contiguidade** (municípios que compartilham fronteira; Queen, o
+  padrão do GeoDa), padronizada por linha, a mesma em todas as estatísticas. As duas
+  ilhas sem vizinho (Fernando de Noronha e Ilhabela) ficam ligadas ao município mais
+  próximo;
+- **I de Moran global**, com significância por 9.999 permutações (Tabela 1);
+- **Moran Local (LISA)** em cinco categorias, p < 0,05 (Mapa 2, Tabelas 2a/2b);
+- **dinâmica das bases geoeleitorais** entre duas eleições (Tabela 3);
+- Moran e LISA da **diferença** no % do candidato entre duas eleições (Mapa 5).
+
+Diferenças: a variável é o % dos votos válidos (sem brancos e nulos); a "população"
+da Tabela 3 é o eleitorado apto do ano mais recente; as comparações são 2018 → 2022 e
+2022 → 2026. A parte do Bolsa Família e as regressões do artigo não entram.
+
+```bash
+quarto render 10_autocorrelacao_espacial.qmd --profile local
+```
+
+Saídas em `dados/03_saida/`: `moran_pt_municipio.parquet`, `lisa_pt_municipio.parquet`,
+`dinamica_pt_municipio.parquet` e `lisa_pt_municipio.gpkg` (uma coluna por análise,
+para o QGIS). Depois, `06_exporta_visualizador.qmd` leva os mapas ao site.
+
+```{python}
+#| label: setup
+import logging
+import sys
+
+sys.path.insert(0, "src")
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.patches import Patch
+
+from eleicoes import autocorrelacao as ac
+from eleicoes import cores, resultados
+from eleicoes.config import CODIGOS_NAO_CANDIDATO, NOME_PT_POR_ANO, NR_PT, PROCESSADO_DIR, RESULTADOS_DIR, SAIDA_DIR
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+pd.options.display.float_format = "{:,.4f}".format
+```
+
+```{python}
+#| label: constantes
+ANOS = [2018, 2022, 2026]
+TURNO = 2
+PARES = [(2018, 2022), (2022, 2026)]
+
+# Simplificação só para desenhar o Brasil inteiro (não entra no cálculo).
+TOLERANCIA_PLOT = 0.01
+```
+
+## 1. Malha de municípios e matriz de vizinhança
+
+```{python}
+#| label: malha
+municipios = (
+    gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg")
+    .sort_values("cd_mun")
+    .reset_index(drop=True)
+)
+w = ac.pesos_contiguidade(municipios)
+print(f"{w.n:,} municípios | {w.mean_neighbors:.2f} vizinhos em média | "
+      f"mín {w.min_neighbors}, máx {w.max_neighbors} | componentes: {w.n_components}")
+
+# Para os mapas: geometria simplificada e contorno das UFs.
+plot_mun = municipios[["cd_mun", "geometry"]].copy()
+plot_mun["geometry"] = plot_mun.geometry.simplify(TOLERANCIA_PLOT)
+plot_uf = municipios.dissolve(by="abbrev_state")[["geometry"]]
+plot_uf["geometry"] = plot_uf.geometry.simplify(TOLERANCIA_PLOT)
+```
+
+## 2. Resultados do 2º turno por município
+
+`pc_validos_13` = votos no 13 ÷ votos válidos. O exterior fica de fora (não tem
+geometria).
+
+```{python}
+#| label: resultados
+def le_municipio(ano):
+    caminho = RESULTADOS_DIR / f"res_presidente_{ano}_t{TURNO}_municipio.parquet"
+    if not caminho.exists():
+        raise FileNotFoundError(f"{caminho} não existe — rode 04_resultados_turno.qmd -P ano:{ano} -P turno:{TURNO}.")
+    res = pd.read_parquet(caminho)
+    exterior = res["cd_mun"].str.startswith(resultados.SENTINELA_EXTERIOR)
+    assert exterior.sum() <= 1, "mais de uma linha de exterior"
+    res = res.loc[~exterior]
+    sem_geometria = set(res["cd_mun"]) - set(municipios["cd_mun"])
+    assert not sem_geometria, f"{ano}: municípios sem geometria: {sorted(sem_geometria)[:5]}"
+
+    cols_candidatos = [
+        c for c in res.columns
+        if c.startswith("qt_votos_") and int(c.removeprefix("qt_votos_")) not in CODIGOS_NAO_CANDIDATO
+    ]
+    res = res.assign(qt_validos=res[cols_candidatos].sum(axis=1))
+    df = municipios[["cd_mun"]].merge(
+        res[["cd_mun", f"pc_validos_{NR_PT}", f"qt_votos_{NR_PT}", "qt_validos", "qt_aptos"]],
+        on="cd_mun", how="left", validate="1:1",
+    ).rename(columns={f"pc_validos_{NR_PT}": "pc_pt", f"qt_votos_{NR_PT}": "votos_pt"})
+    df["pc_pt"] = 100 * df["pc_pt"]
+    return df
+
+
+dados = {ano: le_municipio(ano) for ano in ANOS}
+pd.DataFrame({
+    f"{NOME_PT_POR_ANO[a]} {a}": {
+        "municípios": len(d),
+        "sem resultado": int(d["pc_pt"].isna().sum()),
+        "% válidos (Brasil)": 100 * d["votos_pt"].sum() / d["qt_validos"].sum(),
+        "média dos municípios": d["pc_pt"].mean(),
+        "desvio padrão": d["pc_pt"].std(),
+    }
+    for a, d in dados.items()
+}).round(2)
+```
+
+## 3. Tabela 1 — I de Moran global
+
+Significância por 9.999 permutações (como na nota 6 do artigo); `media_perm` e
+`dp_perm` são a média e o desvio padrão do I nas permutações (no artigo: −0,0002 e
+0,0080).
+
+```{python}
+#| label: moran-global
+moran = pd.DataFrame([
+    {"variavel": "pc_validos", "ano_antes": pd.NA, "ano": ano, "turno": TURNO, **ac.moran_global(d["pc_pt"], w)}
+    for ano, d in dados.items()
+])
+tabela1 = moran.set_index(moran["ano"].map(lambda a: f"{NOME_PT_POR_ANO[a]} {a} – 2º T"))
+tabela1[["I", "media_perm", "dp_perm", "z_sim", "p_sim"]].T
+```
+
+```{python}
+#| label: moran-dispersao
+#| fig-cap: "Diagrama de dispersão de Moran (valores padronizados), 2º turno."
+lisas = {ano: ac.lisa(d["pc_pt"], w) for ano, d in dados.items()}
+
+fig, eixos = plt.subplots(1, len(ANOS), figsize=(15, 5), sharex=True, sharey=True)
+for ax, ano in zip(eixos, ANOS):
+    y = dados[ano]["pc_pt"].to_numpy()
+    z = (y - y.mean()) / y.std()
+    lag_z = w.sparse @ z
+    cor = lisas[ano]["classe_lisa"].cat.codes.map(dict(enumerate(cores.CORES_LISA)))
+    ax.scatter(z, lag_z, s=3, c=cor, linewidths=0)
+    inclinacao = np.polyfit(z, lag_z, 1)[0]
+    xs = np.array([z.min(), z.max()])
+    ax.plot(xs, inclinacao * xs, color="black", lw=1)
+    ax.axhline(0, color="grey", lw=0.5)
+    ax.axvline(0, color="grey", lw=0.5)
+    i_ = moran.loc[moran["ano"] == ano, "I"].item()
+    ax.set_title(f"{NOME_PT_POR_ANO[ano]} {ano} — I = {i_:.4f}".replace(".", ","))
+    ax.set_xlabel("% do PT (padronizado)")
+eixos[0].set_ylabel("Média dos vizinhos (padronizada)")
+plt.tight_layout()
+```
+
+## 4. Mapa 2 — Moran Local (LISA)
+
+Alto-Alto: município com voto alto no PT cercado de vizinhos com voto alto; as demais
+categorias por analogia. "Não significativo" é a zona de vulnerabilidade do artigo.
+
+```{python}
+#| label: funcoes-mapa
+LEGENDA_LISA = [Patch(facecolor=c, edgecolor="#999999", label=r) for c, r in zip(cores.CORES_LISA, ac.CLASSES_LISA)]
+
+
+def mapa_lisa(ax, classe, titulo):
+    cor = pd.Series(classe).cat.codes.map(dict(enumerate(cores.CORES_LISA))).to_numpy()
+    plot_mun.plot(ax=ax, color=cor, edgecolor="face", linewidth=0.2)
+    plot_uf.boundary.plot(ax=ax, color="#555555", linewidth=0.3)
+    ax.set_title(titulo)
+    ax.set_axis_off()
+```
+
+```{python}
+#| label: mapa-lisa
+#| fig-cap: "Moran Local do % dos votos válidos do PT por município, 2º turno."
+fig, eixos = plt.subplots(1, len(ANOS), figsize=(18, 7))
+for ax, ano in zip(eixos, ANOS):
+    mapa_lisa(ax, lisas[ano]["classe_lisa"], f"{NOME_PT_POR_ANO[ano]} {ano} (2º turno)")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False)
+plt.tight_layout(rect=(0, 0.05, 1, 1))
+```
+
+## 5. Tabelas 2a/2b — municípios e votos por categoria
+
+`pc_validos`: % dos votos válidos do país nos municípios da categoria;
+`pc_votos_pt`: % dos votos do candidato do PT.
+
+```{python}
+#| label: tabelas-2
+tabelas2 = {
+    ano: ac.resumo_por_classe(lisas[ano]["classe_lisa"], dados[ano]["qt_validos"], dados[ano]["votos_pt"])
+    for ano in ANOS
+}
+tabela2 = pd.concat({f"{NOME_PT_POR_ANO[a]} {a}": t for a, t in tabelas2.items()}, axis=1)
+tabela2.round(1)
+```
+
+Soma das regiões de coesão (Alto-Alto + Baixo-Baixo), em % dos votos válidos (no
+artigo: 41,2% em 2002 e 48,7% em 2006):
+
+```{python}
+#| label: coesao-validos
+pd.Series({
+    f"{NOME_PT_POR_ANO[a]} {a}": t.loc[list(ac.COESAS), "pc_validos"].sum() for a, t in tabelas2.items()
+}).round(1)
+```
+
+## 6. Tabela 3 — dinâmica das bases geoeleitorais
+
+- *Coesão regional e manutenção*: Alto-Alto ou Baixo-Baixo nas duas eleições;
+- *Coesão regional e alteração*: trocou de Alto-Alto para Baixo-Baixo, ou o contrário;
+- *Dissolução*: era Alto-Alto ou Baixo-Baixo e deixou de ser;
+- *Construção*: passou a Alto-Alto ou Baixo-Baixo;
+- *Manutenção da vulnerabilidade*: nem Alto-Alto nem Baixo-Baixo nas duas.
+
+Alto-Baixo e Baixo-Alto contam como fora da coesão regional. "População" é o
+eleitorado apto da eleição mais recente.
+
+```{python}
+#| label: tabela-3
+dinamicas = {
+    (a, b): ac.dinamica(lisas[a]["classe_lisa"], lisas[b]["classe_lisa"]) for a, b in PARES
+}
+tabela3 = pd.concat(
+    {f"{a} → {b}": ac.resumo_dinamica(rot, dados[b]["qt_aptos"]) for (a, b), rot in dinamicas.items()}, axis=1
+)
+tabela3.round(1)
+```
+
+Transições entre as categorias (linhas: eleição anterior; colunas: seguinte).
+
+```{python}
+#| label: transicoes
+for a, b in PARES:
+    print(f"\n{a} → {b}")
+    print(pd.crosstab(lisas[a]["classe_lisa"], lisas[b]["classe_lisa"], margins=True).to_string())
+```
+
+```{python}
+#| label: mapa-dinamica
+#| fig-cap: "Dinâmica das bases geoeleitorais do PT, 2º turno."
+CORES_DINAMICA = ["#1b7837", "#762a83", "#f1a340", "#5aae61", "#e0e0e0"]
+fig, eixos = plt.subplots(1, len(PARES), figsize=(14, 7))
+for ax, (a, b) in zip(eixos, PARES):
+    cor = dinamicas[(a, b)].cat.codes.map(dict(enumerate(CORES_DINAMICA))).to_numpy()
+    plot_mun.plot(ax=ax, color=cor, edgecolor="face", linewidth=0.2)
+    plot_uf.boundary.plot(ax=ax, color="#555555", linewidth=0.3)
+    ax.set_title(f"{a} → {b}")
+    ax.set_axis_off()
+fig.legend(
+    handles=[Patch(facecolor=c, edgecolor="#999999", label=r) for c, r in zip(CORES_DINAMICA, ac.DINAMICAS)],
+    loc="lower center", ncol=3, frameon=False,
+)
+plt.tight_layout(rect=(0, 0.08, 1, 1))
+```
+
+## 7. Mapa 5 — Moran e LISA da diferença entre eleições
+
+Diferença no % dos válidos do candidato do PT (p.p.), eleição seguinte menos a
+anterior.
+
+```{python}
+#| label: diferenca
+diferencas = {(a, b): dados[b]["pc_pt"] - dados[a]["pc_pt"] for a, b in PARES}
+lisas_dif = {par: ac.lisa(dif, w) for par, dif in diferencas.items()}
+moran_dif = pd.DataFrame([
+    {"variavel": "dif_pc_validos", "ano_antes": a, "ano": b, "turno": TURNO, **ac.moran_global(dif, w)}
+    for (a, b), dif in diferencas.items()
+])
+moran_dif.set_index(moran_dif.apply(lambda r: f"{r.ano_antes} → {r.ano}", axis=1))[
+    ["I", "media_perm", "dp_perm", "z_sim", "p_sim"]
+].T
+```
+
+```{python}
+#| label: mapa-diferenca
+#| fig-cap: "Diferença no % de votos válidos do PT (esq.) e Moran Local da diferença (dir.), 2º turno."
+QUEBRAS_DIF = [-20, -10, -5, -2, 0, 2, 5, 10, 20]  # 8 faixas + as duas pontas abertas
+cmap_dif = ListedColormap(cores.RAMPA_BOLSONARO[::-1] + cores.RAMPA_PT)
+norma_dif = BoundaryNorm(QUEBRAS_DIF, cmap_dif.N, extend="both")
+
+fig, eixos = plt.subplots(len(PARES), 2, figsize=(14, 7 * len(PARES)))
+for (ax_val, ax_lisa), (a, b) in zip(eixos, PARES):
+    dif = diferencas[(a, b)].to_numpy()
+    plot_mun.assign(dif=dif).plot(ax=ax_val, column="dif", cmap=cmap_dif, norm=norma_dif, edgecolor="face", linewidth=0.2,
+                                  legend=True, legend_kwds={"shrink": 0.6, "label": "p.p."})
+    plot_uf.boundary.plot(ax=ax_val, color="#555555", linewidth=0.3)
+    ax_val.set_title(f"Diferença no % do PT, {a} → {b}")
+    ax_val.set_axis_off()
+    mapa_lisa(ax_lisa, lisas_dif[(a, b)]["classe_lisa"], f"Moran Local da diferença, {a} → {b}")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False)
+plt.tight_layout(rect=(0, 0.03, 1, 1))
+```
+
+```{python}
+#| label: tabela-dif
+pd.concat({
+    f"{a} → {b}": ac.resumo_por_classe(lisas_dif[(a, b)]["classe_lisa"], dados[b]["qt_validos"], dados[b]["votos_pt"])
+    for a, b in PARES
+}, axis=1).round(1)
+```
+
+## 8. Saídas
+
+```{python}
+#| label: saidas
+SAIDA_DIR.mkdir(parents=True, exist_ok=True)
+
+moran_todos = pd.concat([moran, moran_dif], ignore_index=True)
+moran_todos["ano_antes"] = moran_todos["ano_antes"].astype("Int64")
+moran_todos.to_parquet(SAIDA_DIR / "moran_pt_municipio.parquet", index=False)
+
+
+def linhas_lisa(variavel, ano_antes, ano, valor, tabela):
+    return pd.DataFrame({
+        "cd_mun": municipios["cd_mun"], "variavel": variavel, "ano_antes": ano_antes, "ano": ano, "turno": TURNO,
+        "valor": valor.to_numpy(), **{c: tabela[c].to_numpy() for c in ["lag", "Ii", "q", "p_sim"]},
+        "classe_lisa": tabela["classe_lisa"].astype(str).to_numpy(),
+    })
+
+
+lisa_longo = pd.concat(
+    [linhas_lisa("pc_validos", pd.NA, ano, dados[ano]["pc_pt"], lisas[ano]) for ano in ANOS]
+    + [linhas_lisa("dif_pc_validos", a, b, diferencas[(a, b)], lisas_dif[(a, b)]) for a, b in PARES],
+    ignore_index=True,
+)
+lisa_longo["ano_antes"] = lisa_longo["ano_antes"].astype("Int64")
+lisa_longo.to_parquet(SAIDA_DIR / "lisa_pt_municipio.parquet", index=False)
+
+dinamica_longo = pd.concat([
+    pd.DataFrame({
+        "cd_mun": municipios["cd_mun"], "ano_antes": a, "ano": b, "turno": TURNO,
+        "classe_antes": lisas[a]["classe_lisa"].astype(str).to_numpy(),
+        "classe_depois": lisas[b]["classe_lisa"].astype(str).to_numpy(),
+        "dinamica": dinamicas[(a, b)].astype(str).to_numpy(),
+        "qt_aptos": dados[b]["qt_aptos"].to_numpy(),
+    })
+    for a, b in PARES
+], ignore_index=True)
+dinamica_longo.to_parquet(SAIDA_DIR / "dinamica_pt_municipio.parquet", index=False)
+
+largo = municipios[["cd_mun", "name_muni", "abbrev_state", "geometry"]].copy()
+for ano in ANOS:
+    largo[f"pc_pt_{ano}_t{TURNO}"] = dados[ano]["pc_pt"].to_numpy()
+    largo[f"lisa_{ano}_t{TURNO}"] = lisas[ano]["classe_lisa"].astype(str).to_numpy()
+for a, b in PARES:
+    largo[f"dif_pc_pt_{a}_{b}_t{TURNO}"] = diferencas[(a, b)].to_numpy()
+    largo[f"lisa_dif_{a}_{b}_t{TURNO}"] = lisas_dif[(a, b)]["classe_lisa"].astype(str).to_numpy()
+    largo[f"dinamica_{a}_{b}_t{TURNO}"] = dinamicas[(a, b)].astype(str).to_numpy()
+largo.to_file(SAIDA_DIR / "lisa_pt_municipio.gpkg", driver="GPKG")
+
+for nome in ["moran_pt_municipio.parquet", "lisa_pt_municipio.parquet", "dinamica_pt_municipio.parquet",
+             "lisa_pt_municipio.gpkg"]:
+    print(f"{nome}: {(SAIDA_DIR / nome).stat().st_size / 1e6:.1f} MB")
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+n = len(municipios)
+assert n == 5570, n
+for ano, d in dados.items():
+    assert len(d) == n and d["pc_pt"].notna().all(), f"{ano}: município sem resultado"
+
+# Pesos padronizados por linha, sem ilha.
+assert not w.islands, w.islands
+assert np.allclose(np.asarray(w.sparse.sum(axis=1)).ravel(), 1)
+
+# A média dos vizinhos do LISA é o lag espacial calculado à mão.
+for ano in ANOS:
+    assert np.allclose(lisas[ano]["lag"], w.sparse @ dados[ano]["pc_pt"].to_numpy())
+
+# Tabelas 2 e 3 cobrem todos os municípios e os % somam 100.
+for t in [*tabelas2.values()]:
+    assert t["municipios"].sum() == n
+    assert np.allclose(t[["pc_municipios", "pc_validos", "pc_votos_pt"]].sum(), 100)
+for rot in dinamicas.values():
+    assert rot.notna().all() and len(rot) == n
+assert len(lisa_longo) == n * (len(ANOS) + len(PARES))
+print("conferência ok")
+```

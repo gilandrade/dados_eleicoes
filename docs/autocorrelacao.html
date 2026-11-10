@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.36">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>Geografia do voto no PT: Moran e LISA – dados_eleicoes</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-845c23b38eaddc0f92fda52bfe77a8c8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-a0f9fd0d421825b736dc1bbcbcba2219.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+
+
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="./index.html">
+    <span class="navbar-title">dados_eleicoes</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="./index.html"> 
+<span class="menu-text">Início</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./00_insumos.html"> 
+<span class="menu-text">00 · Insumos</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./01_locais_votacao.html"> 
+<span class="menu-text">01 · Locais de votação</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./02_geocodificacao_locais.html"> 
+<span class="menu-text">02 · Geocodificação</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./mapas.html"> 
+<span class="menu-text">Mapas</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link active" href="./autocorrelacao.html" aria-current="page"> 
+<span class="menu-text">Moran e LISA</span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#método" id="toc-método" class="nav-link active" data-scroll-target="#método">Método</a></li>
+  <li><a href="#i-de-moran-global-tabela-1" id="toc-i-de-moran-global-tabela-1" class="nav-link" data-scroll-target="#i-de-moran-global-tabela-1">I de Moran global (Tabela 1)</a></li>
+  <li><a href="#bases-geoeleitorais-mapa-2" id="toc-bases-geoeleitorais-mapa-2" class="nav-link" data-scroll-target="#bases-geoeleitorais-mapa-2">Bases geoeleitorais (Mapa 2)</a>
+  <ul class="collapse">
+  <li><a href="#municípios-e-votos-por-categoria-tabelas-2a2c" id="toc-municípios-e-votos-por-categoria-tabelas-2a2c" class="nav-link" data-scroll-target="#municípios-e-votos-por-categoria-tabelas-2a2c">Municípios e votos por categoria (Tabelas 2a–2c)</a></li>
+  </ul></li>
+  <li><a href="#dinâmica-das-bases-geoeleitorais-tabela-3" id="toc-dinâmica-das-bases-geoeleitorais-tabela-3" class="nav-link" data-scroll-target="#dinâmica-das-bases-geoeleitorais-tabela-3">Dinâmica das bases geoeleitorais (Tabela 3)</a>
+  <ul class="collapse">
+  <li><a href="#transições-entre-categorias" id="toc-transições-entre-categorias" class="nav-link" data-scroll-target="#transições-entre-categorias">Transições entre categorias</a></li>
+  </ul></li>
+  <li><a href="#mudança-entre-eleições-mapa-5" id="toc-mudança-entre-eleições-mapa-5" class="nav-link" data-scroll-target="#mudança-entre-eleições-mapa-5">Mudança entre eleições (Mapa 5)</a></li>
+  <li><a href="#diferenças-em-relação-ao-artigo" id="toc-diferenças-em-relação-ao-artigo" class="nav-link" data-scroll-target="#diferenças-em-relação-ao-artigo">Diferenças em relação ao artigo</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Geografia do voto no PT: Moran e LISA</h1>
+<p class="subtitle lead">2º turno presidencial de 2018, 2022 e 2026, por município</p>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>Esta página replica, para as três últimas eleições presidenciais, a análise geográfica de Soares e Terron (2008), <em>Dois Lulas: a geografia eleitoral da reeleição</em> (<em>Opinião Pública</em>, 14(2), p.&nbsp;269–301). O artigo mediu o quanto a votação de Lula em 2002 e 2006 se agrupava no território. Aqui a mesma pergunta é feita para o candidato do PT no 2º turno: Haddad em 2018, Lula em 2022 e em 2026.</p>
+<section id="método" class="level2">
+<h2 class="anchored" data-anchor-id="método">Método</h2>
+<p>Segue o artigo:</p>
+<ul>
+<li><strong>Unidade:</strong> os 5.570 municípios. O voto no exterior fica de fora.</li>
+<li><strong>Variável:</strong> % dos votos válidos do candidato do PT no município.</li>
+<li><strong>Vizinhança:</strong> dois municípios são vizinhos quando têm fronteira comum (critério <em>Queen</em>, o padrão do GeoDa usado no artigo), com pesos padronizados por linha. Fernando de Noronha e Ilhabela, sem vizinho por terra, ficam ligados ao município mais próximo.</li>
+<li><strong>I de Moran global:</strong> mede o quanto o voto num município se parece com o dos vizinhos (1 = agrupamento máximo, 0 = distribuição aleatória). Significância por 9.999 permutações.</li>
+<li><strong>Moran Local (LISA):</strong> classifica cada município, com p &lt; 0,05, em <em>Alto-Alto</em> (voto alto no PT cercado de vizinhos com voto alto), <em>Baixo-Baixo</em>, <em>Alto-Baixo</em> ou <em>Baixo-Alto</em>. O artigo chama os blocos Alto-Alto e Baixo-Baixo de <strong>bases geoeleitorais</strong> (zonas de coesão regional). Os municípios sem significância são as zonas de <strong>vulnerabilidade</strong>.</li>
+</ul>
+<p>Os resultados vêm do TSE (<code>votacao_secao</code>, agregado por município) e a malha municipal do IBGE. O cálculo está em <code>10_autocorrelacao_espacial.qmd</code> no repositório.</p>
+</section>
+<section id="i-de-moran-global-tabela-1" class="level2">
+<h2 class="anchored" data-anchor-id="i-de-moran-global-tabela-1">I de Moran global (Tabela 1)</h2>
+<div id="cell-tabela-1" class="cell" data-execution_count="2">
+<div id="tabela-1" class="cell-output cell-output-display cell-output-markdown" data-execution_count="12">
+<table class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th style="text-align: left;">Eleição</th>
+<th style="text-align: right;">I de Moran</th>
+<th style="text-align: right;">Média nas permutações</th>
+<th style="text-align: right;">Desvio padrão</th>
+<th style="text-align: right;">p</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Haddad 2018 (2º turno)</td>
+<td style="text-align: right;">0,8993</td>
+<td style="text-align: right;">-0,0002</td>
+<td style="text-align: right;">0,0083</td>
+<td style="text-align: right;">0,0001</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Lula 2022 (2º turno)</td>
+<td style="text-align: right;">0,8831</td>
+<td style="text-align: right;">-0,0002</td>
+<td style="text-align: right;">0,0082</td>
+<td style="text-align: right;">0,0001</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Lula 2026 (2º turno)</td>
+<td style="text-align: right;">0,8959</td>
+<td style="text-align: right;">-0,0002</td>
+<td style="text-align: right;">0,0082</td>
+<td style="text-align: right;">0,0001</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>Todos os valores são significativos ao nível de 0,0001, o menor possível com 9.999 permutações. No artigo, o I de Lula no 2º turno foi 0,5353 em 2002 e 0,8067 em 2006.</p>
+<div id="cell-dispersao" class="cell" data-execution_count="3">
+<div class="cell-output cell-output-display">
+<div id="dispersao" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="autocorrelacao_files/figure-html/dispersao-output-1.png" width="1432" height="459" class="figure-img"></p>
+<figcaption>Diagrama de dispersão de Moran: % do PT no município (padronizado) × média dos vizinhos.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="bases-geoeleitorais-mapa-2" class="level2">
+<h2 class="anchored" data-anchor-id="bases-geoeleitorais-mapa-2">Bases geoeleitorais (Mapa 2)</h2>
+<div id="cell-mapa-2" class="cell" data-execution_count="4">
+<div class="cell-output cell-output-display">
+<div id="mapa-2" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="autocorrelacao_files/figure-html/mapa-2-output-1.png" width="1718" height="634" class="figure-img"></p>
+<figcaption>Moran Local do % dos votos válidos do PT por município, 2º turno.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<section id="municípios-e-votos-por-categoria-tabelas-2a2c" class="level3">
+<h3 class="anchored" data-anchor-id="municípios-e-votos-por-categoria-tabelas-2a2c">Municípios e votos por categoria (Tabelas 2a–2c)</h3>
+<p>Para cada categoria: número e % de municípios, % dos votos válidos do país e % dos votos do candidato do PT.</p>
+<div id="tabela-2" class="cell" data-execution_count="5">
+<p><strong>Haddad 2018, 2º turno</strong></p>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Categoria</th>
+<th style="text-align: right;">Municípios</th>
+<th style="text-align: right;">Municípios (%)</th>
+<th style="text-align: right;">Válidos (%)</th>
+<th style="text-align: right;">Votos Haddad (%)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Alto-Alto</td>
+<td style="text-align: right;">1.692</td>
+<td style="text-align: right;">30,4</td>
+<td style="text-align: right;">21,1</td>
+<td style="text-align: right;">35,4</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Baixo-Baixo</td>
+<td style="text-align: right;">1.689</td>
+<td style="text-align: right;">30,3</td>
+<td style="text-align: right;">45,1</td>
+<td style="text-align: right;">30,4</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Baixo-Alto</td>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;">0,2</td>
+<td style="text-align: right;">0,8</td>
+<td style="text-align: right;">0,8</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Alto-Baixo</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">0,2</td>
+<td style="text-align: right;">0,0</td>
+<td style="text-align: right;">0,1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Não significativo</td>
+<td style="text-align: right;">2.169</td>
+<td style="text-align: right;">38,9</td>
+<td style="text-align: right;">33,0</td>
+<td style="text-align: right;">33,3</td>
+</tr>
+</tbody>
+</table>
+<p>Alto-Alto e Baixo-Baixo somam 66,2% dos votos válidos.</p>
+<p><strong>Lula 2022, 2º turno</strong></p>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Categoria</th>
+<th style="text-align: right;">Municípios</th>
+<th style="text-align: right;">Municípios (%)</th>
+<th style="text-align: right;">Válidos (%)</th>
+<th style="text-align: right;">Votos Lula (%)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Alto-Alto</td>
+<td style="text-align: right;">1.636</td>
+<td style="text-align: right;">29,4</td>
+<td style="text-align: right;">19,9</td>
+<td style="text-align: right;">29,2</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Baixo-Baixo</td>
+<td style="text-align: right;">1.604</td>
+<td style="text-align: right;">28,8</td>
+<td style="text-align: right;">32,0</td>
+<td style="text-align: right;">22,9</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Baixo-Alto</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">0,2</td>
+<td style="text-align: right;">0,7</td>
+<td style="text-align: right;">0,7</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Alto-Baixo</td>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">0,3</td>
+<td style="text-align: right;">0,2</td>
+<td style="text-align: right;">0,3</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Não significativo</td>
+<td style="text-align: right;">2.306</td>
+<td style="text-align: right;">41,4</td>
+<td style="text-align: right;">47,1</td>
+<td style="text-align: right;">46,9</td>
+</tr>
+</tbody>
+</table>
+<p>Alto-Alto e Baixo-Baixo somam 51,9% dos votos válidos.</p>
+<p><strong>Lula 2026, 2º turno</strong></p>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Categoria</th>
+<th style="text-align: right;">Municípios</th>
+<th style="text-align: right;">Municípios (%)</th>
+<th style="text-align: right;">Válidos (%)</th>
+<th style="text-align: right;">Votos Lula (%)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Alto-Alto</td>
+<td style="text-align: right;">1.702</td>
+<td style="text-align: right;">30,6</td>
+<td style="text-align: right;">23,0</td>
+<td style="text-align: right;">32,1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Baixo-Baixo</td>
+<td style="text-align: right;">1.662</td>
+<td style="text-align: right;">29,8</td>
+<td style="text-align: right;">26,1</td>
+<td style="text-align: right;">17,6</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Baixo-Alto</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">0,1</td>
+<td style="text-align: right;">0,4</td>
+<td style="text-align: right;">0,4</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Alto-Baixo</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">0,2</td>
+<td style="text-align: right;">0,2</td>
+<td style="text-align: right;">0,2</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Não significativo</td>
+<td style="text-align: right;">2.189</td>
+<td style="text-align: right;">39,3</td>
+<td style="text-align: right;">50,4</td>
+<td style="text-align: right;">49,7</td>
+</tr>
+</tbody>
+</table>
+<p>Alto-Alto e Baixo-Baixo somam 49,0% dos votos válidos.</p>
+</div>
+<p>No artigo, as duas categorias de coesão somavam 41,2% dos votos válidos em 2002 e 48,7% em 2006.</p>
+</section>
+</section>
+<section id="dinâmica-das-bases-geoeleitorais-tabela-3" class="level2">
+<h2 class="anchored" data-anchor-id="dinâmica-das-bases-geoeleitorais-tabela-3">Dinâmica das bases geoeleitorais (Tabela 3)</h2>
+<p>Como cada município mudou de situação entre duas eleições:</p>
+<ul>
+<li><strong>Coesão regional e manutenção:</strong> Alto-Alto ou Baixo-Baixo nas duas;</li>
+<li><strong>Coesão regional e alteração:</strong> passou de Alto-Alto para Baixo-Baixo, ou o contrário;</li>
+<li><strong>Dissolução da coesão regional:</strong> era Alto-Alto ou Baixo-Baixo e deixou de ser;</li>
+<li><strong>Construção da coesão regional:</strong> passou a Alto-Alto ou Baixo-Baixo;</li>
+<li><strong>Manutenção da vulnerabilidade regional:</strong> nem Alto-Alto nem Baixo-Baixo nas duas.</li>
+</ul>
+<p>Alto-Baixo e Baixo-Alto contam como fora da coesão regional. A população é o eleitorado apto da eleição mais recente.</p>
+<div id="cell-tabela-3" class="cell" data-execution_count="6">
+<div id="tabela-3" class="cell-output cell-output-display cell-output-markdown" data-execution_count="16">
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+<col style="width: 11%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">Dinâmica</th>
+<th style="text-align: right;">2018 → 2022: Municípios</th>
+<th style="text-align: right;">2018 → 2022: Municípios (%)</th>
+<th style="text-align: right;">2018 → 2022: Eleitorado</th>
+<th style="text-align: right;">2018 → 2022: Eleitorado (%)</th>
+<th style="text-align: right;">2022 → 2026: Municípios</th>
+<th style="text-align: right;">2022 → 2026: Municípios (%)</th>
+<th style="text-align: right;">2022 → 2026: Eleitorado</th>
+<th style="text-align: right;">2022 → 2026: Eleitorado (%)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Coesão regional e manutenção</td>
+<td style="text-align: right;">2.980</td>
+<td style="text-align: right;">53,5</td>
+<td style="text-align: right;">77.526.527</td>
+<td style="text-align: right;">49,8</td>
+<td style="text-align: right;">3.072</td>
+<td style="text-align: right;">55,2</td>
+<td style="text-align: right;">70.250.085</td>
+<td style="text-align: right;">44,5</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Coesão regional e alteração</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0,0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0,0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0,0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0,0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Dissolução da coesão regional</td>
+<td style="text-align: right;">401</td>
+<td style="text-align: right;">7,2</td>
+<td style="text-align: right;">25.844.412</td>
+<td style="text-align: right;">16,6</td>
+<td style="text-align: right;">168</td>
+<td style="text-align: right;">3,0</td>
+<td style="text-align: right;">12.000.737</td>
+<td style="text-align: right;">7,6</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Construção da coesão regional</td>
+<td style="text-align: right;">260</td>
+<td style="text-align: right;">4,7</td>
+<td style="text-align: right;">3.512.577</td>
+<td style="text-align: right;">2,3</td>
+<td style="text-align: right;">292</td>
+<td style="text-align: right;">5,2</td>
+<td style="text-align: right;">6.323.164</td>
+<td style="text-align: right;">4,0</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Manutenção da vulnerabilidade regional</td>
+<td style="text-align: right;">1.929</td>
+<td style="text-align: right;">34,6</td>
+<td style="text-align: right;">48.874.833</td>
+<td style="text-align: right;">31,4</td>
+<td style="text-align: right;">2.038</td>
+<td style="text-align: right;">36,6</td>
+<td style="text-align: right;">69.250.508</td>
+<td style="text-align: right;">43,9</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="cell-mapa-dinamica" class="cell" data-execution_count="7">
+<div class="cell-output cell-output-display">
+<div id="mapa-dinamica" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="autocorrelacao_files/figure-html/mapa-dinamica-output-1.png" width="1334" height="686" class="figure-img"></p>
+<figcaption>Dinâmica das bases geoeleitorais do PT, 2º turno.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<section id="transições-entre-categorias" class="level3">
+<h3 class="anchored" data-anchor-id="transições-entre-categorias">Transições entre categorias</h3>
+<p>Linhas: eleição anterior; colunas: a seguinte.</p>
+<div id="transicoes" class="cell" data-execution_count="8">
+<p><strong>2018 → 2022</strong></p>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">2018 (linhas) × 2022 (colunas)</th>
+<th style="text-align: right;">Alto-Alto</th>
+<th style="text-align: right;">Baixo-Baixo</th>
+<th style="text-align: right;">Baixo-Alto</th>
+<th style="text-align: right;">Alto-Baixo</th>
+<th style="text-align: right;">Não significativo</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Alto-Alto</td>
+<td style="text-align: right;">1.576</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">111</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Baixo-Baixo</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">1.404</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">279</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Baixo-Alto</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">4</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Alto-Baixo</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Não significativo</td>
+<td style="text-align: right;">58</td>
+<td style="text-align: right;">197</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">1.910</td>
+</tr>
+</tbody>
+</table>
+<p><strong>2022 → 2026</strong></p>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">2022 (linhas) × 2026 (colunas)</th>
+<th style="text-align: right;">Alto-Alto</th>
+<th style="text-align: right;">Baixo-Baixo</th>
+<th style="text-align: right;">Baixo-Alto</th>
+<th style="text-align: right;">Alto-Baixo</th>
+<th style="text-align: right;">Não significativo</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Alto-Alto</td>
+<td style="text-align: right;">1.593</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">41</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Baixo-Baixo</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">1.479</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">125</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Baixo-Alto</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Alto-Baixo</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">2</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Não significativo</td>
+<td style="text-align: right;">104</td>
+<td style="text-align: right;">177</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">2.021</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="mudança-entre-eleições-mapa-5" class="level2">
+<h2 class="anchored" data-anchor-id="mudança-entre-eleições-mapa-5">Mudança entre eleições (Mapa 5)</h2>
+<p>Diferença no % dos válidos do candidato do PT, em pontos percentuais (eleição seguinte menos a anterior), e o Moran Local dessa diferença. Alto-Alto: o PT cresceu mais que a média no município e nos vizinhos.</p>
+<div id="cell-tabela-dif" class="cell" data-execution_count="9">
+<div id="tabela-dif" class="cell-output cell-output-display cell-output-markdown" data-execution_count="19">
+<table class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th style="text-align: left;">Comparação</th>
+<th style="text-align: right;">I de Moran</th>
+<th style="text-align: right;">Média nas permutações</th>
+<th style="text-align: right;">Desvio padrão</th>
+<th style="text-align: right;">p</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">2018 → 2022</td>
+<td style="text-align: right;">0,8073</td>
+<td style="text-align: right;">-0,0001</td>
+<td style="text-align: right;">0,0082</td>
+<td style="text-align: right;">0,0001</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">2022 → 2026</td>
+<td style="text-align: right;">0,5521</td>
+<td style="text-align: right;">-0,0002</td>
+<td style="text-align: right;">0,0082</td>
+<td style="text-align: right;">0,0001</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>No artigo, o I da diferença 2002 → 2006 foi 0,7820.</p>
+<div id="cell-mapa-5" class="cell" data-execution_count="10">
+<div class="cell-output cell-output-display">
+<div id="mapa-5" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="autocorrelacao_files/figure-html/mapa-5-output-1.png" width="1334" height="1331" class="figure-img"></p>
+<figcaption>Diferença no % de votos válidos do PT (esq.) e Moran Local da diferença (dir.), 2º turno.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="diferenças-em-relação-ao-artigo" class="level2">
+<h2 class="anchored" data-anchor-id="diferenças-em-relação-ao-artigo">Diferenças em relação ao artigo</h2>
+<ul>
+<li>O artigo analisou 2002 e 2006 (5.564 municípios). Aqui são 2018, 2022 e 2026 (5.570), com as comparações 2018 → 2022 e 2022 → 2026.</li>
+<li>Variável: % dos votos válidos, sem brancos e nulos. A nota 3 do artigo define o denominador como votos nominais, brancos e nulos; o texto e as tabelas falam em votos válidos.</li>
+<li>Na Tabela 3, a população é o eleitorado apto, não a estimativa populacional.</li>
+<li>O artigo não diz como trata os municípios Alto-Baixo e Baixo-Alto na Tabela 3. Aqui eles contam como fora da coesão regional (são poucos: menos de 1% em cada eleição).</li>
+<li>Ficam de fora a análise do Bolsa Família e as regressões espaciais.</li>
+</ul>
+<p>Os dados por município (categoria LISA de cada eleição, diferenças e dinâmica) estão em <code>dados/03_saida/lisa_pt_municipio.gpkg</code>, gerado pela etapa 10.</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

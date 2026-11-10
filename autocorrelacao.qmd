@@ -1,0 +1,303 @@
+---
+title: "Geografia do voto no PT: Moran e LISA"
+subtitle: "2º turno presidencial de 2018, 2022 e 2026, por município"
+execute:
+  echo: false
+  warning: false
+---
+
+```{python}
+#| label: setup
+import sys
+
+sys.path.insert(0, "src")
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import Markdown
+from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.patches import Patch
+
+from eleicoes import autocorrelacao as ac
+from eleicoes import cores, resultados
+from eleicoes.config import CODIGOS_NAO_CANDIDATO, NOME_PT_POR_ANO, NR_PT, RESULTADOS_DIR, SAIDA_DIR
+
+ANOS = [2018, 2022, 2026]
+PARES = [(2018, 2022), (2022, 2026)]
+TURNO = 2
+TOLERANCIA_PLOT = 0.01
+
+moran = pd.read_parquet(SAIDA_DIR / "moran_pt_municipio.parquet")
+lisa = pd.read_parquet(SAIDA_DIR / "lisa_pt_municipio.parquet")
+dinamica = pd.read_parquet(SAIDA_DIR / "dinamica_pt_municipio.parquet")
+malha = gpd.read_file(SAIDA_DIR / "lisa_pt_municipio.gpkg")
+plot_mun = malha[["cd_mun", "geometry"]].copy()
+plot_mun["geometry"] = plot_mun.geometry.simplify(TOLERANCIA_PLOT)
+plot_uf = malha.dissolve(by="abbrev_state")[["geometry"]]
+plot_uf["geometry"] = plot_uf.geometry.simplify(TOLERANCIA_PLOT)
+
+
+def fmt(x, casas=1):
+    return f"{x:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def tabela(df, casas=1):
+    """DataFrame formatado no padrão brasileiro, como Markdown."""
+    saida = df.copy()
+    for c in saida.columns:
+        if pd.api.types.is_float_dtype(saida[c]):
+            saida[c] = saida[c].map(lambda v: fmt(v, casas))
+        elif pd.api.types.is_integer_dtype(saida[c]):
+            saida[c] = saida[c].map(lambda v: fmt(v, 0))
+    cabecalho = [str(saida.index.name or ""), *map(str, saida.columns)]
+    linhas = [
+        "| " + " | ".join(cabecalho) + " |",
+        "|" + "|".join([":--"] + ["--:"] * len(saida.columns)) + "|",
+        *("| " + " | ".join([str(i), *map(str, r)]) + " |" for i, r in zip(saida.index, saida.to_numpy())),
+    ]
+    return Markdown("\n".join(linhas))
+
+
+def lisa_de(variavel, ano, ano_antes=None):
+    sel = (lisa["variavel"] == variavel) & (lisa["ano"] == ano)
+    sel &= lisa["ano_antes"].isna() if ano_antes is None else (lisa["ano_antes"] == ano_antes)
+    df = lisa.loc[sel].set_index("cd_mun").reindex(malha["cd_mun"])
+    df["classe_lisa"] = pd.Categorical(df["classe_lisa"], categories=ac.CLASSES_LISA)
+    return df
+
+
+def votos(ano):
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{TURNO}_municipio.parquet")
+    res = res.loc[~res["cd_mun"].str.startswith(resultados.SENTINELA_EXTERIOR)]
+    cols = [c for c in res.columns
+            if c.startswith("qt_votos_") and int(c.removeprefix("qt_votos_")) not in CODIGOS_NAO_CANDIDATO]
+    res = res.assign(qt_validos=res[cols].sum(axis=1)).set_index("cd_mun").reindex(malha["cd_mun"])
+    return res["qt_validos"], res[f"qt_votos_{NR_PT}"]
+
+
+def mapa_classes(ax, classe, paleta, titulo):
+    cor = pd.Series(classe).cat.codes.map(dict(enumerate(paleta))).to_numpy()
+    plot_mun.plot(ax=ax, color=cor, edgecolor="face", linewidth=0.2)
+    plot_uf.boundary.plot(ax=ax, color="#555555", linewidth=0.3)
+    ax.set_title(titulo)
+    ax.set_axis_off()
+
+
+LEGENDA_LISA = [Patch(facecolor=c, edgecolor="#999999", label=r) for c, r in zip(cores.CORES_LISA, ac.CLASSES_LISA)]
+NOME = {a: f"{NOME_PT_POR_ANO[a]} {a}" for a in ANOS}
+```
+
+Esta página replica, para as três últimas eleições presidenciais, a análise
+geográfica de Soares e Terron (2008), *Dois Lulas: a geografia eleitoral da
+reeleição* (*Opinião Pública*, 14(2), p. 269–301). O artigo mediu o quanto a votação
+de Lula em 2002 e 2006 se agrupava no território. Aqui a mesma pergunta é feita
+para o candidato do PT no 2º turno: Haddad em 2018, Lula em 2022 e em 2026.
+
+## Método
+
+Segue o artigo:
+
+- **Unidade:** os 5.570 municípios. O voto no exterior fica de fora.
+- **Variável:** % dos votos válidos do candidato do PT no município.
+- **Vizinhança:** dois municípios são vizinhos quando têm fronteira comum (critério
+  *Queen*, o padrão do GeoDa usado no artigo), com pesos padronizados por linha.
+  Fernando de Noronha e Ilhabela, sem vizinho por terra, ficam ligados ao município
+  mais próximo.
+- **I de Moran global:** mede o quanto o voto num município se parece com o dos
+  vizinhos (1 = agrupamento máximo, 0 = distribuição aleatória). Significância por
+  9.999 permutações.
+- **Moran Local (LISA):** classifica cada município, com p < 0,05, em *Alto-Alto*
+  (voto alto no PT cercado de vizinhos com voto alto), *Baixo-Baixo*, *Alto-Baixo*
+  ou *Baixo-Alto*. O artigo chama os blocos Alto-Alto e Baixo-Baixo de **bases
+  geoeleitorais** (zonas de coesão regional). Os municípios sem significância são
+  as zonas de **vulnerabilidade**.
+
+Os resultados vêm do TSE (`votacao_secao`, agregado por município) e a malha
+municipal do IBGE. O cálculo está em `10_autocorrelacao_espacial.qmd` no repositório.
+
+## I de Moran global (Tabela 1)
+
+```{python}
+#| label: tabela-1
+t1 = moran.loc[moran["variavel"] == "pc_validos"].set_index("ano").loc[ANOS]
+tabela(pd.DataFrame({
+    "Eleição": [f"{NOME[a]} (2º turno)" for a in ANOS],
+    "I de Moran": t1["I"].to_numpy(),
+    "Média nas permutações": t1["media_perm"].to_numpy(),
+    "Desvio padrão": t1["dp_perm"].to_numpy(),
+    "p": t1["p_sim"].to_numpy(),
+}).set_index("Eleição"), casas=4)
+```
+
+Todos os valores são significativos ao nível de 0,0001, o menor possível com 9.999
+permutações. No artigo, o I de Lula no 2º turno foi 0,5353 em 2002 e 0,8067 em 2006.
+
+```{python}
+#| label: dispersao
+#| fig-cap: "Diagrama de dispersão de Moran: % do PT no município (padronizado) × média dos vizinhos."
+fig, eixos = plt.subplots(1, len(ANOS), figsize=(15, 4.8), sharex=True, sharey=True)
+for ax, ano in zip(eixos, ANOS):
+    df = lisa_de("pc_validos", ano)
+    media, dp = df["valor"].mean(), df["valor"].std(ddof=0)
+    z, lag_z = (df["valor"] - media) / dp, (df["lag"] - media) / dp
+    cor = df["classe_lisa"].cat.codes.map(dict(enumerate(cores.CORES_LISA)))
+    ax.scatter(z, lag_z, s=3, c=cor, linewidths=0)
+    ax.axhline(0, color="grey", lw=0.5)
+    ax.axvline(0, color="grey", lw=0.5)
+    i_ = t1.loc[ano, "I"]
+    ax.plot([z.min(), z.max()], [i_ * z.min(), i_ * z.max()], color="black", lw=1)
+    ax.set_title(f"{NOME[ano]} — I = {fmt(i_, 4)}")
+    ax.set_xlabel("% do PT (padronizado)")
+eixos[0].set_ylabel("Média dos vizinhos (padronizada)")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False)
+plt.tight_layout(rect=(0, 0.08, 1, 1))
+```
+
+## Bases geoeleitorais (Mapa 2)
+
+```{python}
+#| label: mapa-2
+#| fig-cap: "Moran Local do % dos votos válidos do PT por município, 2º turno."
+fig, eixos = plt.subplots(1, len(ANOS), figsize=(18, 7))
+for ax, ano in zip(eixos, ANOS):
+    mapa_classes(ax, lisa_de("pc_validos", ano)["classe_lisa"], cores.CORES_LISA, f"{NOME[ano]} (2º turno)")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False)
+plt.tight_layout(rect=(0, 0.05, 1, 1))
+```
+
+### Municípios e votos por categoria (Tabelas 2a–2c)
+
+Para cada categoria: número e % de municípios, % dos votos válidos do país e % dos
+votos do candidato do PT.
+
+```{python}
+#| label: tabela-2
+#| output: asis
+for ano in ANOS:
+    validos, votos_pt = votos(ano)
+    t = ac.resumo_por_classe(lisa_de("pc_validos", ano)["classe_lisa"].to_numpy(), validos, votos_pt)
+    t.columns = ["Municípios", "Municípios (%)", "Válidos (%)", f"Votos {NOME_PT_POR_ANO[ano]} (%)"]
+    t.index.name = "Categoria"
+    print(f"\n**{NOME[ano]}, 2º turno**\n")
+    print(tabela(t).data)
+    coesao = t.loc[list(ac.COESAS), "Válidos (%)"].sum()
+    print(f"\nAlto-Alto e Baixo-Baixo somam {fmt(coesao)}% dos votos válidos.\n")
+```
+
+No artigo, as duas categorias de coesão somavam 41,2% dos votos válidos em 2002 e
+48,7% em 2006.
+
+## Dinâmica das bases geoeleitorais (Tabela 3)
+
+Como cada município mudou de situação entre duas eleições:
+
+- **Coesão regional e manutenção:** Alto-Alto ou Baixo-Baixo nas duas;
+- **Coesão regional e alteração:** passou de Alto-Alto para Baixo-Baixo, ou o contrário;
+- **Dissolução da coesão regional:** era Alto-Alto ou Baixo-Baixo e deixou de ser;
+- **Construção da coesão regional:** passou a Alto-Alto ou Baixo-Baixo;
+- **Manutenção da vulnerabilidade regional:** nem Alto-Alto nem Baixo-Baixo nas duas.
+
+Alto-Baixo e Baixo-Alto contam como fora da coesão regional. A população é o
+eleitorado apto da eleição mais recente.
+
+```{python}
+#| label: tabela-3
+partes = {}
+for a, b in PARES:
+    d = dinamica.loc[(dinamica["ano_antes"] == a) & (dinamica["ano"] == b)]
+    t = ac.resumo_dinamica(pd.Categorical(d["dinamica"], categories=ac.DINAMICAS), d["qt_aptos"])
+    t["populacao"] = t["populacao"].astype("int64")
+    partes[f"{a} → {b}"] = t.set_axis(["Municípios", "Municípios (%)", "Eleitorado", "Eleitorado (%)"], axis=1)
+t3 = pd.concat(partes, axis=1)
+t3.columns = [f"{p}: {c}" for p, c in t3.columns]
+t3.index.name = "Dinâmica"
+tabela(t3)
+```
+
+```{python}
+#| label: mapa-dinamica
+#| fig-cap: "Dinâmica das bases geoeleitorais do PT, 2º turno."
+CORES_DINAMICA = ["#1b7837", "#762a83", "#f1a340", "#5aae61", "#e0e0e0"]
+fig, eixos = plt.subplots(1, len(PARES), figsize=(14, 7))
+for ax, (a, b) in zip(eixos, PARES):
+    d = dinamica.loc[(dinamica["ano_antes"] == a) & (dinamica["ano"] == b)].set_index("cd_mun").reindex(malha["cd_mun"])
+    mapa_classes(ax, pd.Categorical(d["dinamica"], categories=ac.DINAMICAS), CORES_DINAMICA, f"{a} → {b}")
+fig.legend(
+    handles=[Patch(facecolor=c, edgecolor="#999999", label=r) for c, r in zip(CORES_DINAMICA, ac.DINAMICAS)],
+    loc="lower center", ncol=3, frameon=False,
+)
+plt.tight_layout(rect=(0, 0.08, 1, 1))
+```
+
+### Transições entre categorias
+
+Linhas: eleição anterior; colunas: a seguinte.
+
+```{python}
+#| label: transicoes
+#| output: asis
+for a, b in PARES:
+    ct = pd.crosstab(lisa_de("pc_validos", a)["classe_lisa"], lisa_de("pc_validos", b)["classe_lisa"])
+    ct.index.name = f"{a} (linhas) × {b} (colunas)"
+    print(f"\n**{a} → {b}**\n")
+    print(tabela(ct).data)
+```
+
+## Mudança entre eleições (Mapa 5)
+
+Diferença no % dos válidos do candidato do PT, em pontos percentuais (eleição
+seguinte menos a anterior), e o Moran Local dessa diferença. Alto-Alto: o PT cresceu
+mais que a média no município e nos vizinhos.
+
+```{python}
+#| label: tabela-dif
+t5 = moran.loc[moran["variavel"] == "dif_pc_validos"]
+tabela(pd.DataFrame({
+    "Comparação": [f"{int(r.ano_antes)} → {r.ano}" for r in t5.itertuples()],
+    "I de Moran": t5["I"].to_numpy(),
+    "Média nas permutações": t5["media_perm"].to_numpy(),
+    "Desvio padrão": t5["dp_perm"].to_numpy(),
+    "p": t5["p_sim"].to_numpy(),
+}).set_index("Comparação"), casas=4)
+```
+
+No artigo, o I da diferença 2002 → 2006 foi 0,7820.
+
+```{python}
+#| label: mapa-5
+#| fig-cap: "Diferença no % de votos válidos do PT (esq.) e Moran Local da diferença (dir.), 2º turno."
+QUEBRAS_DIF = [-20, -10, -5, -2, 0, 2, 5, 10, 20]
+cmap_dif = ListedColormap(cores.RAMPA_BOLSONARO[::-1] + cores.RAMPA_PT)
+norma_dif = BoundaryNorm(QUEBRAS_DIF, cmap_dif.N, extend="both")
+
+fig, eixos = plt.subplots(len(PARES), 2, figsize=(14, 7 * len(PARES)))
+for (ax_val, ax_lisa), (a, b) in zip(eixos, PARES):
+    df = lisa_de("dif_pc_validos", b, a)
+    plot_mun.assign(dif=df["valor"].to_numpy()).plot(
+        ax=ax_val, column="dif", cmap=cmap_dif, norm=norma_dif, edgecolor="face", linewidth=0.2,
+        legend=True, legend_kwds={"shrink": 0.6, "label": "p.p."},
+    )
+    plot_uf.boundary.plot(ax=ax_val, color="#555555", linewidth=0.3)
+    ax_val.set_title(f"Diferença no % do PT, {a} → {b}")
+    ax_val.set_axis_off()
+    mapa_classes(ax_lisa, df["classe_lisa"], cores.CORES_LISA, f"Moran Local da diferença, {a} → {b}")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False)
+plt.tight_layout(rect=(0, 0.03, 1, 1))
+```
+
+## Diferenças em relação ao artigo
+
+- O artigo analisou 2002 e 2006 (5.564 municípios). Aqui são 2018, 2022 e 2026
+  (5.570), com as comparações 2018 → 2022 e 2022 → 2026.
+- Variável: % dos votos válidos, sem brancos e nulos. A nota 3 do artigo define o
+  denominador como votos nominais, brancos e nulos; o texto e as tabelas falam em
+  votos válidos.
+- Na Tabela 3, a população é o eleitorado apto, não a estimativa populacional.
+- O artigo não diz como trata os municípios Alto-Baixo e Baixo-Alto na Tabela 3.
+  Aqui eles contam como fora da coesão regional (são poucos: menos de 1% em cada
+  eleição).
+- Ficam de fora a análise do Bolsa Família e as regressões espaciais.
+
+Os dados por município (categoria LISA de cada eleição, diferenças e dinâmica) estão
+em `dados/03_saida/lisa_pt_municipio.gpkg`, gerado pela etapa 10.

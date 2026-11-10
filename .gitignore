@@ -14,6 +14,8 @@ renv/sandbox/
 .RData
 /.quarto/
 *_files/
+# Figuras da página de Moran/LISA do site (as outras páginas não têm figura).
+!docs/autocorrelacao_files/
 *_cache/
 # HTML das etapas de execução local (fora do site): sai ao lado do .qmd
 /*.html

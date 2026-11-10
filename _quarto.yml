@@ -9,6 +9,7 @@ project:
     - 01_locais_votacao.qmd
     - 02_geocodificacao_locais.qmd
     - mapas.qmd
+    - autocorrelacao.qmd
   # docs/mapas/dados/ é gerado por 06_exporta_visualizador.qmd, fora do motor
   # do site. Isso NÃO impede que um `quarto render` do projeto inteiro limpe
   # docs/ — renderizar só os .qmd alterados (ver CLAUDE.md).
@@ -30,6 +31,8 @@ website:
         text: 02 · Geocodificação
       - href: mapas.qmd
         text: Mapas
+      - href: autocorrelacao.qmd
+        text: Moran e LISA
 
 format:
   html:
