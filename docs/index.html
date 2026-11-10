@@ -97,8 +97,8 @@ ul.task-list li input[type="checkbox"] {
 <span class="menu-text">Início</span></a>
   </li>  
   <li class="nav-item">
-    <a class="nav-link" href="./00_auxiliares.html"> 
-<span class="menu-text">00 · Auxiliares</span></a>
+    <a class="nav-link" href="./00_insumos.html"> 
+<span class="menu-text">00 · Insumos</span></a>
   </li>  
   <li class="nav-item">
     <a class="nav-link" href="./01_locais_votacao.html"> 
@@ -111,6 +111,17 @@ ul.task-list li input[type="checkbox"] {
   <li class="nav-item">
     <a class="nav-link" href="./mapas.html"> 
 <span class="menu-text">Mapas</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="./autocorrelacao.html"> 
+<span class="menu-text">Moran e LISA</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/gilandrade/dados_eleicoes"> <i class="bi bi-github" role="img" aria-label="Repositório no GitHub">
+</i> 
+<span class="menu-text"></span></a>
   </li>  
 </ul>
           </div> <!-- /navcollapse -->
@@ -158,7 +169,7 @@ ul.task-list li input[type="checkbox"] {
 <p>Pipeline ETL de dados eleitorais do TSE (locais de votação e resultados) para a <a href="https://www.redus.org.br/georedus">GeoReDUS</a>. Ver <a href="https://github.com/gilandrade/dados_eleicoes/blob/main/PLAN.md">PLAN.md</a> para o contexto completo.</p>
 <section id="mapas" class="level2">
 <h2 class="anchored" data-anchor-id="mapas"><a href="./mapas.html">Mapas</a></h2>
-<p>Presidente em 2018 e 2022, nos dois turnos, num só visualizador:</p>
+<p>Presidente (2018, 2022, 2026) e Prefeito e Vereador (2020, 2024), nos dois turnos quando houve, num só visualizador:</p>
 <ul>
 <li><strong>locais de votação:</strong> Presidente, brancos e nulos, abstenção;</li>
 <li><strong>zona × município:</strong> Presidente e a mudança de votação 2018 → 2022 (2º turno).</li>
@@ -167,11 +178,11 @@ ul.task-list li input[type="checkbox"] {
 <section id="etapas" class="level2">
 <h2 class="anchored" data-anchor-id="etapas">Etapas</h2>
 <ul>
-<li><a href="./00_auxiliares.html">00 · Auxiliares</a> — crosswalk TSE↔︎IBGE, malhas, população adulta por setor.</li>
+<li><a href="./00_insumos.html">00 · Insumos</a> — crosswalk TSE↔︎IBGE, malhas, população adulta por setor.</li>
 <li><a href="./01_locais_votacao.html">01 · Locais de votação</a> — download e chaves dos locais e seções (2022; <a href="01_locais_votacao_2018.html">2018</a>).</li>
 <li><a href="./02_geocodificacao_locais.html">02 · Geocodificação</a> — validação e fallback de coordenada (2022; <a href="02_geocodificacao_locais_2018.html">2018</a>).</li>
 </ul>
-<p>As etapas 03–06 (distribuição espacial, resultados, mudança entre anos e exportação) são em Python, em <code>src/eleicoes/</code> e <code>scripts/</code> — ver o README do repositório.</p>
+<p>As etapas 03–08 (distribuição espacial, resultados, mudança entre anos, exportação e carga) são notebooks Quarto em Python, de execução local, com as funções em <code>src/eleicoes/</code> — ver o README do repositório.</p>
 
 
 </section>

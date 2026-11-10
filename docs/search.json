@@ -214,7 +214,7 @@
     "href": "index.html#mapas",
     "title": "dados_eleicoes",
     "section": "Mapas",
-    "text": "Mapas\nPresidente em 2018 e 2022, nos dois turnos, num só visualizador:\n\nlocais de votação: Presidente, brancos e nulos, abstenção;\nzona × município: Presidente e a mudança de votação 2018 → 2022 (2º turno)."
+    "text": "Mapas\nPresidente (2018, 2022, 2026) e Prefeito e Vereador (2020, 2024), nos dois turnos quando houve, num só visualizador:\n\nlocais de votação: Presidente, brancos e nulos, abstenção;\nzona × município: Presidente e a mudança de votação 2018 → 2022 (2º turno)."
   },
   {
     "objectID": "index.html#mapas-presidente-2022-1º-turno",
@@ -326,7 +326,7 @@
     "href": "index.html#etapas",
     "title": "dados_eleicoes",
     "section": "Etapas",
-    "text": "Etapas\n\n00 · Auxiliares — crosswalk TSE↔︎IBGE, malhas, população adulta por setor.\n01 · Locais de votação — download e chaves dos locais e seções (2022; 2018).\n02 · Geocodificação — validação e fallback de coordenada (2022; 2018).\n\nAs etapas 03–06 (distribuição espacial, resultados, mudança entre anos e exportação) são em Python, em src/eleicoes/ e scripts/ — ver o README do repositório."
+    "text": "Etapas\n\n00 · Insumos — crosswalk TSE↔︎IBGE, malhas, população adulta por setor.\n01 · Locais de votação — download e chaves dos locais e seções (2022; 2018).\n02 · Geocodificação — validação e fallback de coordenada (2022; 2018).\n\nAs etapas 03–08 (distribuição espacial, resultados, mudança entre anos, exportação e carga) são notebooks Quarto em Python, de execução local, com as funções em src/eleicoes/ — ver o README do repositório."
   },
   {
     "objectID": "00_auxiliares.html#malha-de-municípios-geobr",
