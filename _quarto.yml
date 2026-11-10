@@ -34,7 +34,7 @@ website:
         text: Mapas
       - href: autocorrelacao.qmd
         text: Moran e LISA
-    right:
+    tools:
       - icon: github
         href: https://github.com/gilandrade/dados_eleicoes
         aria-label: Repositório no GitHub
