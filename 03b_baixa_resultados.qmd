@@ -15,6 +15,8 @@ estiver em disco.
   sem DF) — não existe `_BR` nesses anos.
 - Nos dois casos, `detalhe_votacao_secao_{ano}.zip` (aptos e comparecimento por
   seção) e `consulta_cand_{ano}.zip` (candidatos e siglas dos partidos).
+- Só nos anos gerais, `perfil_eleitorado_{ano}.zip`: o cadastro da eleição por
+  município × zona (gênero, faixa etária, escolaridade), lido pela etapa 11.
 
 Com `-P atualizar:true`, baixa de novo o que já existe (ex.: o `votacao_secao`
 de um ano geral, que só tem o 1º turno até o TSE publicar o 2º); a versão
@@ -51,7 +53,8 @@ votacao_secao <- if (ano %in% ANOS_MUNICIPAIS) {
 arquivos_tse <- c(
   votacao_secao,
   sprintf("detalhe_votacao_secao/detalhe_votacao_secao_%d.zip", ano),
-  sprintf("consulta_cand/consulta_cand_%d.zip", ano)
+  sprintf("consulta_cand/consulta_cand_%d.zip", ano),
+  if (!ano %in% ANOS_MUNICIPAIS) sprintf("perfil_eleitorado/perfil_eleitorado_%d.zip", ano)
 )
 length(arquivos_tse)
 ```

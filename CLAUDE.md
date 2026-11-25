@@ -43,6 +43,8 @@ quarto render 03b_baixa_resultados.qmd -P ano:2024        # zips de resultado (R
 quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa de novo; o antigo vai para backup/
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
 quarto render 10_autocorrelacao_espacial.qmd --profile local   # Moran/LISA do PT por município
+quarto render 11_insumos_escolaridade_renda.qmd --profile local   # escolaridade, renda, urbanização por município
+quarto render 12_escolaridade_voto_municipio.qmd --profile local  # modelos do trabalho FLP0484
 quarto render autocorrelacao.qmd             # página do site com o resultado da 10
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
@@ -115,6 +117,17 @@ data model (geometry files vs. result files joined by a shared id).
   visualizador): `quarto render autocorrelacao.qmd` depois da 10. As figuras dela
   (`docs/autocorrelacao_files/`) têm exceção no `.gitignore`. Os votos dos resultados
   vêm em int32: `100 * soma` estoura, converter para float antes.
+- **11–12 (Python, branch `trabalho-comportamento-eleitoral`)**: trabalho de
+  Comportamento Eleitoral (FLP0484): escolaridade × voto no PT no 2º turno de 2018 e
+  2026, descontadas renda e UF, por município. `11_insumos_escolaridade_renda.qmd`
+  grava em `dados/02_processado/aux/` o cadastro (`perfil_municipio_{ano}`, de
+  `perfil_eleitorado_{ano}.zip`, baixado pela 03b), a renda per capita dos microdados
+  controlados (`renda_censo2022_municipio`, mesma população da branch
+  `analise-perfil-voto`) e população/situação/área dos setores
+  (`censo2022_municipio`, Básico do IBGE). `12_escolaridade_voto_municipio.qmd`: MQO
+  sem peso, erro HC1, preditores padronizados, EF de UF; saídas em
+  `dados/03_saida/trabalho_flp0484/`. Funções em `escolaridade_voto.py`;
+  `perfil.py` veio da `analise-perfil-voto` sem alteração.
 - **Renderizar a 06 regrava todos os JSON do site** com os dados locais atuais: se
   eles divergem do que foi publicado (ex.: locais de 2018/2022), o `git status` mostra
   arquivos alterados que não fazem parte da mudança; conferir antes de commitar.
@@ -593,3 +606,27 @@ data model (geometry files vs. result files joined by a shared id).
   - **CSV extraído velho:** a 04 só extraía o `votacao_secao_{ano}_BR.csv` se ele
     não existisse, e com o zip novo (dois turnos) leria o CSV do 1º turno, deixando
     o 2º vazio. `fontes._precisa_extrair` compara as datas.
+- **Trabalho FLP0484, insumos por município (25/11/2026):**
+  - **`perfil_eleitorado_{ano}.zip` muda de formato:** 2018 tem um CSV só (gerado pelo
+    TSE em 12/04/2021, 35 MB) com `QT_ELEITORES_PERFIL`; 2026 tem um CSV por UF mais
+    `_BRASIL.csv` (2,2 GB descompactado) com `QT_ELEITORES`. Sem o exterior, o
+    cadastro bate com os aptos dos resultados (2018: 146.805.548 × 146.805.278; 2026:
+    157.822.264 × 157.824.494). Escolaridade 0 = não informado, fora do denominador.
+  - **Básico por setor do IBGE** (`Agregados_por_setores_basico_BR_20260520.zip`, FTP):
+    o CSV é **Windows-1252**, não latin-1 (o DuckDB recusa com `encoding='latin-1'`);
+    lido pelo pandas com `encoding="cp1252"`, `;` e vírgula decimal.
+  - **`CD_SIT` em 2022** (dicionário `Dicionario_de_dados_malha_agregados.xlsx`): 1 e 2
+    "área urbana de alta/baixa densidade de edificações de cidade ou vila", 3 "núcleo
+    urbano", 5–7 aglomerados rurais, 8 área rural, 9 massas de água (sem `SITUACAO` e
+    sem morador). **Não existe 4.** 1+2+3 = situação "Urbana". "Cidades e vilas" de
+    Soares e Terron = 1+2 (85,4% da população); em 370 municípios o 3 pesa > 10 p.p.
+  - **Renda no município:** a calibrada da branch preserva a média da área de
+    ponderação, e as áreas ficam dentro do município; no município ela é a média dos
+    microdados (`P0080` tem 7 dígitos). Totais iguais aos da branch (203.080.756 e
+    159.445.362 de 16+ não estrangeiros).
+  - **`renv::load()` trava neste terminal (Git Bash do Claude Code)** em 25/11/2026: o
+    R com `--vanilla` abre na hora, o namespace do renv carrega em 0,06 s, mas o
+    `renv::load()` do `.Rprofile` não volta (nem com `RENV_WATCHDOG_ENABLED=FALSE` ou
+    `RENV_CONFIG_SYNCHRONIZED_CHECK=FALSE`); com isso `quarto render` de `.qmd` em R
+    fica parado sem abrir o R. Os perfis foram baixados com `curl` (o CDN do TSE
+    aceita). Causa não investigada.

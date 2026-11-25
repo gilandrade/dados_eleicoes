@@ -18,8 +18,10 @@ esda==2.10.0
 executing==2.2.1
 fastjsonschema==2.22.2
 fonttools==4.66.0
+formulaic==1.2.2
 geopandas==1.1.4
 idna==3.20
+interface_meta==2.0.1
 ipykernel==7.4.0
 ipython==9.17.1
 ipython_pygments_lexers==1.1.1
@@ -47,6 +49,7 @@ pandas==3.0.6
 pandocfilters==1.5.1
 papermill==2.7.0
 parso==0.8.7
+patsy==1.0.3
 pillow==12.3.0
 platformdirs==4.12.2
 prompt_toolkit==3.0.53
@@ -69,7 +72,9 @@ scipy==1.18.1
 shapely==2.1.2
 six==1.17.0
 soupsieve==2.10
+spreg==1.9.2
 stack-data==0.6.3
+statsmodels==0.15.0
 tenacity==9.2.1
 threadpoolctl==3.8.0
 tinycss2==1.5.1
@@ -80,4 +85,5 @@ tzdata==2026.4
 urllib3==2.8.0
 wcwidth==0.9.1
 webencodings==0.6.1
+wrapt==2.5.0
 xyzservices==2026.9.1

@@ -1,0 +1,228 @@
+---
+title: "11 · Insumos por município: escolaridade, renda e urbanização"
+search: false
+execute:
+  echo: true
+---
+
+Primeira etapa do trabalho de Comportamento Eleitoral (FLP0484): descontadas a renda e
+a UF, onde a escolaridade ainda se associa ao voto no PT no 2º turno de 2018 e 2026? A
+unidade é o **município**. Esta etapa reúne, para os 5.570 municípios, as variáveis
+explicativas; o voto já está em `res_presidente_{ano}_t2_municipio.parquet` (etapa 04).
+
+| Variável | Fonte |
+|---|---|
+| escolaridade, idade e gênero do eleitorado | cadastro da eleição do TSE (`perfil_eleitorado_{ano}.zip`) |
+| renda domiciliar per capita | microdados da amostra do Censo 2022 (acesso controlado) |
+| população, urbanização e área | agregados por setor do Censo 2022, tabela Básico (IBGE) |
+
+Renda e urbanização são do Censo 2022 e servem para os dois anos.
+
+```bash
+quarto render 03b_baixa_resultados.qmd -P ano:2018   # idem 2026: baixa o perfil_eleitorado
+quarto render 11_insumos_escolaridade_renda.qmd --profile local
+```
+
+Saídas em `dados/02_processado/aux/`: `perfil_municipio_{ano}.parquet`,
+`renda_censo2022_municipio.parquet` e `censo2022_municipio.parquet`. Só médias e
+contagens por município: nenhum registro dos microdados sai daqui.
+
+```{python}
+#| label: setup
+import logging
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, "src")
+
+import numpy as np
+import pandas as pd
+
+from eleicoes import escolaridade_voto as ev
+from eleicoes.config import (
+    BRUTO_DIR, CENSO_BASICO_SETOR_ZIP, MICRODADOS_CENSO_ZIP, PROCESSADO_DIR, RESULTADOS_DIR,
+    URL_CENSO_BASICO_SETOR,
+)
+from eleicoes.download import baixar
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+pd.options.display.float_format = "{:,.3f}".format
+
+ANOS = [2018, 2026]
+AUX_DIR = PROCESSADO_DIR / "aux"
+TMP_DIR = Path(tempfile.gettempdir()) / "eleicoes_etapa11"
+crosswalk = pd.read_parquet(AUX_DIR / "crosswalk_mun_tse_ibge.parquet")
+```
+
+## 1. Cadastro do eleitorado (TSE)
+
+`perfil_eleitorado_{ano}.zip` é o cadastro fechado para a eleição, por município × zona ×
+gênero × estado civil × faixa etária × escolaridade. É o mesmo cadastro do perfil por
+seção usado na branch `analise-perfil-voto`, já somado por município. O formato muda
+entre os anos: em 2018 há um CSV só (gerado pelo TSE em 12/04/2021) e a contagem é
+`QT_ELEITORES_PERFIL`; em 2026 há um CSV por UF mais o `_BRASIL.csv` e a contagem é
+`QT_ELEITORES`.
+
+A codificação é a de `src/eleicoes/perfil.py` (copiado da branch sem alteração):
+
+- `CD_GRAU_ESCOLARIDADE`: 1 analfabeto, 2 lê e escreve, 3 fundamental incompleto,
+  4 fundamental completo, 5 médio incompleto, 6 médio completo, 7 superior incompleto,
+  **8 superior completo**; 0 (não informado) fica fora do denominador;
+- `CD_FAIXA_ETARIA` junta os limites da faixa (`5054` = 50 a 54 anos, `1600` = 16 anos,
+  `9999` = 100 ou mais, `-3` = inválida); a idade média usa o ponto médio;
+- `CD_GENERO`: 2 masculino, 4 feminino (0 = não informado, fora).
+
+```{python}
+#| label: perfil
+perfis = {}
+for ano in ANOS:
+    caminho = BRUTO_DIR / str(ano) / f"perfil_eleitorado_{ano}.zip"
+    if not caminho.exists():
+        raise FileNotFoundError(f"{caminho} não existe — rode 03b_baixa_resultados.qmd -P ano:{ano}.")
+    bruto = ev.ler_perfil_eleitorado(caminho, TMP_DIR)
+    sem_ibge = sorted(set(bruto.loc[bruto["sg_uf"] != "ZZ", "cd_mun_tse"]) - set(crosswalk["cd_mun_tse"]))
+    print(f"{ano}: {bruto['qt_eleitores'].sum():,.0f} eleitores no cadastro; exterior (ZZ) "
+          f"{bruto.loc[bruto['sg_uf'] == 'ZZ', 'qt_eleitores'].sum():,.0f}; "
+          f"municípios do TSE sem código IBGE: {sem_ibge}")
+    print("  por escolaridade:", bruto.groupby("cd_grau_escolaridade")["qt_eleitores"].sum().to_dict())
+    perfis[ano] = ev.perfil_por_municipio(bruto, crosswalk)
+```
+
+`73709` é Boa Esperança do Norte (MT), emancipada depois da malha do IBGE de 2022: fica
+fora, como nos resultados (os votos dela caem na linha do exterior).
+
+Conferência com o eleitorado apto dos resultados (etapa 04), por município:
+
+```{python}
+#| label: perfil-aptos
+for ano, perfil_mun in perfis.items():
+    res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t2_municipio.parquet")
+    j = perfil_mun[["cd_mun", "qt_eleitores_perfil"]].merge(res[["cd_mun", "qt_aptos"]], on="cd_mun", how="left")
+    j["dif_rel"] = (j["qt_eleitores_perfil"] - j["qt_aptos"]) / j["qt_aptos"]
+    print(f"{ano}: cadastro {j['qt_eleitores_perfil'].sum():,.0f} × aptos {j['qt_aptos'].sum():,.0f}; "
+          f"municípios com diferença > 1%: {(j['dif_rel'].abs() > 0.01).sum()} (máx. {j['dif_rel'].abs().max():.1%})")
+    display(j.reindex(j["dif_rel"].abs().sort_values(ascending=False).index).head(5))
+```
+
+As diferenças vêm da data: o cadastro é o do fechamento para a eleição, e os aptos, os
+da seção no dia da votação.
+
+## 2. Renda domiciliar per capita (microdados do Censo 2022)
+
+Na branch, a renda "calibrada" da zona combina o padrão dos setores com o nível dos
+microdados, preservando a média de cada área de ponderação. Como as áreas de ponderação
+ficam dentro do município, no município a renda calibrada **é a própria média dos
+microdados**. A população e as variáveis são as de `scripts/12_celulas_censo_amostra.py`
+da branch: pessoas de 16 anos ou mais, não estrangeiras (`P0520 ≠ 3`), com instrução
+(`P0760`) e renda domiciliar per capita (`D0360`) válidas, pesadas por `P0111`.
+
+Cada UF é extraída para uma pasta temporária e apagada logo depois de lida.
+
+```{python}
+#| label: renda
+renda, controle = ev.renda_censo_por_municipio(MICRODADOS_CENSO_ZIP, TMP_DIR)
+tot = controle[["pop_total", "pop_elegivel", "pop_sem_renda", "n_amostra"]].sum()
+print(f"População ponderada: {tot['pop_total']:,.0f} | 16+ não estrangeira: {tot['pop_elegivel']:,.0f} "
+      f"| sem renda per capita: {tot['pop_sem_renda']:,.0f} ({tot['pop_sem_renda'] / tot['pop_elegivel']:.2%}) "
+      f"| registros na amostra: {tot['n_amostra']:,.0f}")
+renda[["pop16_pond", "n_amostra", "renda_pc_media"]].describe()
+```
+
+## 3. População, situação e área dos setores (Censo 2022, Básico)
+
+```{python}
+#| label: censo-setor
+baixar(URL_CENSO_BASICO_SETOR, CENSO_BASICO_SETOR_ZIP)
+censo = ev.censo_setor_por_municipio(CENSO_BASICO_SETOR_ZIP)
+print(f"{len(censo)} municípios, {censo['n_setores'].sum():,} setores, {censo['pop_total'].sum():,.0f} pessoas")
+```
+
+### Regra da urbanização
+
+Soares e Terron (2008) definem a taxa de urbanização como a proporção da população
+municipal que mora em áreas urbanas (cidades e vilas), no Censo 2000. No Censo 2022 a
+situação do setor (`CD_SIT`) tem oito categorias (o dicionário do IBGE,
+`Dicionario_de_dados_malha_agregados.xlsx`, foi conferido em 25/11/2026; não há código 4):
+
+```{python}
+#| label: situacao
+situacao = pd.DataFrame({
+    "cd_sit": list(ev.SITUACAO_SETOR),
+    "descricao": list(ev.SITUACAO_SETOR.values()),
+    "pessoas": [censo[f"pop_sit_{cd}"].sum() for cd in ev.SITUACAO_SETOR],
+})
+situacao["pc_populacao"] = 100 * situacao["pessoas"] / situacao["pessoas"].sum()
+# Os setores de massa de água vêm sem `SITUACAO` no arquivo do IBGE.
+situacao["situacao_ibge"] = np.select(
+    [situacao["cd_sit"].isin(ev.SIT_URBANA_IBGE), situacao["cd_sit"] == ev.SIT_MASSA_DAGUA],
+    ["Urbana", "(sem situação)"], default="Rural",
+)
+situacao["cidades_e_vilas"] = situacao["cd_sit"].isin(ev.SIT_CIDADES_E_VILAS)
+situacao
+```
+
+**Regra principal: códigos 1 e 2**, as duas únicas categorias que o IBGE descreve como
+"de cidade ou vila". O código 3 ("núcleo urbano") é área urbana fora da cidade ou vila:
+entra na situação "Urbana" oficial do IBGE, mas não em "cidades e vilas". A taxa com
+1 + 2 + 3 (a situação "Urbana" oficial) fica como checagem na etapa 12. O código 9
+(massas de água) não tem morador.
+
+A densidade demográfica é a população sobre a área dos setores sem as massas de água.
+
+```{python}
+#| label: urbanizacao
+censo["urbanizacao"] = ev.taxa_urbanizacao(censo, ev.SIT_CIDADES_E_VILAS)
+censo["urbanizacao_ibge"] = ev.taxa_urbanizacao(censo, ev.SIT_URBANA_IBGE)
+censo["densidade"] = censo["pop_total"] / censo["area_km2_terra"]
+
+print(f"Brasil: {censo[[f'pop_sit_{c}' for c in ev.SIT_CIDADES_E_VILAS]].sum().sum() / censo['pop_total'].sum():.1%} "
+      f"em cidades e vilas (1+2); {censo[[f'pop_sit_{c}' for c in ev.SIT_URBANA_IBGE]].sum().sum() / censo['pop_total'].sum():.1%} "
+      "na situação Urbana (1+2+3)")
+print(f"Correlação entre as duas taxas, por município: {censo['urbanizacao'].corr(censo['urbanizacao_ibge']):.3f}")
+diferenca = censo["urbanizacao_ibge"] - censo["urbanizacao"]
+print(f"Municípios em que o núcleo urbano (3) soma mais de 10 p.p.: {(diferenca > 0.10).sum()}")
+censo[["urbanizacao", "urbanizacao_ibge", "densidade"]].describe()
+```
+
+## 4. Saídas
+
+```{python}
+#| label: saidas
+for ano, perfil_mun in perfis.items():
+    perfil_mun.to_parquet(AUX_DIR / f"perfil_municipio_{ano}.parquet", index=False)
+renda.to_parquet(AUX_DIR / "renda_censo2022_municipio.parquet", index=False)
+censo.to_parquet(AUX_DIR / "censo2022_municipio.parquet", index=False)
+for nome in [*(f"perfil_municipio_{a}.parquet" for a in ANOS), "renda_censo2022_municipio.parquet",
+             "censo2022_municipio.parquet"]:
+    print(f"{nome}: {(AUX_DIR / nome).stat().st_size / 1e6:.1f} MB")
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+municipios = set(crosswalk["cd_mun"])
+assert len(municipios) == 5570
+
+for ano, perfil_mun in perfis.items():
+    assert set(perfil_mun["cd_mun"]) == municipios, ano
+    assert perfil_mun[["pc_esc_superior", "idade_media", "pc_feminino"]].notna().all().all(), ano
+    assert perfil_mun["pc_esc_superior"].between(0, 1).all(), ano
+
+assert set(renda["cd_mun"]) == municipios
+assert (renda["renda_pc_media"] > 0).all()
+# Totais da amostra iguais aos da branch (população do Censo e 16+ não estrangeira).
+assert round(tot["pop_total"]) == 203_080_756, tot["pop_total"]
+assert round(tot["pop_elegivel"]) == 159_445_362, tot["pop_elegivel"]
+
+assert set(censo["cd_mun"]) == municipios
+assert censo["pop_total"].sum() == 203_080_756
+assert censo[["urbanizacao", "urbanizacao_ibge"]].stack().between(0, 1).all()
+assert (censo["urbanizacao_ibge"] >= censo["urbanizacao"]).all()
+assert (censo["area_km2_terra"] > 0).all() and (censo["pop_total"] > 0).all()
+
+# Nenhum CSV dos microdados ficou na pasta temporária.
+assert not any(TMP_DIR.glob("*.csv")), list(TMP_DIR.glob("*.csv"))
+print("conferência ok")
+```

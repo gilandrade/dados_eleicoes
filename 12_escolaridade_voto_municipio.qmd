@@ -1,0 +1,265 @@
+---
+title: "12 · Escolaridade, renda e voto no PT por município"
+search: false
+execute:
+  echo: true
+---
+
+Trabalho de Comportamento Eleitoral (FLP0484): **descontadas a renda e a UF, onde a
+escolaridade ainda se associa ao voto no PT no 2º turno de 2018 e de 2026?**
+
+Nicolau (2020), *O Brasil dobrou à direita*, cruza escolaridade e voto com o ESEB e deixa
+a renda de fora por causa das não respostas. Aqui a renda entra como dado agregado (Censo
+2022). O desenho espacial segue Soares e Terron (2008) e Corrêa (2015): o município como
+unidade, LISA univariado para descrever e regressão espacial (defasagem e erro) para
+testar.
+
+- **Variável dependente:** `pc_pt`, % dos votos válidos do candidato do PT no 2º turno
+  (Haddad em 2018, Lula em 2026).
+- **Escolaridade:** `superior`, % do eleitorado com superior completo no cadastro do TSE.
+- **Renda:** `log_renda`, log da renda domiciliar per capita média (microdados do Censo
+  2022; no município é a renda calibrada da branch `analise-perfil-voto`).
+- **Urbanização:** `urbanizacao`, % da população em setores de cidade ou vila (Censo
+  2022, `CD_SIT` 1 e 2; ver a etapa 11).
+
+Insumos da etapa 11; voto da etapa 04.
+
+```bash
+quarto render 12_escolaridade_voto_municipio.qmd --profile local
+```
+
+**Ponderação e erro-padrão.** A branch `analise-perfil-voto` (zona × município) ponderava
+pelos votos válidos (WLS), padronizava os preditores e agrupava o erro-padrão por
+município. Com o município como unidade, o agrupamento por município equivale ao erro
+robusto HC1. Aqui, como nos dois textos (estimados no GeoDa, sem menção a ponderação),
+**os modelos são sem peso**: MQO com erro HC1. O WLS fica como checagem. Os preditores
+continuam **padronizados**: cada coeficiente é a variação do voto no PT, em pontos
+percentuais, para +1 desvio-padrão do preditor (no município, mantidos os demais e a UF).
+
+```{python}
+#| label: setup
+import sys
+
+sys.path.insert(0, "src")
+
+import numpy as np
+import pandas as pd
+
+from eleicoes import escolaridade_voto as ev
+from eleicoes.config import NOME_PT_POR_ANO, SAIDA_DIR
+
+pd.options.display.float_format = "{:,.3f}".format
+
+ANOS = [2018, 2026]
+SAIDA = SAIDA_DIR / "trabalho_flp0484"
+SAIDA.mkdir(parents=True, exist_ok=True)
+
+ROTULOS = {
+    "superior": "Superior completo",
+    "log_renda": "Renda per capita (log)",
+    "urbanizacao": "Urbanização",
+}
+ESPECIFICACOES = {
+    "(a)": (["superior"], False),
+    "(b)": (["superior", "log_renda"], False),
+    "(c)": (["superior", "log_renda"], True),
+    "(d)": (["superior", "log_renda", "urbanizacao"], True),
+}
+```
+
+## Dados
+
+```{python}
+#| label: dados
+bases = {ano: ev.monta_base(ano) for ano in ANOS}
+VARIAVEIS = ["pc_pt", "superior", "renda_pc_media", "log_renda", "urbanizacao", "urbanizacao_ibge",
+             "densidade", "pop_total", "idade_media", "pc_feminino"]
+pd.concat(
+    {f"{NOME_PT_POR_ANO[a]} {a}": b[VARIAVEIS].describe().T[["mean", "std", "min", "50%", "max"]] for a, b in bases.items()},
+    axis=0,
+)
+```
+
+Renda, urbanização, densidade e população são do Censo 2022, iguais nos dois anos;
+voto, escolaridade, idade e gênero mudam com a eleição.
+
+## 1. Modelo municipal
+
+### Especificações (a) a (d)
+
+(a) só escolaridade; (b) escolaridade + log da renda; (c) (b) + efeito fixo de UF;
+(d) (c) + urbanização. MQO sem peso, erro HC1, preditores padronizados.
+`*` p < 0,05; `**` p < 0,01; `***` p < 0,001.
+
+```{python}
+#| label: modelos
+ajustes, coefs = {}, []
+for ano, df in bases.items():
+    for nome, (preditores, ef_uf) in ESPECIFICACOES.items():
+        ajustes[(ano, nome)] = ev.ajusta(df, "pc_pt", preditores, ef_uf=ef_uf)
+        coefs.append(ev.coeficientes(ajustes[(ano, nome)], preditores, ano=ano, modelo=nome,
+                                     coluna=f"{ano} {nome}"))
+coefs = pd.concat(coefs, ignore_index=True)
+
+COLUNAS = [f"{a} {m}" for a in ANOS for m in ESPECIFICACOES]
+tabela1 = ev.tabela_regressao(coefs, COLUNAS, ROTULOS)
+tabela1
+```
+
+```{python}
+#| label: modelos-saida
+tabela1.to_csv(SAIDA / "tabela_etapa1_mqo.csv")
+(SAIDA / "tabela_etapa1_mqo.md").write_text(ev.para_markdown(tabela1), encoding="utf-8")
+coefs.to_parquet(SAIDA / "coef_etapa1_mqo.parquet", index=False)
+```
+
+### Coeficientes em unidades originais
+
+O coeficiente padronizado dividido pelo desvio-padrão do preditor: p.p. do PT para
++1 p.p. de eleitores com superior completo, para +10% de renda per capita e para +1 p.p.
+de urbanização.
+
+```{python}
+#| label: brutos
+linhas = []
+for (ano, nome), ajuste in ajustes.items():
+    df = bases[ano]
+    for p in ESPECIFICACOES[nome][0]:
+        bruto = ajuste.params[p] / df[p].std()
+        linhas.append({"ano": ano, "modelo": nome, "preditor": ROTULOS[p],
+                       "por unidade": bruto * (np.log(1.1) if p == "log_renda" else 1),
+                       "unidade": "+10% de renda" if p == "log_renda" else "+1 p.p."})
+pd.DataFrame(linhas).pivot_table(index=["preditor", "unidade"], columns=["ano", "modelo"], values="por unidade")
+```
+
+### Correlações entre escolaridade, renda e urbanização
+
+Correlação de Pearson entre municípios, sem peso. Por zona × município, a branch tinha
+0,75 entre superior completo e log da renda.
+
+```{python}
+#| label: correlacoes
+EXPLICATIVAS = ["superior", "log_renda", "urbanizacao", "urbanizacao_ibge", "log_densidade", "log_pop",
+                "idade_media", "pc_feminino"]
+correlacoes = {ano: df[EXPLICATIVAS].corr() for ano, df in bases.items()}
+pd.concat({ano: c.loc[["superior", "log_renda", "urbanizacao"], ["superior", "log_renda", "urbanizacao"]]
+           for ano, c in correlacoes.items()})
+```
+
+Com as demais variáveis das checagens:
+
+```{python}
+#| label: correlacoes-todas
+pd.concat({ano: c.round(2) for ano, c in correlacoes.items()})
+```
+
+### VIF em (c) e (d)
+
+`VIF = 1 / (1 − R²)` da regressão de cada preditor nos demais e nas dummies de UF.
+
+```{python}
+#| label: vif
+pd.DataFrame({
+    (ano, nome): ev.vif(df, ESPECIFICACOES[nome][0], ef_uf=True)
+    for ano, df in bases.items() for nome in ("(c)", "(d)")
+}).rename(index=ROTULOS)
+```
+
+### Checagens (fora da tabela principal)
+
+- **Densidade:** (c) + log da densidade demográfica no lugar da urbanização. A área
+  urbana é definida por lei municipal; a densidade testa se isso importa.
+- **WLS:** (c) e (d) ponderados pelos votos válidos, como na branch.
+- **Porte:** (c) + log da população, como em Corrêa (2015).
+- **Urbanização oficial:** (d) com a situação "Urbana" do IBGE (`CD_SIT` 1 + 2 + 3).
+- **Idade e gênero:** (c) + idade média + % de mulheres, os controles do modelo por zona da
+  branch. Com erro HC1 e, ao lado, agrupado por UF. Também (c) + só a idade.
+
+```{python}
+#| label: checagens
+CHECAGENS = {
+    "(c) + log densidade": (["superior", "log_renda", "log_densidade"], {}),
+    "(c) WLS": (["superior", "log_renda"], {"peso": "qt_validos"}),
+    "(d) WLS": (["superior", "log_renda", "urbanizacao"], {"peso": "qt_validos"}),
+    "(c) + log população": (["superior", "log_renda", "log_pop"], {}),
+    "(d) urbanização 1+2+3": (["superior", "log_renda", "urbanizacao_ibge"], {}),
+    "(c) + idade + mulheres": (["superior", "log_renda", "idade_media", "pc_feminino"], {}),
+    "(c) + idade + mulheres, EP por UF": (["superior", "log_renda", "idade_media", "pc_feminino"], {"grupos": "sg_uf"}),
+    "(c) + idade": (["superior", "log_renda", "idade_media"], {}),
+}
+cheq = []
+for ano, df in bases.items():
+    for nome, (preditores, kw) in CHECAGENS.items():
+        ajuste = ev.ajusta(df, "pc_pt", preditores, ef_uf=True, **kw)
+        cheq.append(ev.coeficientes(ajuste, preditores, ano=ano, modelo=nome))
+cheq = pd.concat(cheq, ignore_index=True)
+cheq.to_parquet(SAIDA / "coef_etapa1_checagens.parquet", index=False)
+
+# Referência: (c) e (d) da tabela principal.
+referencia = coefs.loc[coefs["modelo"].isin(["(c)", "(d)"])].drop(columns="coluna")
+todas = pd.concat([referencia, cheq], ignore_index=True)
+todas["texto"] = todas.apply(lambda r: f"{ev.numero(r['coef'])}{ev.estrelas(r['p_valor'])} ({ev.numero(r['ep'])})", axis=1)
+ordem = ["(c)", "(d)", *CHECAGENS]
+ROTULOS_CHECAGEM = {**ROTULOS, "urbanizacao_ibge": "Urbanização 1+2+3", "log_densidade": "Densidade (log)",
+                    "log_pop": "População (log)", "idade_media": "Idade média", "pc_feminino": "% de mulheres"}
+quadro = todas.pivot_table(index="modelo", columns=["ano", "preditor"], values="texto", aggfunc="first")
+quadro = quadro.reindex(ordem).rename(columns=ROTULOS_CHECAGEM, level=1).fillna("")
+quadro
+```
+
+Só o coeficiente da escolaridade, lado a lado:
+
+```{python}
+#| label: checagens-superior
+sup = todas.loc[todas["preditor"] == "superior"].pivot_table(index="modelo", columns="ano", values=["coef", "ep", "p_valor"])
+sup = sup.reindex(ordem)
+sup.columns = [f"{v} {a}" for v, a in sup.columns]
+sup[[f"{v} {a}" for a in ANOS for v in ("coef", "ep", "p_valor")]]
+```
+
+### Comparação com o modelo por zona
+
+O +1,8 da branch é do **PT no 1º turno de 2022**, por zona × município, em **WLS** pelos
+válidos, com efeito fixo de UF, **idade média e % de mulheres**, erro agrupado por
+município. O (c) municipal **não inclui** idade e % de mulheres, não tem peso e é do 2º
+turno de 2018 e 2026. A comparação mais próxima é a checagem "(c) + idade + mulheres"
+(e, para o peso, "(c) WLS"). As escalas também diferem: o desvio-padrão do % de superior
+completo entre municípios não é o mesmo que entre zonas, então a comparação é de sinal e
+de ordem de grandeza.
+
+```{python}
+#| label: resumo
+#| output: asis
+def linha(ano, modelo):
+    r = todas.loc[(todas["ano"] == ano) & (todas["modelo"] == modelo) & (todas["preditor"] == "superior")].iloc[0]
+    return f"{ev.numero(r['coef'])} (EP {ev.numero(r['ep'])}, p = {ev.numero(r['p_valor'], 3)})"
+
+
+for ano in ANOS:
+    print(f"- **{NOME_PT_POR_ANO[ano]} {ano}:** superior completo em (c) {linha(ano, '(c)')}; em (d) "
+          f"{linha(ano, '(d)')}; com idade e mulheres {linha(ano, '(c) + idade + mulheres')}; "
+          f"em WLS {linha(ano, '(c) WLS')}.")
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+for ano, df in bases.items():
+    assert len(df) == 5570 and df["cd_mun"].is_unique, ano
+    usadas = ["pc_pt", "superior", "log_renda", "urbanizacao", "urbanizacao_ibge", "log_densidade", "log_pop",
+              "idade_media", "pc_feminino", "qt_validos", "sg_uf"]
+    assert df[usadas].notna().all().all(), df[usadas].isna().sum()
+    assert np.isfinite(df[["log_renda", "log_densidade", "log_pop"]]).all().all()
+    assert df["pc_pt"].between(0, 100).all() and df["superior"].between(0, 100).all()
+
+# Todos os modelos com os 5.570 municípios.
+assert (coefs["n"] == 5570).all() and (cheq["n"] == 5570).all()
+# EP agrupado por UF não muda o coeficiente, só o erro.
+a = cheq.set_index(["ano", "modelo", "preditor"])["coef"].sort_index()
+for ano in ANOS:
+    assert np.allclose(a.loc[(ano, "(c) + idade + mulheres")], a.loc[(ano, "(c) + idade + mulheres, EP por UF")])
+# 27 UFs no efeito fixo (26 dummies).
+assert sum(c.startswith("uf_") for c in ajustes[(ANOS[0], "(c)")].params.index) == 26
+print("conferência ok")
+```

@@ -46,6 +46,23 @@ POP18_SETOR_PARQUET = PROCESSADO_DIR / "aux" / "pop18_setor.parquet"
 SETORES_MUN_DIR = BRUTO_DIR / "aux" / "setores"
 SETORES_2022_GPKG = SETORES_MUN_DIR / "BR_setores_CD2022.gpkg"
 
+# ==== Censo 2022 (etapa 11: escolaridade, renda e voto por município) ========
+
+# Microdados da amostra do Censo 2022, acesso controlado (município e área de
+# ponderação só existem nessa versão). Ficam em `dados/` (git-ignorado) e **não
+# podem ser redistribuídos**: só médias por município saem daqui.
+MICRODADOS_CENSO_ZIP = (
+    BRUTO_DIR / "microdados" / "acesso_controlado"
+    / "microdados_censo_amostra_2022_csv_20260923_175502.zip"
+)
+# Agregados por setor, tabela Básico (pessoas, situação e área do setor). O nome do
+# arquivo tem a data da versão do IBGE: conferido no FTP em 25/11/2026.
+URL_CENSO_BASICO_SETOR = (
+    "https://ftp.ibge.gov.br/Censos/Censo_Demografico_2022/Agregados_por_Setores_Censitarios/"
+    "Agregados_por_Setor_csv/Agregados_por_setores_basico_BR_20260520.zip"
+)
+CENSO_BASICO_SETOR_ZIP = BRUTO_DIR / "aux" / "censo2022" / "Agregados_por_setores_basico_BR_20260520.zip"
+
 # ==== Rede viária (OSM + r5r, etapas 03c/03d) ================================
 
 OSM_DIR = BRUTO_DIR / "aux" / "osm"
@@ -126,6 +143,9 @@ URL_DETALHE_VOTACAO_SECAO = (
     f"{TSE_CDN_BASE}/detalhe_votacao_secao/detalhe_votacao_secao_{{ano}}.zip"
 )
 URL_CONSULTA_CAND = f"{TSE_CDN_BASE}/consulta_cand/consulta_cand_{{ano}}.zip"
+# Cadastro da eleição por município × zona (gênero, faixa etária, escolaridade). Um
+# zip nacional por ano geral (conferido no portal para 2018 e 2026). Baixado pela 03b.
+URL_PERFIL_ELEITORADO = f"{TSE_CDN_BASE}/perfil_eleitorado/perfil_eleitorado_{{ano}}.zip"
 URL_VOTACAO_CANDIDATO_MUNZONA = (
     f"{TSE_CDN_BASE}/votacao_candidato_munzona/votacao_candidato_munzona_{{ano}}.zip"
 )
