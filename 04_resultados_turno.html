@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.27">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>04 · Resultados de um turno</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="04_resultados_turno_files/libs/clipboard/clipboard.min.js"></script>
+<script src="04_resultados_turno_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="04_resultados_turno_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="04_resultados_turno_files/libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="04_resultados_turno_files/libs/quarto-html/popper.min.js"></script>
+<script src="04_resultados_turno_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="04_resultados_turno_files/libs/quarto-html/anchor.min.js"></script>
+<link href="04_resultados_turno_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="04_resultados_turno_files/libs/quarto-html/quarto-syntax-highlighting-ed96de9b727972fe78a7b5d16c58bf87.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="04_resultados_turno_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="04_resultados_turno_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="04_resultados_turno_files/libs/bootstrap/bootstrap-9e3ffae467580fdb927a41352e75a2e0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">04 · Resultados de um turno</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>Lê os resultados por seção (boletim de urna ou <code>votacao_secao</code>) e agrega por <strong>local</strong>, <strong>zona × município</strong>, <strong>município</strong> e, multiplicando pela matriz de pesos da etapa 03, por <strong>setor</strong>. Só lê, agrega e escreve; não recalcula nada espacial. Ver PLAN.md &gt; Noite da eleição.</p>
+<p>Roda uma vez por ano × turno × <strong>cargo</strong>: Presidente (padrão) nos anos gerais; Prefeito e Vereador nos municipais (2020, 2024), a partir dos zips por UF de <code>03b_baixa_resultados.qmd</code>. Em Prefeito, <code>qt_votos_{nr}</code> é o número do candidato, que é o do partido — a pessoa muda de município para município (nomes em <code>candidatos_prefeito_{ano}_t{turno}.parquet</code>). Em Vereador, os votos são somados por partido (nominais + legenda).</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render 04_resultados_turno.qmd <span class="at">-P</span> ano:2026 <span class="at">-P</span> turno:1 <span class="at">-P</span> fonte:bweb <span class="at">-P</span> baixar:true</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render 04_resultados_turno.qmd <span class="at">-P</span> ano:2022 <span class="at">-P</span> turno:1</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render 04_resultados_turno.qmd <span class="at">-P</span> ano:2024 <span class="at">-P</span> turno:1 <span class="at">-P</span> cargo:prefeito</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render 04_resultados_turno.qmd <span class="at">-P</span> ano:2024 <span class="at">-P</span> turno:1 <span class="at">-P</span> cargo:vereador</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">quarto</span> render 04_resultados_turno.qmd <span class="at">-P</span> ano:2024 <span class="at">-P</span> turno:1 <span class="at">-P</span> cargo:prefeito <span class="at">-P</span> uf:PI   <span class="co"># teste numa UF</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="setup" class="cell" data-execution_count="1">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> logging</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>sys.path.insert(<span class="dv">0</span>, <span class="st">"src"</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> eleicoes <span class="im">import</span> exporta, fontes, resultados</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> eleicoes.config <span class="im">import</span> (</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    CARGOS,</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    CODIGOS_NAO_CANDIDATO,</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    NOME_BOLSONARO_POR_ANO,</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    NOME_PT_POR_ANO,</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    NR_BOLSONARO_POR_ANO,</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    NR_PT,</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    PROCESSADO_DIR,</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    RESULTADOS_DIR,</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>logging.basicConfig(level<span class="op">=</span>logging.INFO, <span class="bu">format</span><span class="op">=</span><span class="st">"</span><span class="sc">%(asctime)s</span><span class="st"> </span><span class="sc">%(levelname)s</span><span class="st"> </span><span class="sc">%(message)s</span><span class="st">"</span>, force<span class="op">=</span><span class="va">True</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="parametros" class="cell" data-tags="[&quot;parameters&quot;]" data-execution_count="2">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>ano <span class="op">=</span> <span class="dv">2022</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>turno <span class="op">=</span> <span class="dv">1</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>fonte <span class="op">=</span> <span class="st">"votacao_secao"</span>  <span class="co"># "bweb" = caminho rápido (boletim de urna); "votacao_secao" = consolidado oficial</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>baixar <span class="op">=</span> <span class="va">False</span>           <span class="co"># baixa os arquivos antes de ler</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>cargo <span class="op">=</span> <span class="st">"presidente"</span>     <span class="co"># ou "prefeito" / "vereador" (anos municipais)</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>uf <span class="op">=</span> <span class="st">""</span>                  <span class="co"># só cargos municipais: uma ou mais UFs, separadas por vírgula; vazio = Brasil</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="ee8c2b87" class="cell" data-tags="[&quot;injected-parameters&quot;]" data-execution_count="3">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Injected Parameters</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>ano <span class="op">=</span> <span class="dv">2022</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>turno <span class="op">=</span> <span class="dv">1</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="parametros-derivados" class="cell" data-execution_count="4">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>ano, turno <span class="op">=</span> <span class="bu">int</span>(ano), <span class="bu">int</span>(turno)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cargo <span class="kw">not</span> <span class="kw">in</span> CARGOS:</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="ss">f"cargo desconhecido: </span><span class="sc">{</span>cargo<span class="sc">!r}</span><span class="ss"> (use </span><span class="sc">{</span><span class="st">', '</span><span class="sc">.</span>join(CARGOS)<span class="sc">}</span><span class="ss">)"</span>)</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>ufs <span class="op">=</span> [u.strip().upper() <span class="cf">for</span> u <span class="kw">in</span> <span class="bu">str</span>(uf).split(<span class="st">","</span>) <span class="cf">if</span> u.strip()] <span class="kw">or</span> <span class="va">None</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Rodada de teste (uma UF) não sobrescreve os arquivos do Brasil.</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>prefixo <span class="op">=</span> <span class="ss">f"res_</span><span class="sc">{</span>cargo<span class="sc">}</span><span class="ss">_</span><span class="sc">{</span>ano<span class="sc">}</span><span class="ss">_t</span><span class="sc">{</span>turno<span class="sc">}</span><span class="ss">"</span> <span class="op">+</span> (<span class="ss">f"_</span><span class="sc">{</span><span class="st">'_'</span><span class="sc">.</span>join(ufs)<span class="sc">}</span><span class="ss">"</span> <span class="cf">if</span> ufs <span class="cf">else</span> <span class="st">""</span>)</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"ano=</span><span class="sc">{</span>ano<span class="sc">}</span><span class="ss"> | turno=</span><span class="sc">{</span>turno<span class="sc">}</span><span class="ss"> | cargo=</span><span class="sc">{</span>cargo<span class="sc">}</span><span class="ss"> | UFs=</span><span class="sc">{</span>ufs <span class="kw">or</span> <span class="st">'Brasil'</span><span class="sc">}</span><span class="ss"> | fonte=</span><span class="sc">{</span>fonte<span class="sc">}</span><span class="ss"> | baixar=</span><span class="sc">{</span>baixar<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>ano=2022 | turno=1 | cargo=presidente | UFs=Brasil | fonte=votacao_secao | baixar=False</code></pre>
+</div>
+</div>
+<section id="seções-locais-e-pesos" class="level2">
+<h2 class="anchored" data-anchor-id="seções-locais-e-pesos">1. Seções, locais e pesos</h2>
+<p><code>secao_local</code> e <code>locais</code> vêm da etapa 01; a matriz de pesos, da etapa 03.</p>
+<div id="cell-insumos" class="cell" data-execution_count="5">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> le_parquet(caminho, etapa):</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> caminho.exists():</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">raise</span> <span class="pp">FileNotFoundError</span>(<span class="ss">f"</span><span class="sc">{</span>caminho<span class="sc">}</span><span class="ss"> não existe — rode </span><span class="sc">{</span>etapa<span class="sc">}</span><span class="ss">."</span>)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> pd.read_parquet(caminho)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>secao_local <span class="op">=</span> le_parquet(PROCESSADO_DIR <span class="op">/</span> <span class="ss">f"secao_local_</span><span class="sc">{</span>ano<span class="sc">}</span><span class="ss">.parquet"</span>, <span class="st">"01_locais_votacao.qmd"</span>)</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>locais <span class="op">=</span> le_parquet(PROCESSADO_DIR <span class="op">/</span> <span class="ss">f"locais_</span><span class="sc">{</span>ano<span class="sc">}</span><span class="ss">.parquet"</span>, <span class="st">"01_locais_votacao.qmd"</span>)</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>pesos <span class="op">=</span> le_parquet(</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    RESULTADOS_DIR <span class="op">/</span> <span class="ss">f"pesos_local_setor_</span><span class="sc">{</span>ano<span class="sc">}</span><span class="ss">.parquet"</span>, <span class="ss">f"03_pesos_alocacao.qmd -P ano:</span><span class="sc">{</span>ano<span class="sc">}</span><span class="ss">"</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>pd.Series({<span class="st">"seções × turno"</span>: <span class="bu">len</span>(secao_local), <span class="st">"locais"</span>: <span class="bu">len</span>(locais), <span class="st">"pares local × setor"</span>: <span class="bu">len</span>(pesos)})</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="insumos" class="cell-output cell-output-display" data-execution_count="5">
+<pre><code>seções × turno         993712
+locais                  92393
+pares local × setor    831647
+dtype: int64</code></pre>
+</div>
+</div>
+</section>
+<section id="resultados-por-seção" class="level2">
+<h2 class="anchored" data-anchor-id="resultados-por-seção">2. Resultados por seção</h2>
+<p>Uma linha por seção × votável, no mesmo esquema para as duas fontes (<code>fontes.py</code>). Com <code>votacao_secao</code>, usa <code>qt_aptos</code> do <code>detalhe_votacao_secao_{ano}.zip</code> se ele já estiver em <code>dados/01_bruto/{ano}/</code>.</p>
+<div id="cell-resultados-secao" class="cell" data-execution_count="6">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>resultados_secao <span class="op">=</span> fontes.obtem_resultados_secao(ano, turno, fonte, <span class="bu">bool</span>(baixar), cargo<span class="op">=</span>cargo, ufs<span class="op">=</span>ufs)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span><span class="bu">len</span>(resultados_secao)<span class="sc">:,}</span><span class="ss"> linhas de resultado por seção"</span>)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>resultados_secao.head()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>2026-10-12 11:27:31,593 INFO detalhe_votacao_secao_2022_BR.csv não encontrado — qt_aptos vem da aproximação por local (locais.qt_eleitores), não do TSE direto. Não bloqueia. Para baixar (243 MB, opcional): https://cdn.tse.jus.br/estatistica/sead/odsele/detalhe_votacao_secao/detalhe_votacao_secao_2022.zip</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>3,529,844 linhas de resultado por seção</code></pre>
+</div>
+<div id="resultados-secao" class="cell-output cell-output-display" data-execution_count="6">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">ano</th>
+<th data-quarto-table-cell-role="th">turno</th>
+<th data-quarto-table-cell-role="th">sg_uf</th>
+<th data-quarto-table-cell-role="th">cd_mun_tse</th>
+<th data-quarto-table-cell-role="th">nr_zona</th>
+<th data-quarto-table-cell-role="th">nr_secao</th>
+<th data-quarto-table-cell-role="th">cd_cargo</th>
+<th data-quarto-table-cell-role="th">nr_votavel</th>
+<th data-quarto-table-cell-role="th">nm_votavel</th>
+<th data-quarto-table-cell-role="th">qt_votos</th>
+<th data-quarto-table-cell-role="th">qt_comparecimento</th>
+<th data-quarto-table-cell-role="th">qt_aptos</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>2022</td>
+<td>1</td>
+<td>RO</td>
+<td>00019</td>
+<td>1</td>
+<td>11</td>
+<td>1</td>
+<td>96</td>
+<td>VOTO NULO</td>
+<td>3</td>
+<td>178.0</td>
+<td>&lt;NA&gt;</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>2022</td>
+<td>1</td>
+<td>RO</td>
+<td>00019</td>
+<td>1</td>
+<td>11</td>
+<td>1</td>
+<td>12</td>
+<td>CIRO FERREIRA GOMES</td>
+<td>3</td>
+<td>178.0</td>
+<td>&lt;NA&gt;</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>2022</td>
+<td>1</td>
+<td>RO</td>
+<td>00019</td>
+<td>1</td>
+<td>11</td>
+<td>1</td>
+<td>15</td>
+<td>SIMONE NASSAR TEBET</td>
+<td>7</td>
+<td>178.0</td>
+<td>&lt;NA&gt;</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">3</th>
+<td>2022</td>
+<td>1</td>
+<td>RO</td>
+<td>00019</td>
+<td>1</td>
+<td>11</td>
+<td>1</td>
+<td>13</td>
+<td>LUIZ INÁCIO LULA DA SILVA</td>
+<td>76</td>
+<td>178.0</td>
+<td>&lt;NA&gt;</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>2022</td>
+<td>1</td>
+<td>RO</td>
+<td>00019</td>
+<td>1</td>
+<td>11</td>
+<td>1</td>
+<td>22</td>
+<td>JAIR MESSIAS BOLSONARO</td>
+<td>89</td>
+<td>178.0</td>
+<td>&lt;NA&gt;</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+</section>
+<section id="seção-local-de-votação" class="level2">
+<h2 class="anchored" data-anchor-id="seção-local-de-votação">3. Seção → local de votação</h2>
+<p>Junta por <code>(id_secao, turno)</code>: o local de uma seção pode mudar entre os turnos. As linhas sem <code>id_local</code> deveriam ser só as do exterior.</p>
+<div id="id-local" class="cell" data-execution_count="7">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>com_id <span class="op">=</span> resultados.secao_para_id_local(resultados_secao, secao_local)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>n_sem_local <span class="op">=</span> <span class="bu">int</span>(com_id[<span class="st">"id_local"</span>].isna().<span class="bu">sum</span>())</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>n_sem_local<span class="sc">:,}</span><span class="ss"> linhas (</span><span class="sc">{</span><span class="dv">100</span> <span class="op">*</span> n_sem_local <span class="op">/</span> <span class="bu">len</span>(com_id)<span class="sc">:.3f}</span><span class="ss">%) sem id_local"</span>)</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>candidatos <span class="op">=</span> <span class="bu">sorted</span>(c <span class="cf">for</span> c <span class="kw">in</span> com_id[<span class="st">"nr_votavel"</span>].unique() <span class="cf">if</span> c <span class="kw">not</span> <span class="kw">in</span> CODIGOS_NAO_CANDIDATO)</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>cols_votos_validos <span class="op">=</span> [<span class="ss">f"qt_votos_</span><span class="sc">{</span>c<span class="sc">}</span><span class="ss">"</span> <span class="cf">for</span> c <span class="kw">in</span> candidatos]</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"candidatos:"</span>, candidatos)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>0 linhas (0.000%) sem id_local
+candidatos: [np.int32(12), np.int32(13), np.int32(14), np.int32(15), np.int32(16), np.int32(21), np.int32(22), np.int32(27), np.int32(30), np.int32(44), np.int32(80)]</code></pre>
+</div>
+</div>
+</section>
+<section id="por-local-observado" class="level2">
+<h2 class="anchored" data-anchor-id="por-local-observado">4. Por local (observado)</h2>
+<div id="cell-local" class="cell" data-execution_count="8">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>res_local <span class="op">=</span> resultados.agrega_por_local(com_id, locais)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>res_local <span class="op">=</span> resultados.calcula_indicadores(res_local, cols_votos_validos<span class="op">=</span>cols_votos_validos)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>res_local.shape</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="local" class="cell-output cell-output-display" data-execution_count="8">
+<pre><code>(92018, 34)</code></pre>
+</div>
+</div>
+</section>
+<section id="por-zona-município-observado" class="level2">
+<h2 class="anchored" data-anchor-id="por-zona-município-observado">5. Por zona × município (observado)</h2>
+<div id="cell-zona-mun" class="cell" data-execution_count="9">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>res_zona_mun <span class="op">=</span> resultados.agrega_por_zona_mun(com_id, locais)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>res_zona_mun <span class="op">=</span> resultados.calcula_indicadores(res_zona_mun, cols_votos_validos<span class="op">=</span>cols_votos_validos)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>res_zona_mun.shape</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="zona-mun" class="cell-output cell-output-display" data-execution_count="9">
+<pre><code>(6103, 34)</code></pre>
+</div>
+</div>
+</section>
+<section id="por-município-observado" class="level2">
+<h2 class="anchored" data-anchor-id="por-município-observado">6. Por município (observado)</h2>
+<p>Soma da zona × município.</p>
+<div id="cell-municipio" class="cell" data-execution_count="10">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>res_municipio <span class="op">=</span> resultados.agrega_zona_mun_por_municipio(res_zona_mun)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>res_municipio <span class="op">=</span> resultados.calcula_indicadores(res_municipio, cols_votos_validos<span class="op">=</span>cols_votos_validos)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>res_municipio.shape</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="municipio" class="cell-output cell-output-display" data-execution_count="10">
+<pre><code>(5571, 34)</code></pre>
+</div>
+</div>
+</section>
+<section id="por-setor-estimado" class="level2">
+<h2 class="anchored" data-anchor-id="por-setor-estimado">7. Por setor (estimado)</h2>
+<p>Votos do local × peso do local em cada setor. Locais especiais e locais sem domicílio alocado não estão na matriz, então o setor tem um pouco menos votos que os níveis observados (0,81% em 2022) — por desenho.</p>
+<div id="cell-setor" class="cell" data-execution_count="11">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>res_setor <span class="op">=</span> resultados.agrega_por_setor(res_local, pesos)</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>res_setor <span class="op">=</span> resultados.calcula_indicadores(res_setor, cols_votos_validos<span class="op">=</span>cols_votos_validos)</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>res_setor.shape</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="setor" class="cell-output cell-output-display" data-execution_count="11">
+<pre><code>(443548, 34)</code></pre>
+</div>
+</div>
+</section>
+<section id="gravação" class="level2">
+<h2 class="anchored" data-anchor-id="gravação">8. Gravação</h2>
+<div id="gravacao" class="cell" data-execution_count="12">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>exporta.escreve_resultados(res_local, RESULTADOS_DIR <span class="op">/</span> <span class="ss">f"</span><span class="sc">{</span>prefixo<span class="sc">}</span><span class="ss">_local.parquet"</span>)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>exporta.escreve_resultados(res_zona_mun, RESULTADOS_DIR <span class="op">/</span> <span class="ss">f"</span><span class="sc">{</span>prefixo<span class="sc">}</span><span class="ss">_zona_mun.parquet"</span>)</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>exporta.escreve_resultados(res_municipio, RESULTADOS_DIR <span class="op">/</span> <span class="ss">f"</span><span class="sc">{</span>prefixo<span class="sc">}</span><span class="ss">_municipio.parquet"</span>)</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>exporta.escreve_resultados(res_setor, RESULTADOS_DIR <span class="op">/</span> <span class="ss">f"</span><span class="sc">{</span>prefixo<span class="sc">}</span><span class="ss">_setor.parquet"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Nomes dos candidatos por município (só quando o cargo é lido por candidato e o candidato muda de um município para outro): o formato largo guarda só o número.</p>
+<div id="candidatos" class="cell" data-execution_count="13">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cargo <span class="op">!=</span> <span class="st">"presidente"</span> <span class="kw">and</span> <span class="kw">not</span> CARGOS[cargo][<span class="st">"por_partido"</span>]:</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>    nomes <span class="op">=</span> (</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>        com_id.loc[<span class="op">~</span>com_id[<span class="st">"nr_votavel"</span>].isin(CODIGOS_NAO_CANDIDATO)]</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>        .groupby([<span class="st">"cd_mun_tse"</span>, <span class="st">"nr_votavel"</span>, <span class="st">"nm_votavel"</span>], as_index<span class="op">=</span><span class="va">False</span>)[<span class="st">"qt_votos"</span>].<span class="bu">sum</span>()</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>        .merge(</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>            pd.read_parquet(PROCESSADO_DIR <span class="op">/</span> <span class="st">"aux"</span> <span class="op">/</span> <span class="st">"crosswalk_mun_tse_ibge.parquet"</span>)[[<span class="st">"cd_mun_tse"</span>, <span class="st">"cd_mun"</span>]],</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>            on<span class="op">=</span><span class="st">"cd_mun_tse"</span>, how<span class="op">=</span><span class="st">"left"</span>,</span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">assert</span> <span class="kw">not</span> nomes.duplicated([<span class="st">"cd_mun_tse"</span>, <span class="st">"nr_votavel"</span>]).<span class="bu">any</span>(), <span class="st">"mais de um nome para o mesmo número no município"</span></span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Município criado depois da base do crosswalk (Boa Esperança do Norte/MT,</span></span>
+<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>    <span class="co"># código TSE 73709, em 2024) fica sem `cd_mun`: nos resultados ele cai na</span></span>
+<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>    <span class="co"># linha do sentinela de `resultados.SENTINELA_EXTERIOR`, como o exterior.</span></span>
+<span id="cb23-14"><a href="#cb23-14" aria-hidden="true" tabindex="-1"></a>    sem_crosswalk <span class="op">=</span> nomes.loc[nomes[<span class="st">"cd_mun"</span>].isna(), <span class="st">"cd_mun_tse"</span>].unique()</span>
+<span id="cb23-15"><a href="#cb23-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(sem_crosswalk):</span>
+<span id="cb23-16"><a href="#cb23-16" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"municípios sem crosswalk TSE x IBGE: </span><span class="sc">{</span><span class="st">', '</span><span class="sc">.</span>join(sem_crosswalk)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb23-17"><a href="#cb23-17" aria-hidden="true" tabindex="-1"></a>    nomes.to_parquet(RESULTADOS_DIR <span class="op">/</span> <span class="ss">f"</span><span class="sc">{</span>prefixo<span class="sc">.</span>replace(<span class="st">'res_'</span>, <span class="st">'candidatos_'</span>, <span class="dv">1</span>)<span class="sc">}</span><span class="ss">.parquet"</span>, index<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb23-18"><a href="#cb23-18" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span><span class="bu">len</span>(nomes)<span class="sc">:,}</span><span class="ss"> candidatos em </span><span class="sc">{</span>nomes[<span class="st">'cd_mun'</span>]<span class="sc">.</span>nunique()<span class="sc">:,}</span><span class="ss"> municípios"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="conferência" class="level2">
+<h2 class="anchored" data-anchor-id="conferência">Conferência</h2>
+<p>Total nacional por nível. Local, zona × município e município têm de bater entre si, voto a voto; o setor fica um pouco abaixo (ver seção 7).</p>
+<div id="cell-conferencia-totais" class="cell" data-execution_count="14">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>niveis <span class="op">=</span> {<span class="st">"local"</span>: res_local, <span class="st">"zona_mun"</span>: res_zona_mun, <span class="st">"municipio"</span>: res_municipio, <span class="st">"setor"</span>: res_setor}</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>cols_votos <span class="op">=</span> [c <span class="cf">for</span> c <span class="kw">in</span> res_local.columns <span class="cf">if</span> c.startswith(<span class="st">"qt_votos_"</span>)]</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>totais <span class="op">=</span> pd.DataFrame({nivel: df[cols_votos].<span class="bu">sum</span>() <span class="cf">for</span> nivel, df <span class="kw">in</span> niveis.items()}).<span class="bu">round</span>(<span class="dv">0</span>).astype(<span class="st">"int64"</span>)</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>totais.loc[<span class="st">"total"</span>] <span class="op">=</span> totais.<span class="bu">sum</span>()</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> nivel <span class="kw">in</span> (<span class="st">"zona_mun"</span>, <span class="st">"municipio"</span>):</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">assert</span> (totais[nivel] <span class="op">==</span> totais[<span class="st">"local"</span>]).<span class="bu">all</span>(), <span class="ss">f"total de </span><span class="sc">{</span>nivel<span class="sc">}</span><span class="ss"> difere do de local"</span></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>perda_setor <span class="op">=</span> <span class="dv">1</span> <span class="op">-</span> totais.loc[<span class="st">"total"</span>, <span class="st">"setor"</span>] <span class="op">/</span> totais.loc[<span class="st">"total"</span>, <span class="st">"local"</span>]</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a><span class="cf">assert</span> perda_setor <span class="op">&lt;</span> <span class="fl">0.02</span>, <span class="ss">f"setor perdeu </span><span class="sc">{</span><span class="dv">100</span> <span class="op">*</span> perda_setor<span class="sc">:.2f}</span><span class="ss">% dos votos"</span></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"votos fora do setor: </span><span class="sc">{</span><span class="dv">100</span> <span class="op">*</span> perda_setor<span class="sc">:.2f}</span><span class="ss">%"</span>)</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>totais</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>votos fora do setor: 0.74%</code></pre>
+</div>
+<div id="conferencia-totais" class="cell-output cell-output-display" data-execution_count="14">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">local</th>
+<th data-quarto-table-cell-role="th">zona_mun</th>
+<th data-quarto-table-cell-role="th">municipio</th>
+<th data-quarto-table-cell-role="th">setor</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_12</th>
+<td>3599287</td>
+<td>3599287</td>
+<td>3599287</td>
+<td>3569939</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">qt_votos_13</th>
+<td>57259504</td>
+<td>57259504</td>
+<td>57259504</td>
+<td>56796190</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_14</th>
+<td>81129</td>
+<td>81129</td>
+<td>81129</td>
+<td>80409</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">qt_votos_15</th>
+<td>4915423</td>
+<td>4915423</td>
+<td>4915423</td>
+<td>4881964</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_16</th>
+<td>25625</td>
+<td>25625</td>
+<td>25625</td>
+<td>25025</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">qt_votos_21</th>
+<td>45620</td>
+<td>45620</td>
+<td>45620</td>
+<td>44780</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_22</th>
+<td>51072345</td>
+<td>51072345</td>
+<td>51072345</td>
+<td>50729520</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">qt_votos_27</th>
+<td>16604</td>
+<td>16604</td>
+<td>16604</td>
+<td>16265</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_30</th>
+<td>559708</td>
+<td>559708</td>
+<td>559708</td>
+<td>553755</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">qt_votos_44</th>
+<td>600955</td>
+<td>600955</td>
+<td>600955</td>
+<td>597388</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_80</th>
+<td>53519</td>
+<td>53519</td>
+<td>53519</td>
+<td>53000</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">qt_votos_95</th>
+<td>1964779</td>
+<td>1964779</td>
+<td>1964779</td>
+<td>1951273</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">qt_votos_96</th>
+<td>3487874</td>
+<td>3487874</td>
+<td>3487874</td>
+<td>3467093</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">total</th>
+<td>123682372</td>
+<td>123682372</td>
+<td>123682372</td>
+<td>122766601</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<p>Presidente: Lula/Haddad e o bolsonarista do ano, para comparar com o número oficial do TSE. Cargos municipais: municípios com resultado (5.569 no 1º turno de 2024; não há eleição no DF), comparecimento e aptos.</p>
+<div id="cell-conferencia-candidatos" class="cell" data-execution_count="15">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>geral <span class="op">=</span> {</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">"comparecimento"</span>: <span class="bu">int</span>(res_zona_mun[<span class="st">"qt_comparecimento"</span>].<span class="bu">sum</span>()),</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"aptos"</span>: <span class="bu">int</span>(res_zona_mun[<span class="st">"qt_aptos"</span>].<span class="bu">sum</span>()),</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cargo <span class="op">==</span> <span class="st">"presidente"</span>:</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>    conferencia <span class="op">=</span> {</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>        NOME_PT_POR_ANO[ano]: <span class="bu">int</span>(res_zona_mun[<span class="ss">f"qt_votos_</span><span class="sc">{</span>NR_PT<span class="sc">}</span><span class="ss">"</span>].<span class="bu">sum</span>()),</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>        NOME_BOLSONARO_POR_ANO[ano]: <span class="bu">int</span>(res_zona_mun[<span class="ss">f"qt_votos_</span><span class="sc">{</span>NR_BOLSONARO_POR_ANO[ano]<span class="sc">}</span><span class="ss">"</span>].<span class="bu">sum</span>()),</span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>        <span class="op">**</span>geral,</span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
+<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a>    conferencia <span class="op">=</span> {<span class="st">"municípios com resultado"</span>: <span class="bu">len</span>(res_municipio), <span class="op">**</span>geral}</span>
+<span id="cb26-13"><a href="#cb26-13" aria-hidden="true" tabindex="-1"></a>pd.Series(conferencia)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="conferencia-candidatos" class="cell-output cell-output-display" data-execution_count="15">
+<pre><code>Lula               57259504
+Bolsonaro          51072345
+comparecimento    123682372
+aptos             156454011
+dtype: int64</code></pre>
+</div>
+</div>
+<p>Cargos municipais: votos no país e municípios em que cada partido foi o mais votado, pelo número do partido.</p>
+<div id="conferencia-partidos" class="cell" data-execution_count="16">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cargo <span class="op">!=</span> <span class="st">"presidente"</span>:</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>    display(</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>        pd.DataFrame({</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>            <span class="st">"votos"</span>: res_municipio[cols_votos_validos].<span class="bu">sum</span>().astype(<span class="st">"int64"</span>).rename(<span class="kw">lambda</span> c: <span class="bu">int</span>(c.removeprefix(<span class="st">"qt_votos_"</span>))),</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>            <span class="st">"municípios em que foi o mais votado"</span>: res_municipio[<span class="st">"nr_vencedor"</span>].value_counts(),</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>        }).fillna(<span class="dv">0</span>).astype(<span class="st">"int64"</span>).sort_values(<span class="st">"votos"</span>, ascending<span class="op">=</span><span class="va">False</span>).rename_axis(<span class="st">"nr_partido"</span>)</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>    )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
