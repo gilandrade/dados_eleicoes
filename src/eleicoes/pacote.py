@@ -1205,10 +1205,15 @@ EQUIPE_TRANSFERENCIA = [
     "Kaue Oliveira Almeida",
     "Gil Andrade Gontijo",
 ]
-# Logo novo do CEM (vertical, completo), usado a partir de 2026; antes, o logo das
-# páginas do PDF de 2022 do CEM.
+# Bases novas (todas, menos município de 2018 e 2022, que atualizam bases do CEM):
+# logo novo e créditos atuais. As de 2018/2022 por município mantêm logo e
+# créditos do PDF de 2022 do CEM (com Gil Andrade Gontijo na equipe).
 LOGO_CEM = Path(__file__).resolve().parents[2] / "assets" / "cem" / "CEM_LOGO_COMPLETO_VER.svg"
-ANO_LOGO_NOVO = 2026
+EQUIPE_TRANSFERENCIA_ATUAL = ["Mariana Giannotti", "Gil Andrade Gontijo"]
+CONSELHO_CEM_ATUAL = [
+    "Adrián Gurza Lavalle", "Eduardo Marques", "Gabriela Lotta", "Mariana Giannotti", "Marta Arretche",
+    "Renata Mirandola Bichir", "Úrsula Peres", "Catarina Segatto", "Fernanda Lima e Silva",
+]
 CONSELHO_CEM = [
     "Adrián Gurza Lavalle", "Bianca Freire-Medeiros", "Charles Kirschbaum", "Eduardo Marques",
     "Gabriela Lotta", "Jonathan Phillips", "Marcos Nobre", "Mariana Giannotti", "Marta Arretche",
@@ -1279,14 +1284,17 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
 
     Lê os arquivos já escritos em `pasta` (tabela `candidatos` de cada GeoPackage e
     `dicionario_colunas.csv`). Capa e créditos usam o logo das páginas do dicionário
-    de 2022 do CEM (o logo novo, `LOGO_CEM`, a partir de 2026), com o texto refeito; a seção de atualização só entra nos
+    de 2022 do CEM (nas bases novas, o logo novo `LOGO_CEM` e os créditos atuais), com o texto refeito; a seção de atualização só entra nos
     municípios de 2018 e 2022, que têm base anterior no CEM.
     """
     import re
     import subprocess
 
     municipio = unidade == "MU"
-    logo_novo = ano >= ANO_LOGO_NOVO
+    # Base nova: tudo menos município de 2018 e 2022 (atualizações de bases do CEM).
+    logo_novo = not (municipio and ano in (2018, 2022))
+    equipe = EQUIPE_TRANSFERENCIA_ATUAL if logo_novo else EQUIPE_TRANSFERENCIA
+    conselho = CONSELHO_CEM_ATUAL if logo_novo else CONSELHO_CEM
     chaves = [(cargo, turno) for cargo in CARGOS_GERAIS for turno in turnos(cargo)]
     arquivos = {chave: nome_arquivo(ano, *chave, unidade) for chave in chaves}
     dic = pd.read_csv(Path(pasta) / "dicionario_colunas.csv", dtype=str)
@@ -1432,10 +1440,10 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         "_Eduardo Marques_",
         "",
         "*Equipe de Transferência de Tecnologia – Centro de Estudos da Metrópole* \\",
-        *_nomes(EQUIPE_TRANSFERENCIA),
+        *_nomes(equipe),
         "",
         "*Conselho Diretor do CEM* \\",
-        *_nomes(CONSELHO_CEM),
+        *_nomes(conselho),
         "]",
         "```",
         "",

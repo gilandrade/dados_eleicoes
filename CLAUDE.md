@@ -151,9 +151,9 @@ data model (geometry files vs. result files joined by a shared id).
   válido; deputados diferem ~0,4%) e de um erro do CEM (Senado/MT 2018 traz a
   suplementar de 2020).
   Cada zip leva também `DIC_EL{ano}_{MU,LV}_BRA.pdf` (`pacote.escreve_dicionario_pacote`),
-  nos moldes dos PDFs do CEM: capa e créditos com o logo do PDF de 2022 do CEM e texto
-  refeito (equipe de transferência com Gil Andrade Gontijo), seção "Atualização" só em MU
-  2018/2022.
+  nos moldes dos PDFs do CEM, com texto refeito. MU 2018/2022 (atualizações de bases do CEM):
+  logo e créditos do PDF de 2022 do CEM, com Gil Andrade Gontijo na equipe, e seção
+  "Atualização". As outras quatro (bases novas): logo novo (`assets/cem/`) e créditos atuais.
   Também gera `cem/EL2022_MU_BRA_CEM_V2.zip`: a base do CEM com
   BA_001/BA_002/AREA_KM2/HAB_KM2 do Censo 2022 no lugar do Censo 2010, e o PDF de
   dicionário refeito com Quarto + Typst e uma seção "Atualização". O zip original
