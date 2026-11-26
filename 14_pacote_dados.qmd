@@ -14,9 +14,10 @@ trazem, no mínimo, tudo o que as bases de município do CEM (`EL2018_MU_BRA_CEM
 - **cargos**: Presidente (`PS1`, `PS2`), Governador (`GO1`, `GO2`), Senador (`SE`),
   Deputado federal (`DF`) e Deputado estadual/distrital (`DE`), com os códigos de
   cargo do CEM. Deputados somados por partido (nominais + legenda), como no CEM;
-- **locais de votação** do Brasil inteiro (`EL{ano}_LV_BRA_{cargo}{turno}`). O CEM só
+- **locais de votação** do Brasil inteiro (`EL{ano}_LV_BRA_{cargo}{turno}_CEM`). O CEM só
   tem locais do estado de São Paulo e de regiões metropolitanas;
-- **municípios** (`EL{ano}_MU_BRA_{cargo}{turno}`), com população, domicílios, área e
+- **municípios** (`EL{ano}_MU_BRA_{cargo}{turno}_CEM`; `_CEM_V2` em 2018 e
+  2022, nova versão das bases do CEM), com população, domicílios, área e
   densidade do Censo 2022 nos três anos;
 - a **versão 2 do `EL2022_MU_BRA_CEM`**: a base do CEM com população, domicílios,
   área e densidade do Censo 2022 no lugar do Censo 2010, e o dicionário em PDF
@@ -25,7 +26,7 @@ trazem, no mínimo, tudo o que as bases de município do CEM (`EL2018_MU_BRA_CEM
 Cada arquivo sai em GeoPackage (camada principal + tabela `candidatos`) e em `.xlsx`.
 Votos em `votos_{número}`; percentuais de 0 a 100; o exterior (só Presidente) entra
 como linha sem geometria. Tudo em `dados/04_pacote/`, com um `LEIAME.md`, o
-`dicionario_colunas.csv` e um zip por ano.
+`dicionario_colunas.csv` e um zip por base em `zips/`.
 
 Insumos: as saídas de 01–04 de cada ano e cargo (`res_{cargo}_*`,
 `candidatos_{cargo}_*`, `locais_*`, `secao_local_*`, `geom_locais_votacao_*`), o
@@ -231,8 +232,9 @@ arquivos_df.drop(columns=["_camada", "_cargo"])
 
 ## LEIAME, dicionário e zips
 
-Um zip por base (`zips/EL{ano}_{MU,LV}_BRA.zip`), com os 7 arquivos de cargo, o dicionário em
-PDF (`DIC_EL{ano}_{MU,LV}_BRA.pdf`, nos moldes dos PDFs do CEM), o LEIAME e o dicionário de
+Um zip por base, com o código da base no padrão do CEM (`zips/EL{ano}_{MU,LV}_BRA_CEM.zip`,
+`_CEM_V2` nos municípios de 2018 e 2022), com os 7 arquivos de cargo, o dicionário em
+PDF (`DIC_` + código da base, nos moldes dos PDFs do CEM), o LEIAME e o dicionário de
 colunas; e `cadastro_cem.xlsx`, uma linha por base no formato da planilha de DOI do CEM.
 
 ```{python}
@@ -259,7 +261,7 @@ leiame = pacote.escreve_leiame(
 for ano in ANOS:
     (PACOTE_DIR / f"EL{ano}_BRA.zip").unlink(missing_ok=True)
     for unidade in ("MU", "LV"):
-        pacote.escreve_dicionario_pacote(ano, unidade, PACOTE_DIR / f"DIC_EL{ano}_{unidade}_BRA.pdf")
+        pacote.escreve_dicionario_pacote(ano, unidade, pacote.caminho_dicionario_pdf(ano, unidade))
         zip_base = pacote.compacta_base(ano, unidade)
         print(zip_base.name, round(zip_base.stat().st_size / 1e6, 1), "MB")
 # Linhas para a planilha de DOI do CEM (uma por base).

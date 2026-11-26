@@ -142,8 +142,8 @@ data model (geometry files vs. result files joined by a shared id).
   `dados/04_pacote/`). Traz no mínimo tudo o que as bases `EL2018_MU_BRA_CEM` e
   `EL2022_MU_BRA_CEM` trazem, com Censo 2022 e malha IBGE 2022 nos três anos: locais
   de votação e municípios do Brasil, 2018/2022/2026, um arquivo por cargo com os
-  códigos do CEM, `EL{ano}_{LV|MU}_BRA_{PS1,PS2,GO1,GO2,SE,DF,DE}`, em `.gpkg` (camada
-  + tabela `candidatos`) e `.xlsx`, um zip por base (`zips/EL{ano}_{MU,LV}_BRA.zip`, como as bases do
+  códigos do CEM, `EL{ano}_{LV|MU}_BRA_{PS1,PS2,GO1,GO2,SE,DF,DE}_CEM` (`_CEM_V2` nos MU 2018/2022, nova versão das bases do CEM), em `.gpkg` (camada
+  + tabela `candidatos`) e `.xlsx`, um zip por base (`zips/EL{ano}_{MU,LV}_BRA_CEM[_V2].zip`, como as bases do
   CEM, uma linha e um DOI cada; `cadastro_cem.xlsx` traz as 6 linhas no formato da planilha
   de DOI do CEM, com DOI e data em branco e fórmulas para o HTML do site e o SQL). Votos em `votos_{nr}` (em GO/SE,
   nulo nas UFs sem aquele número), percentuais de 0 a 100, exterior sem geometria
@@ -152,7 +152,7 @@ data model (geometry files vs. result files joined by a shared id).
   vêm da versão da totalização (o CEM conta Daniel Silveira, Senado/RJ 2022, como
   válido; deputados diferem ~0,4%) e de um erro do CEM (Senado/MT 2018 traz a
   suplementar de 2020).
-  Cada zip leva também o `DIC_EL{ano}_{MU,LV}_BRA.pdf` (`pacote.escreve_dicionario_pacote`),
+  Cada zip leva também o `DIC_EL{ano}_{MU,LV}_BRA_CEM[_V2].pdf` (`pacote.escreve_dicionario_pacote`),
   nos moldes dos PDFs do CEM, com texto refeito. MU 2018/2022 (atualizações de bases do CEM):
   logo e créditos do PDF de 2022 do CEM, com Gil Andrade Gontijo na equipe, e seção
   "Atualização". As outras quatro (bases novas): logo novo (`assets/cem/`) e créditos atuais.

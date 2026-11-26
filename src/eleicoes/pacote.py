@@ -68,13 +68,28 @@ def turnos(cargo: str) -> tuple[int, ...]:
     return (1, 2) if cargo in CARGOS_COM_2_TURNO else (1,)
 
 
+# Bases do CEM que o pacote atualiza: ganham `_V2` no código, como as novas versões
+# na planilha de DOI do CEM (`EL2018_ZE_RMBRA_CEM_V2`).
+BASES_ATUALIZADAS = {(2018, "MU"), (2022, "MU")}
+
+
+def sufixo_cem(ano: int, unidade: str) -> str:
+    """`_CEM`, ou `_CEM_V2` nas bases que atualizam uma base do CEM."""
+    return "_CEM_V2" if (ano, unidade) in BASES_ATUALIZADAS else "_CEM"
+
+
+def codigo_base(ano: int, unidade: str) -> str:
+    """Código da base no padrão do CEM: `EL2018_MU_BRA_CEM_V2`, `EL2026_LV_BRA_CEM` etc."""
+    return f"EL{ano}_{unidade}_BRA{sufixo_cem(ano, unidade)}"
+
+
 def nome_arquivo(ano: int, cargo: str, turno: int, unidade: str) -> str:
-    """`EL2022_LV_BRA_PS1`, `EL2022_MU_BRA_GO2`, `EL2022_MU_BRA_SE` etc.
+    """`EL2022_LV_BRA_PS1_CEM`, `EL2022_MU_BRA_GO2_CEM_V2`, `EL2026_MU_BRA_SE_CEM` etc.
 
     `unidade` = `LV` ou `MU`. O turno só entra no nome dos cargos com 2º turno.
     """
-    sufixo = str(turno) if cargo in CARGOS_COM_2_TURNO else ""
-    return f"EL{ano}_{unidade}_BRA_{CARGOS[cargo]['sigla']}{sufixo}"
+    t = str(turno) if cargo in CARGOS_COM_2_TURNO else ""
+    return f"EL{ano}_{unidade}_BRA_{CARGOS[cargo]['sigla']}{t}{sufixo_cem(ano, unidade)}"
 
 
 def le_resultado(cargo: str, ano: int, turno: int, nivel: str) -> pd.DataFrame:
@@ -1197,15 +1212,17 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "",
         "## Arquivos",
         "",
-        "Nome no padrão do CEM: `EL{ano}_{LV|MU}_BRA_{cargo}{turno}`, com `LV` = local de votação e "
-        "`MU` = município. Os códigos de cargo são os das colunas das bases do CEM:",
+        "Nome no padrão do CEM: `EL{ano}_{LV|MU}_BRA_{cargo}{turno}_CEM`, com `LV` = local de votação e "
+        "`MU` = município; os municípios de 2018 e 2022 levam `_CEM_V2`, por serem nova versão das bases "
+        "`EL2018_MU_BRA_CEM` e `EL2022_MU_BRA_CEM`. Os códigos de cargo são os das colunas das bases do CEM:",
         "",
         _md(cargos),
         "",
         "Um GeoPackage (`.gpkg`) e um Excel (`.xlsx`) por arquivo, com o mesmo conteúdo. No GeoPackage, "
         "a camada principal (`locais` ou `municipios`) traz a geometria em SIRGAS 2000 (EPSG:4674) e a "
         "tabela `candidatos` traz nome, nome de urna e partido de cada número (nos deputados, sigla e "
-        "nome de cada partido). No Excel, as abas são `dados` e `candidatos`. Um zip por ano.",
+        "nome de cada partido). No Excel, as abas são `dados` e `candidatos`. Um zip por base (ano e unidade), com o código da "
+        "base: `EL2018_MU_BRA_CEM_V2.zip`, `EL2026_LV_BRA_CEM.zip` etc.",
         "",
         _md(arquivos),
         "",
@@ -1625,7 +1642,7 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         "",
         "Bases Eleitorais",
         "",
-        f"Arquivo: #strong({_ty(f'EL{ano}_{unidade}_BRA_{{{siglas}}}')})",
+        f"Arquivo: #strong({_ty(f'EL{ano}_{unidade}_BRA_{{{siglas}}}{sufixo_cem(ano, unidade)}')})",
         "",
         "#rect(width: 100%, stroke: 0.5pt, inset: 6pt)[",
         f"  Formato: GeoPackage e Excel | Tipo: {'Polígonos (áreas)' if municipio else 'Pontos'} | Data: {ano} \\",
@@ -1721,14 +1738,19 @@ def arquivos_base(ano: int, unidade: str) -> list[str]:
 
 
 def compacta_base(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> Path:
-    """`zips/EL{ano}_{unidade}_BRA.zip`: gpkg e xlsx dos 7 arquivos, o PDF, o LEIAME e o dicionário."""
+    """`zips/{codigo_base}.zip`: gpkg e xlsx dos 7 arquivos, o PDF, o LEIAME e o dicionário."""
     pasta = Path(pasta)
     entregues = [pasta / f"{a}.{ext}" for a in arquivos_base(ano, unidade) for ext in ("gpkg", "xlsx")]
-    entregues += [pasta / f"DIC_EL{ano}_{unidade}_BRA.pdf", pasta / "LEIAME.md", pasta / "dicionario_colunas.csv"]
+    entregues += [pasta / caminho_dicionario_pdf(ano, unidade).name, pasta / "LEIAME.md",
+                  pasta / "dicionario_colunas.csv"]
     zips = pasta / "zips"
     zips.mkdir(exist_ok=True)
-    (pasta / f"EL{ano}_{unidade}_BRA.zip").unlink(missing_ok=True)  # local antigo, na raiz
-    return compacta(entregues, zips / f"EL{ano}_{unidade}_BRA.zip")
+    return compacta(entregues, zips / f"{codigo_base(ano, unidade)}.zip")
+
+
+def caminho_dicionario_pdf(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> Path:
+    """`DIC_{codigo_base}.pdf`, como os dicionários do CEM (`DIC_EL2022_MU_BRA_CEM.pdf`)."""
+    return Path(pasta) / f"DIC_{codigo_base(ano, unidade)}.pdf"
 
 
 def descricao_cadastro(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> str:
@@ -1815,7 +1837,7 @@ def escreve_cadastro_cem(destino: Path, pasta: Path = PACOTE_DIR) -> Path:
             "descricao_do_tipo_de_arquivo": (
                 f"Resultado eleitoral por {'município' if municipio else 'local de votação'} no Brasil"
             ),
-            "nome_arquivo": f"EL{ano}_{unidade}_BRA.zip",
+            "nome_arquivo": f"{codigo_base(ano, unidade)}.zip",
             "Link GDrive": None,
             "DOI da versão anterior": anterior or None,
             "SQL abstract": (
