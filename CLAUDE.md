@@ -154,6 +154,11 @@ data model (geometry files vs. result files joined by a shared id).
   nos moldes dos PDFs do CEM, com texto refeito. MU 2018/2022 (atualizações de bases do CEM):
   logo e créditos do PDF de 2022 do CEM, com Gil Andrade Gontijo na equipe, e seção
   "Atualização". As outras quatro (bases novas): logo novo (`assets/cem/`) e créditos atuais.
+  O documento é escrito direto em Typst (`quarto typst compile`), sem markdown. Não embutir
+  página do PDF original como fundo: a camada de texto antiga continua no PDF (busca, cópia);
+  o logo antigo é só a faixa do topo rasterizada (um `image` maior que a página sai
+  centralizado, cortar com `box(clip: true)`). Descrições por ano e camada em
+  `pacote.descricao_coluna`.
   Também gera `cem/EL2022_MU_BRA_CEM_V2.zip`: a base do CEM com
   BA_001/BA_002/AREA_KM2/HAB_KM2 do Censo 2022 no lugar do Censo 2010, e o PDF de
   dicionário refeito com Quarto + Typst e uma seção "Atualização". O zip original

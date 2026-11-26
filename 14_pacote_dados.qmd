@@ -238,7 +238,7 @@ dicionários em PDF do ano (`DIC_EL{ano}_{MU,LV}_BRA.pdf`), nos moldes dos PDFs 
 dicionario = pd.concat([
     pacote.dicionario_colunas(
         list((locais if l["_camada"] == "locais" else municipios)[(l["ano"], l["_cargo"], l["turno"])].columns),
-        l["_camada"], l["_cargo"],
+        l["_camada"], l["_cargo"], l["ano"],
     ).assign(arquivo=l["arquivo"])
     for l in arquivos
 ])[["arquivo", "camada", "cargo", "coluna", "descricao"]]

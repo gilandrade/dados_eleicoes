@@ -969,11 +969,11 @@ DESCRICOES = {
     "ds_tipo_local": "Tipo do local (TSE): Convencional, Temporário, Preso provisório ou Voto em trânsito",
     "local_especial": "Verdadeiro para preso provisório e voto em trânsito (locais sem eleitorado residente)",
     "fonte_coord": "Origem da coordenada: tse (do TSE, validada no município); tse_confirmado (do TSE, "
-    "reprovada na validação mas a menos de 800 m de outra referência); ano_2018/ano_2022 (coordenada "
+    "reprovada na validação, mas a menos de 800 m de outra referência); ano_2018/ano_2022 (coordenada "
     "validada do mesmo local em outra eleição); hidalgo (geocodificação de Hidalgo et al.); geocodebr "
     "(endereço geocodificado com o CNEFE); centroide_municipio; tse_nao_validada (município sem malha do "
     "IBGE de 2022, coordenada do TSE sem validação)",
-    "coord_aproximada": "Verdadeiro quando o ponto é o centróide do município (coordenada não resolvida)",
+    "coord_aproximada": "Verdadeiro quando o ponto é o centroide do município (coordenada não resolvida)",
     "latitude": "Latitude do ponto (SIRGAS 2000)",
     "longitude": "Longitude do ponto (SIRGAS 2000)",
     "n_secoes": "Número de seções eleitorais do cadastro do TSE no turno (inclui seções agregadas)",
@@ -995,28 +995,67 @@ DESCRICOES = {
     # Resultado
     "ano": "Ano da eleição",
     "turno": "Turno (1 ou 2)",
-    "qt_aptos": "Eleitores aptos para o cargo (TSE, por seção). Em Presidente inclui o voto em trânsito de "
-    "outra UF, que só vota para Presidente; por isso os aptos mudam de um cargo para outro",
+    "qt_aptos": "Eleitores aptos para o cargo (TSE, detalhe_votacao_secao, por seção). Em Presidente inclui "
+    "o voto em trânsito de outra UF, que só vota para Presidente; por isso os aptos mudam de um cargo para "
+    "outro. Onde a seção não está nesse arquivo, usa-se o eleitorado do cadastro de locais",
     "qt_comparecimento": "Comparecimento (eleitores que votaram para o cargo)",
     "qt_abstencoes": "Abstenções (aptos − comparecimento)",
-    "qt_validos": "Votos válidos (soma das colunas votos_). Em Senador com 2 vagas (2018, 2026), cada eleitor "
-    "dá até 2 votos",
+    "qt_validos": "Votos válidos (soma das colunas votos_). Em Senador com 2 vagas (2018 e 2026), cada "
+    "eleitor dá 2 votos, e válidos + brancos + nulos + anulados somam o dobro do comparecimento",
     "qt_brancos": "Votos em branco",
     "qt_nulos": "Votos nulos",
     "qt_anulados": "Votos anulados: em candidato cuja candidatura foi indeferida, cancelada ou cassada. O "
     "TSE os publica por seção com o número do candidato, mas não os conta como válidos na totalização "
-    "(destino 'Anulado' no votacao_candidato_munzona); as bases do CEM os somam aos nulos",
-    "qt_anulados_apu_sep": "Votos anulados e apurados em separado: código 97 em Presidente (2018) e destino "
-    "'Anulado sub judice' nos outros cargos (candidatura ainda em julgamento)",
+    "(destino 'Anulado' no votacao_candidato_munzona; em 2018, que não lista os anulados, candidato "
+    "ausente dele); as bases do CEM os somam aos nulos",
+    "qt_anulados_apu_sep": "Votos anulados e apurados em separado: em 2018, código 97 do TSE (746 votos em "
+    "Salvador, em todos os cargos); em 2022 e 2026, votos em candidato com destino 'Anulado sub judice' "
+    "(candidatura ainda em julgamento)",
     "qt_brancos_nulos": "Votos em branco + nulos",
     "pc_comparecimento": "Comparecimento sobre aptos (%)",
     "pc_abstencao": "Abstenção sobre aptos (%)",
-    "pc_brancos": "Brancos sobre comparecimento (%)",
-    "pc_nulos": "Nulos sobre comparecimento (%)",
-    "pc_brancos_nulos": "Brancos + nulos sobre comparecimento (%)",
+    "pc_brancos": "Brancos sobre comparecimento (%); em Senador com 2 vagas pode passar de 100",
+    "pc_nulos": "Nulos sobre comparecimento (%); em Senador com 2 vagas pode passar de 100",
+    "pc_brancos_nulos": "Brancos + nulos sobre comparecimento (%); em Senador com 2 vagas pode passar de 100",
     "nr_mais_votado": "Número do candidato (ou do partido, nos deputados) mais votado",
     "margem_validos": "Diferença entre o 1º e o 2º colocados, em pontos percentuais dos válidos",
 }
+
+
+_OUTRA_ELEICAO = {2018: "ano_2022", 2022: "ano_2018", 2026: "ano_2022"}
+
+
+def descricao_coluna(coluna: str, ano: int | None = None, camada: str | None = None) -> str:
+    """Descrição de uma coluna; com `ano` e `camada`, o texto que vale naquela base."""
+    if ano is None:
+        return DESCRICOES[coluna]
+    novo = ano >= 2026  # Boa Esperança do Norte (MT) só existe a partir de 2026
+    if coluna == "cd_mun":
+        texto = "Código IBGE do município (7 dígitos); " + (
+            "EXTERIOR na linha dos votos do exterior (só Presidente)" if camada == "municipios"
+            else "vazio no exterior (sg_uf = ZZ)"
+        )
+        if novo:
+            texto += "; vazio em Boa Esperança do Norte (MT), criado depois da malha de 2022"
+        return texto
+    if coluna == "id_zona_mun":
+        texto = "Zona eleitoral × município: código IBGE do município (7) + zona (4); EXTERIOR + zona para o exterior"
+        if novo:
+            texto += "; TSE + código TSE + zona para Boa Esperança do Norte (MT), sem código IBGE"
+        return texto
+    if coluna == "fonte_coord":
+        partes = [
+            "tse (do TSE, validada no município)",
+            "tse_confirmado (do TSE, reprovada na validação, mas a menos de 800 m de outra referência)",
+            f"{_OUTRA_ELEICAO[ano]} (coordenada validada do mesmo local em outra eleição)",
+        ]
+        if not novo:
+            partes.append("hidalgo (geocodificação de Hidalgo et al.)")
+        partes += ["geocodebr (endereço geocodificado com o CNEFE)", "centroide_municipio"]
+        if novo:
+            partes.append("tse_nao_validada (município sem malha do IBGE de 2022, coordenada do TSE sem validação)")
+        return "Origem da coordenada: " + "; ".join(partes)
+    return DESCRICOES[coluna]
 
 
 def _descricao_votos(coluna: str, cargo: str) -> str:
@@ -1030,7 +1069,7 @@ def _descricao_votos(coluna: str, cargo: str) -> str:
     return texto + (" sobre os válidos (%)" if prefixo == "pc_validos" else "")
 
 
-def dicionario_colunas(colunas: list[str], camada: str, cargo: str) -> pd.DataFrame:
+def dicionario_colunas(colunas: list[str], camada: str, cargo: str, ano: int | None = None) -> pd.DataFrame:
     """Uma linha por coluna da camada, com a descrição."""
     linhas = []
     for coluna in colunas:
@@ -1039,7 +1078,7 @@ def dicionario_colunas(colunas: list[str], camada: str, cargo: str) -> pd.DataFr
         if coluna.startswith(("votos_", "pc_validos_")):
             descricao = _descricao_votos(coluna, cargo)
         else:
-            descricao = DESCRICOES[coluna]
+            descricao = descricao_coluna(coluna, ano, camada)
         linhas.append({"camada": camada, "cargo": CARGOS[cargo]["sigla"], "coluna": coluna, "descricao": descricao})
     return pd.DataFrame(linhas)
 
@@ -1074,7 +1113,8 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
          "colunas de votos": "por partido"},
     ])
     colunas = (
-        dicionario.drop_duplicates("coluna")[["coluna", "descricao"]]
+        dicionario.drop_duplicates("coluna")[["coluna"]]
+        .assign(descricao=lambda d: d["coluna"].map(lambda c: DESCRICOES.get(c, "")))
         .loc[lambda d: ~d["coluna"].str.match(r"^(votos|pc_validos)_\d+$")]
     )
     partes = [
@@ -1154,7 +1194,7 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "tse_nao_validada`) e, no arquivo de municípios de 2026, ele é uma linha sem geometria.",
         "- **Coordenadas.** A coordenada do TSE é validada contra o município; quando falha, usa-se a "
         "coordenada validada do mesmo local em outra eleição, a geocodificação de Hidalgo et al., depois "
-        "o endereço geocodificado com o CNEFE, e, em último caso, o centróide do município "
+        "o endereço geocodificado com o CNEFE, e, em último caso, o centroide do município "
         "(`coord_aproximada`). A coluna `fonte_coord` diz a origem.",
         "- **Seções agregadas.** Uma seção agregada vota no local da sua seção principal; `n_secoes` "
         "conta as seções do cadastro, agregadas incluídas.",
@@ -1195,6 +1235,8 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
 
 # ==== Dicionário em PDF do pacote (um por ano e unidade) =======================
 
+# Créditos das bases que atualizam as do CEM (município de 2018 e 2022): os do PDF
+# de 2022 do CEM, com Gil Andrade Gontijo na equipe.
 EQUIPE_TRANSFERENCIA = [
     "Mariana Giannotti",
     "Daniel Waldvogel Thomé da Silva",
@@ -1205,49 +1247,55 @@ EQUIPE_TRANSFERENCIA = [
     "Kaue Oliveira Almeida",
     "Gil Andrade Gontijo",
 ]
-# Bases novas (todas, menos município de 2018 e 2022, que atualizam bases do CEM):
-# logo novo e créditos atuais. As de 2018/2022 por município mantêm logo e
-# créditos do PDF de 2022 do CEM (com Gil Andrade Gontijo na equipe).
+CONSELHO_CEM = [
+    "Adrián Gurza Lavalle", "Bianca Freire-Medeiros", "Charles Kirschbaum", "Eduardo Marques",
+    "Gabriela Lotta", "Jonathan Phillips", "Marcos Nobre", "Mariana Giannotti", "Marta Arretche",
+    "Renata Mirândola Bichir", "Úrsula Peres", "Vera Schattan Coelho",
+]
+# Bases novas (todas, menos município de 2018 e 2022): logo novo e créditos atuais.
 LOGO_CEM = Path(__file__).resolve().parents[2] / "assets" / "cem" / "CEM_LOGO_COMPLETO_VER.svg"
 EQUIPE_TRANSFERENCIA_ATUAL = ["Mariana Giannotti", "Gil Andrade Gontijo"]
 CONSELHO_CEM_ATUAL = [
     "Adrián Gurza Lavalle", "Eduardo Marques", "Gabriela Lotta", "Mariana Giannotti", "Marta Arretche",
     "Renata Mirandola Bichir", "Úrsula Peres", "Catarina Segatto", "Fernanda Lima e Silva",
 ]
-CONSELHO_CEM = [
-    "Adrián Gurza Lavalle", "Bianca Freire-Medeiros", "Charles Kirschbaum", "Eduardo Marques",
-    "Gabriela Lotta", "Jonathan Phillips", "Marcos Nobre", "Mariana Giannotti", "Marta Arretche",
-    "Renata Mirândola Bichir", "Úrsula Peres", "Vera Schattan Coelho",
-]
+# Títulos das tabelas de candidatos, como nos PDFs do CEM.
 TITULO_CARGO = {
-    "PS": "Candidatos a Presidente",
-    "GO": "Candidatos a Governador, por UF",
-    "SE": "Candidatos a Senador, por UF",
-    "DF": "Partidos com candidatos a Deputado federal",
-    "DE": "Partidos com candidatos a Deputado estadual e distrital",
+    "PS": "Candidatos a presidente do Brasil",
+    "GO": "Candidatos a governador por estado",
+    "SE": "Candidatos a senador por estado",
+    "DF": "Partidos com candidatos a deputado federal",
+    "DE": "Partidos com candidatos a deputado estadual/distrital",
 }
+_MINUSCULAS = {"da", "de", "do", "das", "dos", "e"}
 
 
 def nota_atualizacao_pacote(ano: int) -> list[str]:
     """O que muda no arquivo de municípios em relação à base `EL{ano}_MU_BRA_CEM`."""
     nota = [
-        f"Esta base atualiza a EL{ano}_MU_BRA_CEM: população, domicílios particulares ocupados, área "
-        "e densidade vêm do Censo Demográfico 2022 do IBGE (antes, Censo 2010), e os polígonos, da "
-        "malha municipal do IBGE de 2022 (5.570 municípios; saem os 3 polígonos sem município: lagoas "
-        "dos Patos e Mirim e baía de Oiapoque).",
-        "Um arquivo por cargo e turno (códigos PS1, PS2, GO1, GO2, SE, DF e DE, os das colunas da base "
-        "anterior), em GeoPackage e Excel, com os nomes das colunas por extenso. Os mesmos dados "
-        "também saem por local de votação, para o Brasil inteiro.",
-        "Aptos por cargo e seção, do detalhe_votacao_secao do TSE; abstenção em quantidade e em "
-        "percentual.",
+        f"Esta base atualiza a EL{ano}_MU_BRA_CEM. População e domicílios passam a ser o total de pessoas "
+        "residentes (V0001) e os domicílios particulares ocupados (V0007) do Censo Demográfico 2022, no "
+        "lugar dos moradores e dos domicílios particulares permanentes do Censo 2010 (conceitos "
+        "diferentes, não comparáveis diretamente). Área e densidade também são de 2022.",
+        "Polígonos da malha municipal do IBGE de 2022 (versão simplificada do geobr, Ipea), com 5.570 "
+        "municípios. Saem os 3 polígonos sem município da base anterior (lagoas dos Patos e Mirim e baía "
+        "de Oiapoque).",
+        "Um arquivo por cargo e turno (PS1, PS2, GO1, GO2, SE, DF e DE, os códigos das colunas da base "
+        "anterior), em GeoPackage e Excel, com os nomes das colunas por extenso. Os mesmos dados também "
+        f"saem por local de votação, para o Brasil inteiro (EL{ano}_LV_BRA).",
+        "Aptos e abstenção de cada cargo, inclusive dos deputados, do detalhe_votacao_secao do TSE (a "
+        "base anterior tinha aptos só de Presidente e de Governador/Senador, e abstenção só em "
+        "percentual).",
         "Votos em candidatos com candidatura indeferida, cancelada ou cassada ficam em qt_anulados, "
         "separados dos nulos (a base anterior os somava aos nulos), segundo a versão atual da "
-        "totalização do TSE.",
+        "totalização do TSE. Por isso os votos dos partidos de deputado podem diferir um pouco da base "
+        "anterior (cerca de 0,4%).",
     ]
     if ano == 2018:
         nota.append(
             "Senado em Mato Grosso: a base anterior trazia os candidatos da eleição suplementar de 2020; "
-            "aqui está a eleição de 2018."
+            "aqui está a eleição de 2018. Os votos de Selma Arruda (eleita e cassada em 2019) estão em "
+            "qt_anulados."
         )
     else:
         nota.append(
@@ -1257,21 +1305,101 @@ def nota_atualizacao_pacote(ano: int) -> list[str]:
     return nota
 
 
-def _tabela_candidatos(cand: pd.DataFrame) -> pd.DataFrame:
-    """Tabela de candidatos (ou partidos) de um arquivo, formatada para o PDF."""
+def _ty(texto: object) -> str:
+    """Texto como string Typst (escapa `\\` e `"`), seguro para qualquer conteúdo."""
+    return '"' + str(texto).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _caixa_mista(nome: str) -> str:
+    """'PARTIDO DA MULHER BRASILEIRA' -> 'Partido da Mulher Brasileira'."""
+    palavras = str(nome).lower().split()
+    return " ".join(p if (i and p in _MINUSCULAS) else p[:1].upper() + p[1:] for i, p in enumerate(palavras))
+
+
+def _votos(v: object) -> str:
+    return f"{int(v):,}".replace(",", ".")
+
+
+def _pc(v: object) -> str:
+    if pd.isna(v):
+        return ""
+    if 0 < v < 0.005:
+        return "<0,01"
+    return f"{v:.2f}".replace(".", ",")
+
+
+def _tabela_typst(
+    df: pd.DataFrame, colunas: str, alinhamento: list[str], separa_por: str | None = None,
+) -> str:
+    """Tabela Typst: cabeçalho em negrito, centralizado e repetido a cada página.
+
+    `colunas` é a lista de larguras do Typst (ex.: "(auto, 1fr)"); `alinhamento`, um
+    por coluna (left, center, right). Com `separa_por`, um filete mais grosso entre
+    grupos (as UFs).
+    """
+    cab = ", ".join(f"table.cell(align: center + horizon, strong({_ty(c)}))" for c in df.columns)
+    linhas, anterior = [], None
+    for _, linha in df.iterrows():
+        if separa_por is not None:
+            if anterior is not None and linha[separa_por] != anterior:
+                linhas.append("table.hline(stroke: 1.2pt + luma(60)),")
+            anterior = linha[separa_por]
+        linhas.append(", ".join(_ty("" if pd.isna(v) else v) for v in linha) + ",")
+    alin = "(" + ", ".join(alinhamento) + ",)"
+    return "\n".join([
+        f"#table(columns: {colunas}, align: {alin},",
+        f"  table.header({cab}),",
+        *linhas,
+        ")",
+    ])
+
+
+def _tabela_candidatos(cand: pd.DataFrame) -> str:
+    """Tabela de candidatos (ou partidos) de um arquivo, nos moldes do CEM."""
     t = cand.copy()
-    t["qt_votos"] = t["qt_votos"].map(lambda v: f"{int(v):,}".replace(",", "."))
-    t["pc_validos"] = t["pc_validos"].map(lambda v: "" if pd.isna(v) else f"{v:.2f}".replace(".", ","))
+    t["qt_votos"] = t["qt_votos"].map(_votos)
+    t["pc_validos"] = t["pc_validos"].map(_pc)
+    t["nm_partido"] = t["nm_partido"].map(_caixa_mista)
     if "nr_partido" in t:
-        t = t[["nr_partido", "sg_partido", "nm_partido", "qt_votos", "pc_validos"]]
-        return t.set_axis(["Nº", "Sigla", "Partido", "Votos", "% válidos"], axis=1)
+        t = t.sort_values("nr_partido")[["nr_partido", "sg_partido", "nm_partido", "qt_votos", "pc_validos"]]
+        t.columns = ["Número do partido", "Sigla do partido", "Nome do partido", "Votos", "% válidos"]
+        return _tabela_typst(t, "(auto, auto, 1fr, auto, auto)", ["center", "left", "left", "right", "right"])
     if "destino" in t:
         t["nm_urna"] = t["nm_urna"].where(t["destino"] == "válido", t["nm_urna"] + " (" + t["destino"] + ")")
-    colunas = ["nr_candidato", "nm_candidato", "nm_urna", "sg_partido", "qt_votos", "pc_validos"]
-    rotulos = ["Nº", "Nome", "Nome de urna", "Partido", "Votos", "% válidos"]
+    colunas = ["nr_candidato", "sg_partido", "nm_partido", "nm_candidato", "nm_urna", "qt_votos", "pc_validos"]
+    rotulos = ["Número", "Sigla do partido", "Nome do partido", "Nome completo", "Nome de urna", "Votos",
+               "% válidos"]
+    larguras = ["auto", "auto", "1.2fr", "1.5fr", "1fr", "auto", "auto"]
+    alin = ["center", "left", "left", "left", "left", "right", "right"]
+    separa = None
     if "sg_uf" in t:
-        colunas, rotulos = ["sg_uf", *colunas], ["UF", *rotulos]
-    return t[colunas].set_axis(rotulos, axis=1)
+        t = t.sort_values(["sg_uf", "nr_candidato"])
+        colunas, rotulos, larguras, alin, separa = (
+            ["sg_uf", *colunas], ["UF", *rotulos], ["auto", *larguras], ["center", *alin], "UF",
+        )
+    else:
+        t = t.sort_values("nr_candidato")
+    t = t[colunas].set_axis(rotulos, axis=1)
+    return _tabela_typst(t, "(" + ", ".join(larguras) + ")", alin, separa_por=separa)
+
+
+def _logo_antigo_png(original: bytes, destino: Path) -> Path:
+    """Faixa do logo (topo da capa do PDF de 2022 do CEM) como PNG, sem a camada de texto."""
+    import subprocess
+
+    pasta = destino.parent
+    (pasta / "_original.pdf").write_bytes(original)
+    (pasta / "_faixa.typ").write_text(
+        '#set page(width: 21cm, height: 5.5cm, margin: 0pt)\n'
+        # Um `image` maior que a página sai centralizado; o box com clip corta o topo.
+        '#box(width: 21cm, height: 5.5cm, clip: true, align(top, '
+        'image("_original.pdf", page: 1, width: 21cm, height: 29.7cm)))\n',
+        encoding="utf-8",
+    )
+    subprocess.run(
+        f'quarto typst compile _faixa.typ "{destino.name}" --ppi 300', cwd=pasta, check=True, shell=True
+    )
+    return destino
 
 
 def _pdf_dicionario_cem_2022() -> bytes:
@@ -1283,18 +1411,19 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
     """PDF de dicionário de uma base do pacote (`EL{ano}_{unidade}_BRA`), nos moldes do CEM.
 
     Lê os arquivos já escritos em `pasta` (tabela `candidatos` de cada GeoPackage e
-    `dicionario_colunas.csv`). Capa e créditos usam o logo das páginas do dicionário
-    de 2022 do CEM (nas bases novas, o logo novo `LOGO_CEM` e os créditos atuais), com o texto refeito; a seção de atualização só entra nos
-    municípios de 2018 e 2022, que têm base anterior no CEM.
+    `dicionario_colunas.csv`) e escreve o documento em Typst. Município de 2018 e
+    2022 (atualizações de bases do CEM): logo do PDF de 2022 do CEM (só a faixa do
+    logo, rasterizada), créditos daquele PDF e seção de atualização. As demais
+    bases: logo novo (`LOGO_CEM`) e créditos atuais.
     """
-    import re
     import subprocess
 
     municipio = unidade == "MU"
-    # Base nova: tudo menos município de 2018 e 2022 (atualizações de bases do CEM).
-    logo_novo = not (municipio and ano in (2018, 2022))
-    equipe = EQUIPE_TRANSFERENCIA_ATUAL if logo_novo else EQUIPE_TRANSFERENCIA
-    conselho = CONSELHO_CEM_ATUAL if logo_novo else CONSELHO_CEM
+    camada = "municipios" if municipio else "locais"
+    atualiza = municipio and ano in (2018, 2022)
+    equipe = EQUIPE_TRANSFERENCIA if atualiza else EQUIPE_TRANSFERENCIA_ATUAL
+    conselho = CONSELHO_CEM if atualiza else CONSELHO_CEM_ATUAL
+
     chaves = [(cargo, turno) for cargo in CARGOS_GERAIS for turno in turnos(cargo)]
     arquivos = {chave: nome_arquivo(ano, *chave, unidade) for chave in chaves}
     dic = pd.read_csv(Path(pasta) / "dicionario_colunas.csv", dtype=str)
@@ -1302,160 +1431,195 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
     atributos = (
         dic.loc[~dic["coluna"].str.match(r"^(votos|pc_validos)_\d+$"), ["coluna", "descricao"]]
         .drop_duplicates("coluna")
-        .set_axis(["Coluna", "Descrição"], axis=1)
     )
     atributos = pd.concat([atributos, pd.DataFrame([
-        {"Coluna": "votos_NN", "Descrição": "Votos no candidato (ou partido, nos deputados) de número NN; "
-         "em Governador e Senador, o candidato da UF da linha (ver as tabelas de candidatos)"},
-        {"Coluna": "pc_validos_NN", "Descrição": "Votos do número NN sobre os válidos (%)"},
-    ])], ignore_index=True)
+        {"coluna": "votos_NN", "descricao": "Votos no candidato (ou partido, nos deputados) de número NN. Em "
+         "Governador e Senador, o candidato da UF da linha, e vazio nas UFs sem candidato com esse número; "
+         "nos deputados, votos nominais e de legenda do partido, sem os votos anulados (em qt_anulados)"},
+        {"coluna": "pc_validos_NN", "descricao": "Votos do número NN sobre os válidos (%)"},
+    ])], ignore_index=True).set_axis(["Variável", "Descrição"], axis=1)
     lista = pd.DataFrame([
         {
             "Arquivo": arquivo, "Cargo": CARGOS[cargo]["rotulo"],
             "Turno": f"{turno}º" if len(turnos(cargo)) > 1 else "único",
-            "Linhas": f"{pyogrio.read_info(Path(pasta) / f'{arquivo}.gpkg', layer=('municipios' if municipio else 'locais'))['features']:,}".replace(",", "."),
+            "Linhas": _votos(pyogrio.read_info(Path(pasta) / f"{arquivo}.gpkg", layer=camada)["features"]),
         }
         for (cargo, turno), arquivo in arquivos.items()
     ])
+    ps1 = pyogrio.read_dataframe(
+        Path(pasta) / f"{arquivos[('presidente', 1)]}.gpkg", layer=camada, columns=["sg_uf"], read_geometry=False
+    )
+    n_exterior = int((ps1["sg_uf"] == "ZZ").sum())
 
-    alvo = "Municípios" if municipio else "Locais de Votação"
-    cabeca = (
-        f"Resultado das eleições gerais de {ano} (Presidente, Governador, Senador, Deputado federal e "
-        f"Deputado estadual/distrital) por {'município' if municipio else 'local de votação'} do Brasil, "
-        "com os votos de cada candidato (ou partido, nos deputados) em colunas separadas, aptos, "
-        "comparecimento, abstenção, brancos, nulos e votos anulados. "
+    cargos_txt = "Presidente, Governador, Senador, Deputado federal e Deputado estadual/distrital"
+    if municipio:
+        descricao = [
+            "Base cartográfica georreferenciada em formato GeoPackage contendo os resultados das eleições "
+            f"gerais de {ano} ({cargos_txt}) nos 5.570 municípios do Brasil, com os votos de cada candidato "
+            "(ou partido, nos deputados) em colunas separadas, aptos, comparecimento, abstenção, brancos, "
+            "nulos e votos anulados. Inclui o total de pessoas residentes, os domicílios particulares "
+            "ocupados, a área e a densidade do Censo Demográfico 2022 do IBGE, sobre a malha municipal do "
+            "IBGE de 2022 (versão simplificada do geobr, Ipea). Os votos do exterior (só Presidente) estão "
+            "numa linha sem geometria."
+            + (" Boa Esperança do Norte (MT), criado depois da malha de 2022, também é uma linha sem "
+               "geometria, sem código IBGE e sem dados do Censo." if ano >= 2026 else ""),
+        ]
+    else:
+        geocod = (
+            "a geocodificação de Hidalgo et al. (geocode_br_polling_stations), " if ano < 2026 else ""
+        )
+        descricao = [
+            "Base cartográfica georreferenciada em formato GeoPackage contendo os resultados das eleições "
+            f"gerais de {ano} ({cargos_txt}) nos {_votos(len(ps1))} locais de votação do 1º turno "
+            f"(inclusive {n_exterior} no exterior, sem geometria), com os votos de cada candidato (ou "
+            "partido, nos deputados) em colunas separadas, aptos, comparecimento, abstenção, brancos, "
+            "nulos e votos anulados.",
+            "A coordenada do TSE é validada contra a malha municipal do IBGE de 2022. Quando falha, usa-se "
+            f"a coordenada validada do mesmo local em outra eleição, {geocod}o endereço geocodificado com o "
+            "CNEFE 2022 ou, em último caso, o centroide do município (coord_aproximada; esses pontos "
+            "continuam no arquivo). A coluna fonte_coord diz a origem"
+            + (" (o painel de Hidalgo et al. não cobre 2026)." if ano >= 2026 else ".")
+            + " O local de votação de uma seção pode mudar entre turnos, por isso há um arquivo por turno.",
+        ]
+    senado = (
+        "Em Senador havia 2 vagas por UF e cada eleitor deu 2 votos; brancos, nulos e anulados também "
+        "contam por voto, então válidos, brancos, nulos e anulados somam o dobro do comparecimento, e "
+        "pc_brancos e pc_nulos podem passar de 100."
+        if ano in (2018, 2026) else "Em Senador havia 1 vaga por UF."
     )
-    descricao = cabeca + (
-        "Inclui população, domicílios particulares ocupados, área e densidade do Censo Demográfico 2022 "
-        "do IBGE, sobre a malha municipal do IBGE de 2022. Os votos do exterior (só Presidente) estão "
-        "numa linha sem geometria."
+    descricao.append(
+        "Cada arquivo tem um GeoPackage (camada principal e tabela candidatos) e um Excel (abas dados e "
+        f"candidatos), com o mesmo conteúdo. {senado} Nos deputados, os votos do partido são os nominais "
+        "mais os de legenda; Deputado estadual inclui o distrital, no DF. Percentuais de 0 a 100. Nas "
+        "tabelas, os candidatos com votos anulados aparecem com o destino entre parênteses e sem "
+        "percentual. Dados do TSE: eleitorado_local_votacao, votacao_secao, detalhe_votacao_secao, "
+        "votacao_candidato_munzona e consulta_cand."
+    )
+    fonte = (
+        "TSE - Portal de Dados Abertos; IBGE - Censo Demográfico 2022 e malha municipal 2022"
         if municipio else
-        "A coordenada do TSE é validada contra o município; quando falha, usa-se a do mesmo local em "
-        "outra eleição, a geocodificação de Hidalgo et al., o endereço geocodificado com o CNEFE ou, em "
-        "último caso, o centróide do município (coluna fonte_coord). O local de votação de uma seção "
-        "pode mudar entre turnos, por isso há um arquivo por turno. Os votos do exterior (só Presidente) "
-        "estão em linhas sem geometria (sg_uf = ZZ)."
+        "TSE - Portal de Dados Abertos; IBGE - malha municipal 2022 e CNEFE 2022"
+        + ("; Hidalgo et al. (geocode_br_polling_stations)" if ano < 2026 else "")
     )
-    original = _pdf_dicionario_cem_2022()
-    n_original = len(re.findall(rb"/Type\s*/Page(?!s)", original))
-    quebra = ["```{=typst}", "#pagebreak()", "```", ""]
-    partes = [
-        "---",
-        "lang: pt",
-        "format:",
-        "  typst:",
-        "    papersize: a4",
-        "    fontsize: 10pt",
-        # Capa e créditos: a página original como fundo (pelo logo), com tudo abaixo
-        # dele coberto e o texto reescrito. Ver escreve_dicionario_cem.
-        "    include-in-header:",
-        "      text: |",
-        "        #set page(",
-        "          background: context {",
-        "            let p = here().page()",
-        "            let ultima = counter(page).final().first()",
-        "            if p == 1 or p == ultima {",
-        *(
-            ["              place(top + center, dy: 1.6cm, image(\"logo.svg\", width: 4.6cm))"]
-            if logo_novo else [
-                f"              image(\"original.pdf\", page: if p == 1 {{ 1 }} else {{ {n_original} }}, width: 100%)",
-                "              place(top + left, dy: 5.5cm, rect(fill: white, width: 100%, height: 100%))",
-            ]
-        ),
-        "            }",
-        "          },",
-        "          footer: context {",
-        "            let p = here().page()",
-        "            if p > 1 and p < counter(page).final().first() { align(right, counter(page).display()) }",
-        "          },",
-        "        )",
-        "---",
-        "",
-        "```{=typst}",
-        "#set table(stroke: 0.5pt + luma(110))",
-        "#show table: set text(size: 8pt, hyphenate: false)",
+    siglas = ", ".join(CARGOS[c]["sigla"] + (str(t) if len(turnos(c)) > 1 else "") for c, t in chaves)
+    alvo = "Municípios" if municipio else "Locais de Votação"
+    logo = (
+        'place(top + left, image("logo_antigo.png", width: 21cm))' if atualiza
+        else 'place(top + center, dy: 1.6cm, image("logo.svg", width: 4.6cm))'
+    )
+
+    def _nomes(nomes: list[str]) -> str:
+        return " \\\n".join(f"#emph({_ty(n)})" for n in nomes)
+
+    doc = [
+        f"#set document(title: {_ty(f'Dicionário EL{ano}_{unidade}_BRA')}, author: \"Centro de Estudos da Metrópole\")",
+        '#set text(font: "Calibri", size: 11pt, lang: "pt", hyphenate: false)',
+        "#set par(justify: true)",
+        "#set page(",
+        '  paper: "a4",',
+        "  margin: (left: 3cm, right: 1.7cm, top: 2.5cm, bottom: 2.5cm),",
+        "  footer: context align(right, text(size: 10pt, counter(page).display())),",
+        "  background: context {",
+        "    let p = here().page()",
+        "    if p == 1 or p == counter(page).final().first() {",
+        f"      {logo}",
+        "    }",
+        "  },",
+        ")",
+        "#set table(stroke: 0.5pt + luma(110), inset: (x: 4pt, y: 3pt))",
+        "#show table: set text(size: 8.5pt)",
         "#show table: set par(justify: false)",
-        "#v(7cm)",
-        "#align(center)[#text(font: \"Arial\", size: 20pt)[Base Cartográfica Digital \\",
-        "Georreferenciada do Resultado das \\",
-        f"Eleições nos {alvo} do Brasil",
         "",
-        f"#v(1cm) {ano}]]",
-        "#v(1fr)",
-        "#align(center)[#text(size: 11pt)[Censo Demográfico 2022 e malha municipal IBGE 2022 (novembro de 2026)]]",
-        "#v(1.5cm)",
+        # Capa
+        "#v(9.2cm)",
+        '#align(center, text(font: "Arial", size: 20pt)[',
+        "  Base Cartográfica Digital \\",
+        "  Georreferenciada do Resultado das \\",
+        f"  #{_ty(f'Eleições nos {alvo} do Brasil')}",
+        "  #v(1cm)",
+        f"  #{_ty(str(ano))}",
+        "])",
         "#pagebreak()",
-        "```",
         "",
-        "**Centro de Estudos da Metrópole / CEM**",
+        # Ficha
+        "#strong[Centro de Estudos da Metrópole / CEM]",
         "",
         "Acervo cartográfico georreferenciado",
         "",
         "Bases Eleitorais",
         "",
-        f"Base: **EL{ano}_{unidade}_BRA** (um arquivo por cargo e turno, listados abaixo)",
+        f"Arquivo: #strong({_ty(f'EL{ano}_{unidade}_BRA_{{{siglas}}}')})",
         "",
-        f"Formato: GeoPackage e Excel · Tipo: {'Polígonos (áreas)' if municipio else 'Pontos'} · "
-        f"Data: {ano} · Projeção cartográfica: LatLong - SIRGAS 2000 (EPSG:4674)",
+        "#rect(width: 100%, stroke: 0.5pt, inset: 6pt)[",
+        f"  Formato: GeoPackage e Excel | Tipo: {'Polígonos (áreas)' if municipio else 'Pontos'} | Data: {ano} \\",
+        "  Projeção cartográfica: LatLong - SIRGAS 2000 (EPSG:4674)",
+        "]",
         "",
-        f"Tema: **Eleições {ano}**",
+        f"Tema: #strong({_ty(f'Eleições {ano}')})",
         "",
         "Base cartográfica: "
-        + ("Municípios do Brasil (malha municipal IBGE 2022)" if municipio else "Locais de votação do Brasil"),
+        + _ty_inline("Municípios do Brasil (malha municipal IBGE 2022)" if municipio
+                     else "Locais de votação do Brasil"),
         "",
-        "Fonte de dados: TSE - Portal de Dados Abertos (eleitorado_local_votacao, votacao_secao, "
-        "detalhe_votacao_secao, votacao_candidato_munzona, consulta_cand); IBGE - Censo Demográfico "
-        "2022 e malha municipal 2022",
+        "Fonte de dados: " + _ty_inline(fonte),
         "",
-        "Descrição: " + descricao,
+        "Descrição: " + _ty_inline(descricao[0]),
         "",
-        "Cada arquivo tem um GeoPackage (camada principal e tabela candidatos) e um Excel (abas dados e "
-        "candidatos), com o mesmo conteúdo. Em Senador, em 2018 e 2026 havia 2 vagas e cada eleitor deu "
-        "até 2 votos. Nos deputados, os votos do partido são os nominais mais os de legenda; Deputado "
-        "estadual inclui o distrital, no DF. Percentuais de 0 a 100. Candidatos com votos anulados "
-        "aparecem nas tabelas com o destino entre parênteses e sem percentual.",
-        "",
-        _tabela_md(lista),
+        *[x for p in descricao[1:] for x in (_ty_inline(p), "")],
+        _tabela_typst(lista, "(auto, 1fr, auto, auto)", ["left", "left", "center", "right"]),
         "",
     ]
-    if municipio and ano in (2018, 2022):
-        partes += [f"**Atualização em relação à base EL{ano}_MU_BRA_CEM (novembro de 2026)**", ""]
-        partes += [f"- {linha}" for linha in nota_atualizacao_pacote(ano)] + [""]
-    partes += quebra + ["**Atributos** (colunas do banco de dados):", "", _tabela_md(atributos), ""]
+    if atualiza:
+        doc += [
+            f"#block(sticky: true, above: 1.4em)[#strong({_ty(f'Atualização em relação à base EL{ano}_MU_BRA_CEM (novembro de 2026)')})]",
+            "",
+            *[f"- {_ty_inline(linha)}" for linha in nota_atualizacao_pacote(ano)],
+            "",
+        ]
+    doc += [
+        "#block(sticky: true, above: 1.4em)[#strong[Atributos] (variáveis do banco de dados):]",
+        _tabela_typst(atributos, "(auto, 1fr)", ["left", "left"]),
+        "",
+    ]
     for (cargo, turno), arquivo in arquivos.items():
         cand = pyogrio.read_dataframe(Path(pasta) / f"{arquivo}.gpkg", layer="candidatos")
         sufixo = f" - {turno}º turno" if len(turnos(cargo)) > 1 else ""
         titulo = f"{TITULO_CARGO[CARGOS[cargo]['sigla']]} - Eleição {ano}{sufixo} ({arquivo})"
-        partes += quebra + [f"**{titulo}**", "", _tabela_md(_tabela_candidatos(cand)), ""]
-
-    def _nomes(nomes: list[str]) -> list[str]:
-        return [f"_{n}_ \\" for n in nomes[:-1]] + [f"_{nomes[-1]}_"]
-
-    partes += [
-        "```{=typst}",
+        doc += [
+            f"#block(sticky: true, above: 1.8em)[#strong({_ty(titulo)})]",
+            _tabela_candidatos(cand),
+            "",
+        ]
+    doc += [
+        # Créditos
         "#pagebreak()",
-        "#v(7cm)",
-        "#text(font: \"Calibri\", size: 11pt)[",
-        "*Diretor* \\",
-        "_Eduardo Marques_",
-        "",
-        "*Equipe de Transferência de Tecnologia – Centro de Estudos da Metrópole* \\",
-        *_nomes(equipe),
-        "",
-        "*Conselho Diretor do CEM* \\",
-        *_nomes(conselho),
-        "]",
-        "```",
+        "#v(9.5cm)",
+        "#set par(justify: false)",
+        "#strong[Diretor] \\",
+        '#emph("Eduardo Marques")',
+        "#v(0.6em)",
+        "#strong[Equipe de Transferência de Tecnologia – Centro de Estudos da Metrópole] \\",
+        _nomes(equipe),
+        "#v(0.6em)",
+        "#strong[Conselho Diretor do CEM] \\",
+        _nomes(conselho),
         "",
     ]
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        (tmp / "original.pdf").write_bytes(original)
-        shutil.copyfile(LOGO_CEM, tmp / "logo.svg")
-        qmd = tmp / f"{Path(destino_pdf).stem}.qmd"
-        qmd.write_text("\n".join(partes), encoding="utf-8")
-        subprocess.run(f'quarto render "{qmd.name}" --to typst', cwd=tmp, check=True, shell=True)
+        if atualiza:
+            _logo_antigo_png(_pdf_dicionario_cem_2022(), tmp / "logo_antigo.png")
+        else:
+            shutil.copyfile(LOGO_CEM, tmp / "logo.svg")
+        typ = tmp / f"{Path(destino_pdf).stem}.typ"
+        typ.write_text("\n".join(doc), encoding="utf-8")
+        subprocess.run(f'quarto typst compile "{typ.name}"', cwd=tmp, check=True, shell=True)
         Path(destino_pdf).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(tmp / f"{Path(destino_pdf).stem}.pdf", destino_pdf)
+        shutil.copyfile(typ.with_suffix(".pdf"), destino_pdf)
     return Path(destino_pdf)
+
+
+def _ty_inline(texto: str) -> str:
+    """Parágrafo como string Typst inline (`#"..."`)."""
+    return "#" + _ty(texto)
