@@ -7,7 +7,10 @@ Funções das etapas 11 a 13 (trabalho de Comportamento Eleitoral, FLP0484):
   (acesso controlado) e população, situação e área dos setores do Censo 2022
   (agregados por setor, tabela Básico);
 - regressões com efeito fixo de UF (MQO com erro HC1, como nos textos da
-  disciplina, sem peso), resíduos de Frisch-Waugh-Lovell e VIF.
+  disciplina, sem peso), resíduos de Frisch-Waugh-Lovell e VIF;
+- regressão espacial (`spreg`): testes de multiplicador de Lagrange, modelos de
+  defasagem e de erro espacial por máxima verossimilhança e a regra de escolha entre
+  eles.
 
 Os dados são agregados por município: os coeficientes descrevem onde o PT vai
 melhor, não como vota cada grupo de eleitores.
@@ -15,6 +18,8 @@ melhor, não como vota cada grupo de eleitores.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import shutil
 import zipfile
 from pathlib import Path
@@ -23,7 +28,9 @@ import duckdb
 import numpy as np
 import pandas as pd
 import pyogrio
+import spreg
 import statsmodels.api as sm
+from scipy import stats
 
 from . import perfil
 from .config import CODIGOS_NAO_CANDIDATO, NR_PT, PROCESSADO_DIR, RESULTADOS_DIR
@@ -43,10 +50,12 @@ SITUACAO_SETOR = {
     8: "Área rural (exclusive aglomerados)",
     9: "Massas de água",
 }
-# "Cidades e vilas" (Soares e Terron, 2008): só os setores urbanos de cidade ou vila.
-SIT_CIDADES_E_VILAS = (1, 2)
-# Situação "Urbana" oficial do IBGE (inclui o núcleo urbano, fora da cidade ou vila).
+# Situação "Urbana" oficial do IBGE (inclui o núcleo urbano, fora da cidade ou vila):
+# a regra principal (`urbanizacao`), decidida em 26/11/2026.
 SIT_URBANA_IBGE = (1, 2, 3)
+# "Cidades e vilas" (Soares e Terron, 2008): só os setores urbanos de cidade ou vila.
+# Checagem (`urbanizacao_cv`).
+SIT_CIDADES_E_VILAS = (1, 2)
 SIT_MASSA_DAGUA = 9
 
 
@@ -254,9 +263,11 @@ def taxa_urbanizacao(censo_mun: pd.DataFrame, situacoes: tuple[int, ...]) -> pd.
 def monta_base(ano: int, turno: int = 2) -> pd.DataFrame:
     """Uma linha por município: voto no PT, cadastro, renda e Censo (saídas das etapas 04 e 11).
 
-    `pc_pt`, `superior`, `urbanizacao` e `urbanizacao_ibge` em % (0–100); renda,
-    densidade e população em log. A ordem é a de `municipios.gpkg` (por `cd_mun`), a
-    mesma da matriz de vizinhança da etapa 10.
+    `pc_pt`, `superior`, `urbanizacao` (situação "Urbana" do IBGE, 1+2+3) e
+    `urbanizacao_cv` (cidades e vilas, 1+2) em % (0–100); renda, densidade e população
+    em log. `qt_esc_superior` e `qt_esc_informada` são as contagens do cadastro
+    (superior completo e escolaridade informada). A ordem é a de `municipios.gpkg`
+    (por `cd_mun`), a mesma da matriz de vizinhança da etapa 10.
     """
     aux = PROCESSADO_DIR / "aux"
     municipios = (
@@ -275,20 +286,23 @@ def monta_base(ano: int, turno: int = 2) -> pd.DataFrame:
     res["pc_pt"] = 100 * res[f"qt_votos_{NR_PT}"].astype(float) / res["qt_validos"]
 
     perfil_mun = pd.read_parquet(aux / f"perfil_municipio_{ano}.parquet")
+    perfil_mun["qt_esc_superior"] = perfil_mun[[f"qt_esc_{cd}" for cd in perfil.GRUPOS_ESCOLARIDADE["superior"]]].sum(axis=1)
+    perfil_mun["qt_esc_informada"] = perfil_mun[[f"qt_esc_{cd}" for cd in perfil.CODIGOS_ESCOLARIDADE]].sum(axis=1)
     renda = pd.read_parquet(aux / "renda_censo2022_municipio.parquet")
     censo = pd.read_parquet(aux / "censo2022_municipio.parquet")
     df = (
         municipios
         .merge(res[["cd_mun", "pc_pt", "qt_validos", "qt_aptos"]], on="cd_mun", how="left", validate="1:1")
-        .merge(perfil_mun[["cd_mun", "qt_eleitores_perfil", "pc_esc_superior", "idade_media", "pc_feminino"]],
+        .merge(perfil_mun[["cd_mun", "qt_eleitores_perfil", "qt_esc_superior", "qt_esc_informada",
+                           "pc_esc_superior", "idade_media", "pc_feminino"]],
                on="cd_mun", how="left", validate="1:1")
         .merge(renda[["cd_mun", "renda_pc_media"]], on="cd_mun", how="left", validate="1:1")
-        .merge(censo[["cd_mun", "pop_total", "urbanizacao", "urbanizacao_ibge", "densidade"]],
+        .merge(censo[["cd_mun", "pop_total", "urbanizacao", "urbanizacao_cv", "densidade"]],
                on="cd_mun", how="left", validate="1:1")
     )
     df["superior"] = 100 * df["pc_esc_superior"]
     df["urbanizacao"] = 100 * df["urbanizacao"]
-    df["urbanizacao_ibge"] = 100 * df["urbanizacao_ibge"]
+    df["urbanizacao_cv"] = 100 * df["urbanizacao_cv"]
     df["log_renda"] = np.log(df["renda_pc_media"])
     df["log_densidade"] = np.log(df["densidade"])
     df["log_pop"] = np.log(df["pop_total"])
@@ -333,7 +347,8 @@ def ajusta(
 
 
 def coeficientes(ajuste, preditores: list[str], **rotulos) -> pd.DataFrame:
-    """Uma linha por preditor: coeficiente, erro-padrão, p-valor, N, R² e se há EF de UF."""
+    """Uma linha por preditor: coeficiente, erro-padrão, p-valor, N, R², log-verossimilhança,
+    AIC e se há EF de UF."""
     return pd.DataFrame({
         **rotulos,
         "preditor": preditores,
@@ -342,6 +357,8 @@ def coeficientes(ajuste, preditores: list[str], **rotulos) -> pd.DataFrame:
         "p_valor": ajuste.pvalues[preditores].to_numpy(),
         "n": int(ajuste.nobs),
         "r2": ajuste.rsquared,
+        "logll": ajuste.llf,
+        "aic": ajuste.aic,
         "ef_uf": any(str(p).startswith("uf_") for p in ajuste.params.index),
     })
 
@@ -365,17 +382,39 @@ def estrelas(p: float) -> str:
     return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
 
 
-def tabela_regressao(coefs: pd.DataFrame, colunas: list[str], rotulos: dict[str, str]) -> pd.DataFrame:
+# Estatística do modelo → (rótulo da linha, formato).
+ESTATISTICAS = {
+    "ef_uf": ("EF de UF", lambda v: "sim" if v else "não"),
+    "n": ("N", lambda v: numero(v, 0)),
+    "r2": ("R²", lambda v: numero(v, 3)),
+    "logll": ("Log-verossimilhança", lambda v: numero(v, 1)),
+    "aic": ("AIC", lambda v: numero(v, 1)),
+}
+
+
+def tabela_regressao(
+    coefs: pd.DataFrame,
+    colunas: list[str],
+    rotulos: dict[str, str],
+    *,
+    estatisticas: tuple[str, ...] = ("ef_uf", "n", "r2"),
+    rotulo_r2: str = "R²",
+    extras: dict[str, dict[str, str]] | None = None,
+) -> pd.DataFrame:
     """Tabela no formato de artigo: coeficiente com estrelas e, embaixo, o erro-padrão.
 
     Args:
         coefs: formato longo, com `coluna` (o rótulo da coluna da tabela),
-            `preditor`, `coef`, `ep`, `p_valor`, `n`, `r2` e `ef_uf`.
+            `preditor`, `coef`, `ep`, `p_valor` e as `estatisticas` do modelo.
         colunas: ordem das colunas.
-        rotulos: preditor → nome da linha, na ordem das linhas.
+        rotulos: preditor → nome da linha, na ordem das linhas. Um preditor ausente
+            numa coluna fica em branco (ex.: ρ só nas colunas de defasagem).
+        estatisticas: chaves de `ESTATISTICAS`, na ordem das linhas finais.
+        rotulo_r2: nome da linha do R² (ex.: "R² ou pseudo-R²").
+        extras: linhas a mais no fim, já em texto (rótulo → {coluna: texto}).
 
     Returns:
-        DataFrame de texto: duas linhas por preditor, mais "EF de UF", "N" e "R²".
+        DataFrame de texto: duas linhas por preditor, mais as estatísticas e os extras.
     """
     linhas = {}
     for preditor, rotulo in rotulos.items():
@@ -383,10 +422,15 @@ def tabela_regressao(coefs: pd.DataFrame, colunas: list[str], rotulos: dict[str,
         linhas[rotulo] = {c: numero(sub.at[c, "coef"]) + estrelas(sub.at[c, "p_valor"]) if c in sub.index else ""
                           for c in colunas}
         linhas[f"{rotulo} (EP)"] = {c: f"({numero(sub.at[c, 'ep'])})" if c in sub.index else "" for c in colunas}
-    resumo = coefs.groupby("coluna")[["ef_uf", "n", "r2"]].first()
-    linhas["EF de UF"] = {c: "sim" if resumo.at[c, "ef_uf"] else "não" for c in colunas}
-    linhas["N"] = {c: numero(resumo.at[c, "n"], 0) for c in colunas}
-    linhas["R²"] = {c: numero(resumo.at[c, "r2"], 3) for c in colunas}
+    resumo = coefs.groupby("coluna")[list(estatisticas)].first()
+    for chave in estatisticas:
+        rotulo, formato = ESTATISTICAS[chave]
+        linhas[rotulo_r2 if chave == "r2" else rotulo] = {
+            c: formato(resumo.at[c, chave]) if c in resumo.index and pd.notna(resumo.at[c, chave]) else ""
+            for c in colunas
+        }
+    for rotulo, valores in (extras or {}).items():
+        linhas[rotulo] = {c: valores.get(c, "") for c in colunas}
     tab = pd.DataFrame(linhas).T[colunas]
     tab.index = [i if not i.endswith(" (EP)") else "" for i in tab.index]
     return tab
@@ -413,3 +457,136 @@ def vif(df: pd.DataFrame, preditores: list[str], *, ef_uf: bool) -> pd.Series:
         r2 = sm.OLS(z[p], sm.add_constant(pd.concat(partes, axis=1))).fit().rsquared
         saida[p] = 1 / (1 - r2)
     return pd.Series(saida, name="vif")
+
+
+# ==== Regressão espacial =====================================================
+
+# Nome do parâmetro espacial no `name_x` do spreg.
+PARAMETRO_ESPACIAL = {"defasagem": "rho", "erro": "lambda"}
+
+
+def modelos_espaciais(df: pd.DataFrame, y: str, preditores: list[str], w, *, ef_uf: bool = True) -> dict:
+    """MQO com diagnósticos espaciais e os modelos de defasagem e de erro espacial.
+
+    Mesmos regressores do `ajusta` (preditores padronizados e dummies de UF); o spreg
+    põe a constante. Defasagem e erro por máxima verossimilhança, com o log-determinante
+    pela decomposição LU esparsa (`method="LU"`). Sem peso.
+
+    Args:
+        df: base na ordem das linhas de `w`.
+        y: variável dependente.
+        preditores: preditores a padronizar.
+        w: matriz de vizinhança (libpysal), padronizada por linha.
+        ef_uf: inclui as dummies de UF.
+
+    Returns:
+        `{"mqo": spreg.OLS, "defasagem": spreg.ML_Lag, "erro": spreg.ML_Error}`. O
+        `mqo` traz os testes de multiplicador de Lagrange (`lm_lag`, `lm_error`,
+        `rlm_lag`, `rlm_error`, `lm_sarma`) e o I de Moran dos resíduos (`moran_res`).
+    """
+    X = matriz(df, preditores, ef_uf=ef_uf).drop(columns="const")
+    nomes = list(X.columns)
+    yv = df[[y]].to_numpy(dtype=float)
+    xv = X.to_numpy(dtype=float)
+    # O spreg 1.9 imprime o nome da classe ("ML_Lag", "ML_Error") ao estimar.
+    with contextlib.redirect_stdout(io.StringIO()):
+        return {
+            "mqo": spreg.OLS(yv, xv, w=w, spat_diag=True, moran=True, name_y=y, name_x=nomes),
+            "defasagem": spreg.ML_Lag(yv, xv, w=w, method="LU", name_y=y, name_x=nomes),
+            "erro": spreg.ML_Error(yv, xv, w=w, method="LU", name_y=y, name_x=nomes),
+        }
+
+
+def coeficientes_spreg(ajuste, espacial: str, preditores: list[str], **rotulos) -> pd.DataFrame:
+    """Coeficientes de um `ML_Lag` ou `ML_Error` no formato de `coeficientes`.
+
+    `espacial` é "defasagem" ou "erro". O parâmetro espacial (`rho` ou `lambda`) entra
+    como mais uma linha de `preditor`.
+    `r2` é o pseudo-R² do spreg (correlação ao quadrado entre observado e previsto).
+    Os erros-padrão são os da máxima verossimilhança (matriz de informação), não robustos.
+    """
+    nomes = list(ajuste.name_x)
+    nomes[-1] = PARAMETRO_ESPACIAL[espacial]  # "W_pc_pt" na defasagem, "lambda" no erro
+    betas = np.asarray(ajuste.betas, dtype=float).ravel()
+    ep = np.asarray(ajuste.std_err, dtype=float).ravel()
+    p = np.array([float(z[1]) for z in ajuste.z_stat])
+    linhas = [*preditores, PARAMETRO_ESPACIAL[espacial]]
+    idx = [nomes.index(n) for n in linhas]
+    return pd.DataFrame({
+        **rotulos,
+        "preditor": linhas,
+        "coef": betas[idx],
+        "ep": ep[idx],
+        "p_valor": p[idx],
+        "n": int(ajuste.n),
+        "r2": float(ajuste.pr2),
+        "logll": float(ajuste.logll),
+        "aic": float(ajuste.aic),
+        "ef_uf": any(n.startswith("uf_") for n in nomes),
+    })
+
+
+def efeito_total_defasagem(lag, preditor: str) -> dict:
+    """Efeito total médio de um preditor no modelo de defasagem: β / (1 − ρ).
+
+    Com W padronizada por linha, o efeito total médio é β / (1 − ρ) (o multiplicador
+    "simple" do spreg). Erro-padrão pelo método delta, com a covariância de β e ρ da
+    máxima verossimilhança.
+    """
+    nomes = list(lag.name_x)
+    betas = np.asarray(lag.betas, dtype=float).ravel()
+    i, j = nomes.index(preditor), len(nomes) - 1
+    beta, rho = betas[i], betas[j]
+    total = beta / (1 - rho)
+    gradiente = np.zeros(len(betas))
+    gradiente[i] = 1 / (1 - rho)
+    gradiente[j] = beta / (1 - rho) ** 2
+    ep = float(np.sqrt(gradiente @ np.asarray(lag.vm) @ gradiente))
+    return {
+        "beta": beta,
+        "rho": rho,
+        "multiplicador": 1 / (1 - rho),
+        "total": total,
+        "ep_total": ep,
+        "p_total": float(2 * stats.norm.sf(abs(total / ep))),
+    }
+
+
+def testes_lm(mqo) -> dict:
+    """Testes de multiplicador de Lagrange e I de Moran dos resíduos de um `spreg.OLS`."""
+    saida = {}
+    for nome, attr in [("lm_defasagem", "lm_lag"), ("lm_erro", "lm_error"), ("lm_robusto_defasagem", "rlm_lag"),
+                       ("lm_robusto_erro", "rlm_error"), ("lm_sarma", "lm_sarma")]:
+        estatistica, p = getattr(mqo, attr)
+        saida[nome], saida[f"p_{nome}"] = float(estatistica), float(p)
+    saida["moran_res"], saida["z_moran_res"], saida["p_moran_res"] = (float(v) for v in mqo.moran_res)
+    return saida
+
+
+def modelo_preferido(lm: dict, alfa: float = 0.05) -> tuple[str, str]:
+    """Regra de decisão de Anselin (2005), citada por Soares e Terron (2008).
+
+    1. Se nem o LM da defasagem nem o do erro são significativos, fica o MQO.
+    2. Se só um é significativo, fica esse modelo.
+    3. Se os dois são, decidem os LM robustos: o único significativo ou, se os dois
+       forem (ou nenhum), o de maior estatística.
+
+    Args:
+        lm: saída de `testes_lm`.
+        alfa: nível de significância.
+
+    Returns:
+        `("mqo" | "defasagem" | "erro", motivo)`.
+    """
+    lag, err = lm["p_lm_defasagem"] < alfa, lm["p_lm_erro"] < alfa
+    if not (lag or err):
+        return "mqo", "nenhum LM simples significativo"
+    if lag != err:
+        return ("defasagem" if lag else "erro"), "só um LM simples significativo"
+    rlag, rerr = lm["p_lm_robusto_defasagem"] < alfa, lm["p_lm_robusto_erro"] < alfa
+    if rlag != rerr:
+        return ("defasagem" if rlag else "erro"), "só um LM robusto significativo"
+    maior = "defasagem" if lm["lm_robusto_defasagem"] >= lm["lm_robusto_erro"] else "erro"
+    if rlag:
+        return maior, "os dois LM robustos significativos: fica o de maior estatística"
+    return maior, "nenhum LM robusto significativo: fica o de maior estatística"

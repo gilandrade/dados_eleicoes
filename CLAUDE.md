@@ -44,7 +44,8 @@ quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa d
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
 quarto render 10_autocorrelacao_espacial.qmd --profile local   # Moran/LISA do PT por município
 quarto render 11_insumos_escolaridade_renda.qmd --profile local   # escolaridade, renda, urbanização por município
-quarto render 12_escolaridade_voto_municipio.qmd --profile local  # modelos do trabalho FLP0484
+quarto render 12_escolaridade_voto_municipio.qmd --profile local  # MQO, resíduos FWL e LISA (FLP0484)
+quarto render 13_regressao_espacial_municipio.qmd --profile local  # defasagem/erro espacial e tabelas do artigo
 quarto render autocorrelacao.qmd             # página do site com o resultado da 10
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
@@ -117,17 +118,23 @@ data model (geometry files vs. result files joined by a shared id).
   visualizador): `quarto render autocorrelacao.qmd` depois da 10. As figuras dela
   (`docs/autocorrelacao_files/`) têm exceção no `.gitignore`. Os votos dos resultados
   vêm em int32: `100 * soma` estoura, converter para float antes.
-- **11–12 (Python, branch `trabalho-comportamento-eleitoral`)**: trabalho de
+- **11–13 (Python, branch `trabalho-comportamento-eleitoral`)**: trabalho de
   Comportamento Eleitoral (FLP0484): escolaridade × voto no PT no 2º turno de 2018 e
   2026, descontadas renda e UF, por município. `11_insumos_escolaridade_renda.qmd`
   grava em `dados/02_processado/aux/` o cadastro (`perfil_municipio_{ano}`, de
   `perfil_eleitorado_{ano}.zip`, baixado pela 03b), a renda per capita dos microdados
   controlados (`renda_censo2022_municipio`, mesma população da branch
   `analise-perfil-voto`) e população/situação/área dos setores
-  (`censo2022_municipio`, Básico do IBGE). `12_escolaridade_voto_municipio.qmd`: MQO
-  sem peso, erro HC1, preditores padronizados, EF de UF; saídas em
-  `dados/03_saida/trabalho_flp0484/`. Funções em `escolaridade_voto.py`;
-  `perfil.py` veio da `analise-perfil-voto` sem alteração.
+  (`censo2022_municipio`, Básico do IBGE; `urbanizacao` = situação "Urbana", `CD_SIT`
+  1+2+3, regra principal desde 26/11/2026; `urbanizacao_cv` = cidades e vilas, 1+2,
+  checagem). `12_escolaridade_voto_municipio.qmd`: MQO (a)–(d) sem peso, erro HC1,
+  preditores padronizados, EF de UF, checagens; resíduos de Frisch-Waugh-Lovell
+  (`r_esc`, `r_voto`) e LISA univariado de cada um (painel 2 × 2). `13_regressao_espacial_municipio.qmd`:
+  LM simples e robustos, `spreg.ML_Lag`/`ML_Error` (`method="LU"`) para (c) e (d),
+  regra de Anselin, efeito total β/(1−ρ), tabelas completa e compacta e as limitações.
+  Saídas em `dados/03_saida/trabalho_flp0484/`. Funções em `escolaridade_voto.py`;
+  `perfil.py` veio da `analise-perfil-voto` sem alteração. Ordem: 11 → 12 → 13 (a 13
+  confere o MQO contra o `coef_etapa1_mqo.parquet` da 12).
 - **Renderizar a 06 regrava todos os JSON do site** com os dados locais atuais: se
   eles divergem do que foi publicado (ex.: locais de 2018/2022), o `git status` mostra
   arquivos alterados que não fazem parte da mudança; conferir antes de commitar.
@@ -618,8 +625,9 @@ data model (geometry files vs. result files joined by a shared id).
   - **`CD_SIT` em 2022** (dicionário `Dicionario_de_dados_malha_agregados.xlsx`): 1 e 2
     "área urbana de alta/baixa densidade de edificações de cidade ou vila", 3 "núcleo
     urbano", 5–7 aglomerados rurais, 8 área rural, 9 massas de água (sem `SITUACAO` e
-    sem morador). **Não existe 4.** 1+2+3 = situação "Urbana". "Cidades e vilas" de
-    Soares e Terron = 1+2 (85,4% da população); em 370 municípios o 3 pesa > 10 p.p.
+    sem morador). **Não existe 4.** 1+2+3 = situação "Urbana" (87,4% da população),
+    a regra principal escolhida pelo Gil em 26/11/2026. "Cidades e vilas" de Soares e
+    Terron = 1+2 (85,4%), checagem; em 370 municípios o 3 pesa > 10 p.p.
   - **Renda no município:** a calibrada da branch preserva a média da área de
     ponderação, e as áreas ficam dentro do município; no município ela é a média dos
     microdados (`P0080` tem 7 dígitos). Totais iguais aos da branch (203.080.756 e
@@ -630,3 +638,16 @@ data model (geometry files vs. result files joined by a shared id).
     `RENV_CONFIG_SYNCHRONIZED_CHECK=FALSE`); com isso `quarto render` de `.qmd` em R
     fica parado sem abrir o R. Os perfis foram baixados com `curl` (o CDN do TSE
     aceita). Causa não investigada.
+- **Trabalho FLP0484, regressão espacial (26/11/2026, spreg 1.9.2):**
+  - `ML_Lag`/`ML_Error` põem o parâmetro espacial no fim de `betas`, `std_err`,
+    `z_stat` e `vm` (`name_x[-1]` é `W_<y>` na defasagem e `lambda` no erro); o `OLS`
+    com `spat_diag=True` traz `lm_lag`, `lm_error`, `rlm_lag`, `rlm_error`, `lm_sarma`
+    e `moran_res` como tuplas (estatística, p). Os dois ML imprimem o nome da classe
+    no stdout (silenciado em `ev.modelos_espaciais`). Com `method="LU"`, cada modelo
+    leva ~8 s com 5.570 municípios e 29 regressores.
+  - O daemon do kernel do Quarto guarda o `src/eleicoes` já importado: depois de
+    editar um módulo, renderizar com `--execute-daemon-restart`, senão roda o código
+    antigo.
+  - Resultado: com a dependência espacial no modelo, a escolaridade perde o efeito
+    positivo do MQO. No (d) preferido pelos LM robustos (erro em 2018, defasagem em
+    2026) ela não é significativa; só no modelo de erro de 2026 fica positiva.

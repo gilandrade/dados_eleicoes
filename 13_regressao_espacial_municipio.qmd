@@ -1,0 +1,437 @@
+---
+title: "13 · Regressão espacial: escolaridade, renda e voto no PT por município"
+search: false
+execute:
+  echo: true
+---
+
+Última etapa do trabalho de Comportamento Eleitoral (FLP0484). A etapa 12 mostrou que,
+descontadas a renda e a UF, o coeficiente da escolaridade no voto no PT é positivo em
+2026 e quase nulo em 2018 (positivo só com a urbanização), e que os resíduos do MQO têm
+forte autocorrelação espacial. Aqui o coeficiente é testado nos modelos de **defasagem
+espacial** (o voto dos vizinhos entra como regressor, ρ) e de **erro espacial** (o erro
+dos vizinhos entra no erro, λ), como em Soares e Terron (2008) e Corrêa (2015).
+
+- Mesmas variáveis e mesmos regressores da etapa 12: preditores padronizados (p.p. do PT
+  por +1 desvio-padrão) e 26 dummies de UF, sem peso.
+- Matriz: contiguidade Queen de primeira ordem, padronizada por linha, com as duas ilhas
+  ligadas ao vizinho mais próximo (`ac.pesos_contiguidade`, a mesma das etapas 10 e 12).
+- Defasagem e erro por máxima verossimilhança (`spreg.ML_Lag` e `spreg.ML_Error`,
+  `method="LU"`). Os erros-padrão são os da máxima verossimilhança, não robustos.
+- Escolha entre os dois pela regra de Anselin (2005), citada por Soares e Terron: os
+  testes de multiplicador de Lagrange (LM) do MQO e, se os dois forem significativos, os
+  LM robustos.
+
+```bash
+quarto render 13_regressao_espacial_municipio.qmd --profile local
+```
+
+```{python}
+#| label: setup
+import sys
+import warnings
+
+sys.path.insert(0, "src")
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+from scipy.sparse import SparseEfficiencyWarning
+
+from eleicoes import autocorrelacao as ac
+from eleicoes import escolaridade_voto as ev
+from eleicoes.config import NOME_BOLSONARO_POR_ANO, NOME_PT_POR_ANO, PROCESSADO_DIR, SAIDA_DIR
+
+# O KNN de 1 vizinho que liga as ilhas tem muitos componentes; a matriz final tem um só.
+warnings.filterwarnings("ignore", message="The weights matrix is not fully connected")
+# spreg: a LU esparsa pede outro formato de matriz e o número de condição (com as dummies
+# de UF) passa por uma raiz de autovalor negativo; nenhum dos dois muda as estimativas.
+warnings.filterwarnings("ignore", category=SparseEfficiencyWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="spreg")
+pd.options.display.float_format = "{:,.3f}".format
+pd.options.display.max_colwidth = 120
+
+ANOS = [2018, 2026]
+SAIDA = SAIDA_DIR / "trabalho_flp0484"
+SAIDA.mkdir(parents=True, exist_ok=True)
+
+ROTULOS = {
+    "superior": "Superior completo",
+    "log_renda": "Renda per capita (log)",
+    "urbanizacao": "Urbanização",
+    "rho": "ρ (defasagem espacial)",
+    "lambda": "λ (erro espacial)",
+}
+ESPECIFICACOES = {
+    "(a)": (["superior"], False),
+    "(b)": (["superior", "log_renda"], False),
+    "(c)": (["superior", "log_renda"], True),
+    "(d)": (["superior", "log_renda", "urbanizacao"], True),
+}
+ESPACIAIS = ["(c)", "(d)"]
+TIPOS = ["defasagem", "erro"]
+```
+
+## Dados e matriz
+
+```{python}
+#| label: dados
+bases = {ano: ev.monta_base(ano) for ano in ANOS}
+municipios = (
+    gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg")
+    .sort_values("cd_mun")
+    .reset_index(drop=True)
+)
+for df in bases.values():
+    assert (df["cd_mun"].to_numpy() == municipios["cd_mun"].to_numpy()).all()
+w = ac.pesos_contiguidade(municipios)
+print(f"{w.n:,} municípios | {w.mean_neighbors:.2f} vizinhos em média | componentes: {w.n_components}")
+```
+
+## 4. Regressão espacial
+
+### MQO e testes de multiplicador de Lagrange
+
+O MQO (a) a (d) é o da etapa 12 (erro HC1). Os testes LM e o I de Moran dos resíduos
+saem do `spreg.OLS` com os mesmos regressores (os coeficientes são os mesmos; ver a
+Conferência).
+
+- **LM defasagem / LM erro:** testam ρ = 0 e λ = 0, cada um supondo o outro nulo.
+- **LM robustos:** cada um corrigido pela presença do outro tipo de dependência.
+- **SARMA:** os dois juntos.
+
+```{python}
+#| label: mqo
+mqo, coefs = {}, []
+for ano, df in bases.items():
+    for nome, (preditores, ef_uf) in ESPECIFICACOES.items():
+        mqo[(ano, nome)] = ev.ajusta(df, "pc_pt", preditores, ef_uf=ef_uf)
+        coefs.append(ev.coeficientes(mqo[(ano, nome)], preditores, ano=ano, modelo=nome, tipo="MQO",
+                                     coluna=f"{nome} MQO"))
+```
+
+```{python}
+#| label: espaciais
+espaciais = {
+    (ano, nome): ev.modelos_espaciais(bases[ano], "pc_pt", ESPECIFICACOES[nome][0], w)
+    for ano in ANOS for nome in ESPACIAIS
+}
+lms = {chave: ev.testes_lm(m["mqo"]) for chave, m in espaciais.items()}
+preferidos = {chave: ev.modelo_preferido(lm) for chave, lm in lms.items()}
+
+tab_lm = pd.DataFrame(lms)
+tab_lm.columns.names = ["ano", "modelo"]
+tab_lm
+```
+
+Modelo preferido pela regra de Anselin:
+
+```{python}
+#| label: preferido
+pd.DataFrame(
+    [{"ano": ano, "modelo": nome, "preferido": tipo, "motivo": motivo} for (ano, nome), (tipo, motivo) in preferidos.items()]
+).set_index(["ano", "modelo"])
+```
+
+### Modelos de defasagem e de erro espacial
+
+```{python}
+#| label: coeficientes-espaciais
+for (ano, nome), m in espaciais.items():
+    for tipo in TIPOS:
+        coefs.append(ev.coeficientes_spreg(m[tipo], tipo, ESPECIFICACOES[nome][0], ano=ano, modelo=nome, tipo=tipo,
+                                           coluna=f"{nome} {tipo}"))
+coefs = pd.concat(coefs, ignore_index=True)
+coefs.to_parquet(SAIDA / "coef_modelos.parquet", index=False)
+
+espaciais_tab = coefs.loc[coefs["modelo"].isin(ESPACIAIS)].pivot_table(
+    index=["modelo", "preditor"], columns=["ano", "tipo"], values=["coef", "ep", "p_valor"]
+).reorder_levels([1, 2, 0], axis=1).sort_index(axis=1)
+espaciais_tab
+```
+
+### O teste decisivo: a escolaridade nos modelos espaciais
+
+Na etapa 12, o coeficiente positivo da escolaridade perdia a significância com o erro
+agrupado por UF e com o WLS. A pergunta aqui é se ele resiste quando a dependência
+espacial entra no modelo.
+
+```{python}
+#| label: superior-espacial
+sup = coefs.loc[(coefs["preditor"] == "superior") & coefs["modelo"].isin(ESPACIAIS)]
+sup = sup.pivot_table(index=["ano", "modelo"], columns="tipo", values=["coef", "ep", "p_valor"])
+sup = sup.reorder_levels([1, 0], axis=1)[[(t, v) for t in ["MQO", *TIPOS] for v in ("coef", "ep", "p_valor")]]
+sup
+```
+
+```{python}
+#| label: superior-espacial-texto
+#| output: asis
+def descreve(ano, nome, tipo):
+    r = coefs.loc[(coefs["ano"] == ano) & (coefs["modelo"] == nome) & (coefs["tipo"] == tipo)
+                  & (coefs["preditor"] == "superior")].iloc[0]
+    sig = "significativo" if r["p_valor"] < 0.05 else "não significativo"
+    return f"{ev.numero(r['coef'])} (EP {ev.numero(r['ep'])}, p = {ev.numero(r['p_valor'], 3)}, {sig})"
+
+
+for ano in ANOS:
+    for nome in ESPACIAIS:
+        print(f"- **{NOME_PT_POR_ANO[ano]} {ano}, {nome}:** MQO {descreve(ano, nome, 'MQO')}; "
+              f"defasagem {descreve(ano, nome, 'defasagem')}; erro {descreve(ano, nome, 'erro')}. "
+              f"Preferido: {preferidos[(ano, nome)][0]}.")
+```
+
+### Efeito total no modelo de defasagem
+
+No modelo de defasagem, β não é o efeito marginal: uma mudança na escolaridade de um
+município muda o voto dele e, pelo ρ, o dos vizinhos, que volta para ele. Com a matriz
+padronizada por linha, o efeito total médio é β / (1 − ρ). Erro-padrão pelo método delta.
+
+```{python}
+#| label: efeito-total
+efeitos = pd.DataFrame([
+    {"ano": ano, "modelo": nome, "preditor": p, **ev.efeito_total_defasagem(m["defasagem"], p)}
+    for (ano, nome), m in espaciais.items() for p in ESPECIFICACOES[nome][0]
+])
+efeitos.to_parquet(SAIDA / "efeito_total_defasagem.parquet", index=False)
+efeitos.set_index(["ano", "modelo", "preditor"])
+```
+
+### Autocorrelação que sobra nos resíduos
+
+I de Moran (9.999 permutações, mesma matriz) dos resíduos de cada modelo: no MQO, o
+resíduo; na defasagem, o resíduo depois de descontado ρ·Wy; no erro, o resíduo filtrado
+(u − λ·Wu).
+
+```{python}
+#| label: moran-residuos
+moran_res = []
+for ano in ANOS:
+    for nome in ESPECIFICACOES:
+        moran_res.append({"ano": ano, "coluna": f"{nome} MQO",
+                          **ac.moran_global(mqo[(ano, nome)].resid.to_numpy(), w)})
+    for nome in ESPACIAIS:
+        m = espaciais[(ano, nome)]
+        for tipo, residuo in [("defasagem", m["defasagem"].u), ("erro", m["erro"].e_filtered)]:
+            moran_res.append({"ano": ano, "coluna": f"{nome} {tipo}", **ac.moran_global(np.asarray(residuo).ravel(), w)})
+moran_res = pd.DataFrame(moran_res)
+moran_res.to_parquet(SAIDA / "moran_residuos_modelos.parquet", index=False)
+moran_res.pivot(index="coluna", columns="ano", values=["I", "p_sim"])
+```
+
+### Checagem: (d) com cidades e vilas (1+2)
+
+O (d) principal usa a situação "Urbana" do IBGE (`CD_SIT` 1 + 2 + 3). Com só as cidades e
+vilas (1 + 2):
+
+```{python}
+#| label: checagem-cidades-vilas
+PRED_CV = ["superior", "log_renda", "urbanizacao_cv"]
+cheq = []
+for ano, df in bases.items():
+    cheq.append(ev.coeficientes(ev.ajusta(df, "pc_pt", PRED_CV, ef_uf=True), PRED_CV, ano=ano, tipo="MQO"))
+    m = ev.modelos_espaciais(df, "pc_pt", PRED_CV, w)
+    for tipo in TIPOS:
+        cheq.append(ev.coeficientes_spreg(m[tipo], tipo, PRED_CV, ano=ano, tipo=tipo))
+cheq = pd.concat(cheq, ignore_index=True)
+cheq.loc[cheq["preditor"].isin(["superior", "urbanizacao_cv"])].pivot_table(
+    index=["ano", "preditor"], columns="tipo", values=["coef", "ep", "p_valor"]
+).reorder_levels([1, 0], axis=1).sort_index(axis=1)
+```
+
+## 5. Tabelas do artigo
+
+`*` p < 0,05; `**` p < 0,01; `***` p < 0,001. Coeficientes padronizados (p.p. do PT por
++1 desvio-padrão). Erro-padrão entre parênteses: HC1 no MQO, máxima verossimilhança nos
+modelos espaciais. Os LM são do MQO da mesma especificação. O pseudo-R² do spreg é a
+correlação ao quadrado entre o observado e o previsto; na defasagem, o previsto inclui
+ρ·Wy (o voto dos vizinhos), por isso ele não se compara com o R² do MQO. Para comparar
+modelos, a log-verossimilhança e o AIC.
+
+```{python}
+#| label: funcoes-tabela
+NOTA = ("Coeficientes padronizados: variação do % de votos válidos do PT, em p.p., para +1 desvio-padrão do "
+        "preditor. Erro-padrão entre parênteses (HC1 no MQO; máxima verossimilhança nos modelos espaciais). "
+        "EF de UF: 26 dummies de UF. Os testes LM são do MQO da mesma especificação. Pseudo-R²: correlação "
+        "ao quadrado entre observado e previsto (na defasagem, o previsto inclui ρ·Wy; não se compara com o R² "
+        "do MQO). * p < 0,05; ** p < 0,01; *** p < 0,001.")
+
+
+def texto_estatistica(estatistica, p, casas=1):
+    return f"{ev.numero(estatistica, casas)}{ev.estrelas(p)}"
+
+
+def extras_lm(ano, colunas_por_modelo):
+    """Linhas dos LM robustos (e simples), na coluna MQO de cada especificação."""
+    linhas = {}
+    for rotulo, chave in [("LM defasagem", "lm_defasagem"), ("LM erro", "lm_erro"),
+                          ("LM robusto, defasagem", "lm_robusto_defasagem"), ("LM robusto, erro", "lm_robusto_erro")]:
+        linhas[rotulo] = {col: texto_estatistica(lms[(ano, nome)][chave], lms[(ano, nome)][f"p_{chave}"])
+                          for nome, col in colunas_por_modelo.items()}
+    return linhas
+
+
+def titulo_painel(ano):
+    return f"{NOME_PT_POR_ANO[ano]} × {NOME_BOLSONARO_POR_ANO[ano]}, 2º turno de {ano}"
+
+
+def grava(tabelas, nome):
+    """CSV com os dois painéis empilhados e markdown com um título por painel."""
+    pd.concat({titulo_painel(a): t for a, t in tabelas.items()}, names=["painel", "linha"]).to_csv(SAIDA / f"{nome}.csv")
+    partes = [f"### {titulo_painel(a)}\n\n{ev.para_markdown(t)}" for a, t in tabelas.items()]
+    (SAIDA / f"{nome}.md").write_text("\n\n".join(partes) + f"\n\n{NOTA}\n", encoding="utf-8")
+```
+
+### Tabela completa
+
+(a) a (d) em MQO; defasagem e erro para (c) e para (d).
+
+```{python}
+#| label: tabela-completa
+COLUNAS = [f"{n} MQO" for n in ESPECIFICACOES] + [f"{n} {t}" for n in ESPACIAIS for t in TIPOS]
+completa = {}
+for ano in ANOS:
+    moran_texto = {r["coluna"]: texto_estatistica(r["I"], r["p_sim"], 3)
+                   for _, r in moran_res.loc[moran_res["ano"] == ano].iterrows()}
+    completa[ano] = ev.tabela_regressao(
+        coefs.loc[coefs["ano"] == ano], COLUNAS, ROTULOS,
+        estatisticas=("ef_uf", "n", "r2", "logll", "aic"), rotulo_r2="R² (pseudo-R² nos espaciais)",
+        extras={**extras_lm(ano, {n: f"{n} MQO" for n in ESPACIAIS}), "I de Moran dos resíduos": moran_texto},
+    )
+grava(completa, "tabela_modelos")
+pd.concat({titulo_painel(a): t for a, t in completa.items()})
+```
+
+### Tabela compacta
+
+(a), (c), (d) e o modelo espacial de (d) escolhido pelos LM robustos, nos dois anos. O
+parâmetro espacial fica numa linha só ("ρ ou λ"); a linha "Modelo espacial" diz qual é.
+
+```{python}
+#| label: tabela-compacta
+ROTULOS_COMPACTA = {**{k: v for k, v in ROTULOS.items() if k not in ("rho", "lambda")},
+                    "espacial": "ρ ou λ (parâmetro espacial)"}
+COLUNAS_COMPACTA = ["(a)", "(c)", "(d)", "(d) espacial"]
+compacta = {}
+for ano in ANOS:
+    tipo = preferidos[(ano, "(d)")][0]
+    assert tipo in TIPOS, f"{ano}: a regra de Anselin ficou com o MQO"
+    origem = {"(a) MQO": "(a)", "(c) MQO": "(c)", "(d) MQO": "(d)", f"(d) {tipo}": "(d) espacial"}
+    sub = coefs.loc[(coefs["ano"] == ano) & coefs["coluna"].isin(origem)].copy()
+    sub["coluna"] = sub["coluna"].map(origem)
+    sub["preditor"] = sub["preditor"].replace({"rho": "espacial", "lambda": "espacial"})
+    compacta[ano] = ev.tabela_regressao(
+        sub, COLUNAS_COMPACTA, ROTULOS_COMPACTA,
+        estatisticas=("ef_uf", "n", "r2", "logll", "aic"), rotulo_r2="R² (pseudo-R² no espacial)",
+        extras={
+            "Modelo espacial": {"(d) espacial": "defasagem (ρ)" if tipo == "defasagem" else "erro (λ)"},
+            **{k: v for k, v in extras_lm(ano, {"(c)": "(c)", "(d)": "(d)"}).items() if "robusto" in k},
+        },
+    )
+grava(compacta, "tabela_modelos_compacta")
+pd.concat({titulo_painel(a): t for a, t in compacta.items()})
+```
+
+## Limitações
+
+```{python}
+#| label: numeros-limitacoes
+vif_max = {ano: max(ev.vif(bases[ano], ESPECIFICACOES[n][0], ef_uf=True).max() for n in ESPACIAIS) for ano in ANOS}
+r2_esc = {}
+for ano, df in bases.items():
+    z = ev.padroniza(df, ["superior"])["superior"]
+    r2_esc[ano] = 1 - ev.residualiza(df.assign(superior_z=z), "superior_z", ["log_renda"], ef_uf=True).var() / z.var()
+moran_i = moran_res.set_index(["ano", "coluna"])["I"]
+numeros = pd.DataFrame({
+    ano: {
+        "correlação superior × log da renda": bases[ano]["superior"].corr(bases[ano]["log_renda"]),
+        "maior VIF em (c) e (d)": vif_max[ano],
+        "R² de superior ~ renda + UF": r2_esc[ano],
+        "% nacional com superior completo": 100 * bases[ano]["qt_esc_superior"].sum() / bases[ano]["qt_esc_informada"].sum(),
+        "I de Moran, resíduo de (d) MQO": moran_i[(ano, "(d) MQO")],
+        "I de Moran, resíduo de (d) defasagem": moran_i[(ano, "(d) defasagem")],
+        "I de Moran, resíduo de (d) erro": moran_i[(ano, "(d) erro")],
+    }
+    for ano in ANOS
+})
+correlacao_anos = bases[2018]["superior"].corr(bases[2026]["superior"])
+numeros
+```
+
+```{python}
+#| label: limitacoes
+#| output: asis
+n18, n26 = numeros[2018], numeros[2026]
+f = ev.numero
+print(f"""
+1. **Nível agregado.** A unidade é o município: os coeficientes dizem onde o PT vai melhor,
+   não como votam os eleitores de cada escolaridade. Não se pode passar daqui para os
+   indivíduos (falácia ecológica), nem estimar taxas de voto por grupo.
+2. **Colinearidade entre escolaridade, renda e urbanização.** A correlação entre superior
+   completo e log da renda é {f(n18['correlação superior × log da renda'])} em 2018 e
+   {f(n26['correlação superior × log da renda'])} em 2026; o maior VIF em (c) e (d) chega a
+   {f(max(vif_max.values()), 1)} (renda). Renda e UF explicam {f(100 * n18['R² de superior ~ renda + UF'], 0)}% e
+   {f(100 * n26['R² de superior ~ renda + UF'], 0)}% da variância da escolaridade: o coeficiente se
+   apoia no que sobra.
+3. **Escolaridade do cadastro do TSE.** É declarada no alistamento e só muda quando o
+   eleitor atualiza o título; o próprio TSE avisa que pode estar defasada. Tende a
+   subestimar quem concluiu o superior depois de se alistar. O cadastro dá
+   {f(n18['% nacional com superior completo'], 1)}% de superior completo em 2018 e
+   {f(n26['% nacional com superior completo'], 1)}% em 2026.
+4. **Parte da diferença entre 2018 e 2026 pode ser de medida.** Renda e urbanização são do
+   Censo 2022, mais perto de 2026 do que de 2018, e o cadastro pode ter sido atualizado
+   entre as duas eleições (revisões do eleitorado, biometria). A correlação entre
+   escolaridade e renda sobe de {f(n18['correlação superior × log da renda'])} para
+   {f(n26['correlação superior × log da renda'])}, e a escolaridade municipal de 2018 e a de 2026
+   correlacionam {f(correlacao_anos)}. No MQO, o coeficiente perto de zero em 2018 e positivo em
+   2026 não precisa ser só mudança de comportamento.
+5. **Sensibilidade à escala.** O sinal depende do recorte: por zona × município (1º turno de
+   2022, com idade e % de mulheres) a escolaridade fica positiva (+1,8); por local de
+   votação, em Teresina, dá o contrário (branch `analise-perfil-voto`).
+6. **Autocorrelação espacial nos resíduos do MQO.** O I de Moran do resíduo de (d) é
+   {f(n18['I de Moran, resíduo de (d) MQO'], 3)} em 2018 e {f(n26['I de Moran, resíduo de (d) MQO'], 3)} em 2026, o que
+   subestima os erros-padrão do MQO. Os modelos de defasagem e de erro tratam isso: o I
+   cai para {f(n18['I de Moran, resíduo de (d) defasagem'], 3)} e {f(n26['I de Moran, resíduo de (d) defasagem'], 3)} (defasagem) e
+   {f(n18['I de Moran, resíduo de (d) erro'], 3)} e {f(n26['I de Moran, resíduo de (d) erro'], 3)} (erro). No modelo de erro o
+   resíduo filtrado fica levemente negativo e significativo: o λ alto corrige um pouco a
+   mais.
+7. **Definição administrativa de urbano.** O perímetro urbano é definido por lei municipal,
+   e a classificação dos setores pode ter mudado entre os Censos (o de 2022 tem oito
+   situações). A regra principal é a situação "Urbana" do IBGE (1 + 2 + 3); as cidades e
+   vilas (1 + 2) e a densidade ficam como checagem.
+8. **LISA sem correção para múltiplos testes.** São 5.570 testes a p < 0,05, como nos dois
+   textos: mesmo sem associação nenhuma, cerca de 5% dos municípios (perto de 280) sairiam
+   significativos. Os mapas descrevem; quem testa é a regressão.
+9. **Ilhas.** Fernando de Noronha e Ilhabela, sem vizinho por contiguidade, foram ligadas ao
+   município de centróide mais próximo.
+10. **Erros-padrão.** Os da máxima verossimilhança nos modelos espaciais não são robustos à
+    heterocedasticidade. No MQO, a escolaridade já perdia a significância com o erro
+    agrupado por UF e com o WLS (etapa 12).
+""")
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+for (ano, nome), m in espaciais.items():
+    sm_ = mqo[(ano, nome)]
+    # spreg.OLS e statsmodels com os mesmos regressores: mesmos coeficientes, log-verossimilhança e AIC.
+    assert np.allclose(np.asarray(m["mqo"].betas).ravel(), sm_.params.to_numpy()), (ano, nome)
+    assert np.isclose(m["mqo"].logll, sm_.llf) and np.isclose(m["mqo"].aic, sm_.aic), (ano, nome)
+    assert -1 < m["defasagem"].rho < 1 and -1 < m["erro"].lam < 1
+    # Efeito total = multiplicador "simple" do spreg.
+    mult = efeitos.loc[(efeitos["ano"] == ano) & (efeitos["modelo"] == nome), "multiplicador"].iloc[0]
+    assert np.isclose(mult, np.asarray(m["defasagem"].sp_multipliers["simple"]).ravel()[-1])
+
+assert (coefs["n"] == 5570).all() and (cheq["n"] == 5570).all()
+assert np.allclose(np.asarray(w.sparse.sum(axis=1)).ravel(), 1) and w.n_components == 1
+# Coeficientes do MQO iguais aos da etapa 12.
+etapa12 = pd.read_parquet(SAIDA / "coef_etapa1_mqo.parquet").set_index(["ano", "modelo", "preditor"])["coef"]
+aqui = coefs.loc[coefs["tipo"] == "MQO"].set_index(["ano", "modelo", "preditor"])["coef"]
+assert np.allclose(aqui.sort_index(), etapa12.reindex(aqui.index).sort_index())
+# Tabelas sem célula de coeficiente vazia onde deveria haver um.
+for t in [*completa.values(), *compacta.values()]:
+    assert (t.loc["Superior completo"] != "").all()
+print("conferência ok")
+```

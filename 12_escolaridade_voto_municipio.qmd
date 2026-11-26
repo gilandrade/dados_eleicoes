@@ -12,15 +12,17 @@ Nicolau (2020), *O Brasil dobrou à direita*, cruza escolaridade e voto com o ES
 a renda de fora por causa das não respostas. Aqui a renda entra como dado agregado (Censo
 2022). O desenho espacial segue Soares e Terron (2008) e Corrêa (2015): o município como
 unidade, LISA univariado para descrever e regressão espacial (defasagem e erro) para
-testar.
+testar. Esta etapa faz o modelo municipal (1), os resíduos (2) e o LISA (3); a regressão
+espacial e a tabela do artigo estão na etapa 13.
 
 - **Variável dependente:** `pc_pt`, % dos votos válidos do candidato do PT no 2º turno
   (Haddad em 2018, Lula em 2026).
 - **Escolaridade:** `superior`, % do eleitorado com superior completo no cadastro do TSE.
 - **Renda:** `log_renda`, log da renda domiciliar per capita média (microdados do Censo
   2022; no município é a renda calibrada da branch `analise-perfil-voto`).
-- **Urbanização:** `urbanizacao`, % da população em setores de cidade ou vila (Censo
-  2022, `CD_SIT` 1 e 2; ver a etapa 11).
+- **Urbanização:** `urbanizacao`, % da população em setores da situação "Urbana" do
+  IBGE (Censo 2022, `CD_SIT` 1, 2 e 3; ver a etapa 11). A taxa só com as cidades e vilas
+  (`CD_SIT` 1 e 2, `urbanizacao_cv`) fica como checagem.
 
 Insumos da etapa 11; voto da etapa 04.
 
@@ -39,20 +41,30 @@ percentuais, para +1 desvio-padrão do preditor (no município, mantidos os dema
 ```{python}
 #| label: setup
 import sys
+import warnings
 
 sys.path.insert(0, "src")
 
+import geopandas as gpd
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
+from matplotlib.patches import Patch
 
+from eleicoes import autocorrelacao as ac
+from eleicoes import cores
 from eleicoes import escolaridade_voto as ev
-from eleicoes.config import NOME_PT_POR_ANO, SAIDA_DIR
+from eleicoes.config import NOME_PT_POR_ANO, PROCESSADO_DIR, SAIDA_DIR
 
+# O KNN de 1 vizinho que liga as ilhas tem muitos componentes; a matriz final tem um só.
+warnings.filterwarnings("ignore", message="The weights matrix is not fully connected")
 pd.options.display.float_format = "{:,.3f}".format
 
 ANOS = [2018, 2026]
 SAIDA = SAIDA_DIR / "trabalho_flp0484"
 SAIDA.mkdir(parents=True, exist_ok=True)
+TOLERANCIA_PLOT = 0.01  # simplificação só para desenhar o Brasil inteiro (como na etapa 10)
 
 ROTULOS = {
     "superior": "Superior completo",
@@ -72,7 +84,7 @@ ESPECIFICACOES = {
 ```{python}
 #| label: dados
 bases = {ano: ev.monta_base(ano) for ano in ANOS}
-VARIAVEIS = ["pc_pt", "superior", "renda_pc_media", "log_renda", "urbanizacao", "urbanizacao_ibge",
+VARIAVEIS = ["pc_pt", "superior", "renda_pc_media", "log_renda", "urbanizacao", "urbanizacao_cv",
              "densidade", "pop_total", "idade_media", "pc_feminino"]
 pd.concat(
     {f"{NOME_PT_POR_ANO[a]} {a}": b[VARIAVEIS].describe().T[["mean", "std", "min", "50%", "max"]] for a, b in bases.items()},
@@ -82,6 +94,40 @@ pd.concat(
 
 Renda, urbanização, densidade e população são do Censo 2022, iguais nos dois anos;
 voto, escolaridade, idade e gênero mudam com a eleição.
+
+### Escolaridade nos dois cadastros
+
+% com superior completo entre os eleitores com escolaridade informada, nos 5.570
+municípios (sem o exterior). "Nacional" é a soma dos municípios; "média" e "desvio-padrão"
+tratam cada município como uma observação, como nos modelos.
+
+```{python}
+#| label: escolaridade-cadastros
+resumo_esc = pd.DataFrame({
+    ano: {
+        "% nacional com superior completo": 100 * df["qt_esc_superior"].sum() / df["qt_esc_informada"].sum(),
+        "média dos municípios (%)": df["superior"].mean(),
+        "desvio-padrão entre municípios (p.p.)": df["superior"].std(),
+        "mediana (%)": df["superior"].median(),
+        "mínimo (%)": df["superior"].min(),
+        "máximo (%)": df["superior"].max(),
+        "% do cadastro sem escolaridade informada": 100 * (1 - df["qt_esc_informada"].sum() / df["qt_eleitores_perfil"].sum()),
+        "correlação com o log da renda": df["superior"].corr(df["log_renda"]),
+    }
+    for ano, df in bases.items()
+})
+resumo_esc
+```
+
+```{python}
+#| label: escolaridade-entre-anos
+esc_anos = pd.DataFrame({ano: df.set_index("cd_mun")["superior"] for ano, df in bases.items()})
+variacao = esc_anos[2026] - esc_anos[2018]
+print(f"Correlação de Pearson entre 2018 e 2026, por município: {esc_anos[2018].corr(esc_anos[2026]):.3f}")
+print(f"Correlação de Spearman: {esc_anos[2018].corr(esc_anos[2026], method='spearman'):.3f}")
+print(f"Variação 2018 → 2026: média {variacao.mean():.2f} p.p., mediana {variacao.median():.2f} p.p.; "
+      f"{(variacao < 0).sum()} municípios com queda")
+```
 
 ## 1. Modelo municipal
 
@@ -139,7 +185,7 @@ Correlação de Pearson entre municípios, sem peso. Por zona × município, a b
 
 ```{python}
 #| label: correlacoes
-EXPLICATIVAS = ["superior", "log_renda", "urbanizacao", "urbanizacao_ibge", "log_densidade", "log_pop",
+EXPLICATIVAS = ["superior", "log_renda", "urbanizacao", "urbanizacao_cv", "log_densidade", "log_pop",
                 "idade_media", "pc_feminino"]
 correlacoes = {ano: df[EXPLICATIVAS].corr() for ano, df in bases.items()}
 pd.concat({ano: c.loc[["superior", "log_renda", "urbanizacao"], ["superior", "log_renda", "urbanizacao"]]
@@ -159,10 +205,11 @@ pd.concat({ano: c.round(2) for ano, c in correlacoes.items()})
 
 ```{python}
 #| label: vif
-pd.DataFrame({
+vifs = pd.DataFrame({
     (ano, nome): ev.vif(df, ESPECIFICACOES[nome][0], ef_uf=True)
     for ano, df in bases.items() for nome in ("(c)", "(d)")
 }).rename(index=ROTULOS)
+vifs
 ```
 
 ### Checagens (fora da tabela principal)
@@ -171,7 +218,8 @@ pd.DataFrame({
   urbana é definida por lei municipal; a densidade testa se isso importa.
 - **WLS:** (c) e (d) ponderados pelos votos válidos, como na branch.
 - **Porte:** (c) + log da população, como em Corrêa (2015).
-- **Urbanização oficial:** (d) com a situação "Urbana" do IBGE (`CD_SIT` 1 + 2 + 3).
+- **Cidades e vilas:** (d) com a urbanização só dos setores de cidade ou vila (`CD_SIT`
+  1 + 2), a definição mais próxima da de Soares e Terron.
 - **Idade e gênero:** (c) + idade média + % de mulheres, os controles do modelo por zona da
   branch. Com erro HC1 e, ao lado, agrupado por UF. Também (c) + só a idade.
 
@@ -182,7 +230,7 @@ CHECAGENS = {
     "(c) WLS": (["superior", "log_renda"], {"peso": "qt_validos"}),
     "(d) WLS": (["superior", "log_renda", "urbanizacao"], {"peso": "qt_validos"}),
     "(c) + log população": (["superior", "log_renda", "log_pop"], {}),
-    "(d) urbanização 1+2+3": (["superior", "log_renda", "urbanizacao_ibge"], {}),
+    "(d) cidades e vilas (1+2)": (["superior", "log_renda", "urbanizacao_cv"], {}),
     "(c) + idade + mulheres": (["superior", "log_renda", "idade_media", "pc_feminino"], {}),
     "(c) + idade + mulheres, EP por UF": (["superior", "log_renda", "idade_media", "pc_feminino"], {"grupos": "sg_uf"}),
     "(c) + idade": (["superior", "log_renda", "idade_media"], {}),
@@ -200,7 +248,7 @@ referencia = coefs.loc[coefs["modelo"].isin(["(c)", "(d)"])].drop(columns="colun
 todas = pd.concat([referencia, cheq], ignore_index=True)
 todas["texto"] = todas.apply(lambda r: f"{ev.numero(r['coef'])}{ev.estrelas(r['p_valor'])} ({ev.numero(r['ep'])})", axis=1)
 ordem = ["(c)", "(d)", *CHECAGENS]
-ROTULOS_CHECAGEM = {**ROTULOS, "urbanizacao_ibge": "Urbanização 1+2+3", "log_densidade": "Densidade (log)",
+ROTULOS_CHECAGEM = {**ROTULOS, "urbanizacao_cv": "Urbanização 1+2", "log_densidade": "Densidade (log)",
                     "log_pop": "População (log)", "idade_media": "Idade média", "pc_feminino": "% de mulheres"}
 quadro = todas.pivot_table(index="modelo", columns=["ano", "preditor"], values="texto", aggfunc="first")
 quadro = quadro.reindex(ordem).rename(columns=ROTULOS_CHECAGEM, level=1).fillna("")
@@ -241,17 +289,309 @@ for ano in ANOS:
           f"em WLS {linha(ano, '(c) WLS')}.")
 ```
 
+## 2. Resíduos de Frisch-Waugh-Lovell
+
+Para o LISA, a escolaridade e o voto entram já descontados da renda e da UF:
+
+- `r_esc`: resíduo do % de superior completo (padronizado) no log da renda (padronizado)
+  e nas dummies de UF;
+- `r_voto`: resíduo do % do PT nos mesmos controles.
+
+`r_esc > 0` é um município com mais eleitores de superior completo do que a renda e a UF
+preveem; `r_voto > 0`, um município onde o PT vai melhor do que a renda e a UF preveem.
+Pelo teorema de Frisch-Waugh-Lovell, a inclinação de `r_voto` em `r_esc` é o coeficiente
+da escolaridade em (c).
+
+```{python}
+#| label: fwl
+for ano, df in bases.items():
+    df["superior_z"] = ev.padroniza(df, ["superior"])["superior"]
+    df["r_esc"] = ev.residualiza(df, "superior_z", ["log_renda"], ef_uf=True)
+    df["r_voto"] = ev.residualiza(df, "pc_pt", ["log_renda"], ef_uf=True)
+
+fwl = pd.DataFrame({
+    ano: {
+        "coeficiente em (c)": ajustes[(ano, "(c)")].params["superior"],
+        "inclinação de r_voto em r_esc": sm.OLS(df["r_voto"], df["r_esc"]).fit().params["r_esc"],
+        "R² de superior ~ renda + UF": 1 - df["r_esc"].var() / df["superior_z"].var(),
+        "variância da escolaridade que sobra": df["r_esc"].var() / df["superior_z"].var(),
+        "R² de voto ~ renda + UF": 1 - df["r_voto"].var() / df["pc_pt"].var(),
+        "correlação entre r_esc e r_voto": df["r_esc"].corr(df["r_voto"]),
+    }
+    for ano, df in bases.items()
+})
+fwl
+```
+
+A correlação entre os dois resíduos é a correlação parcial entre escolaridade e voto,
+descontadas renda e UF. "Variância que sobra" é a parte da escolaridade que a renda e a
+UF não explicam: é ela que identifica o coeficiente em (c).
+
+### Autocorrelação espacial
+
+I de Moran (contiguidade Queen padronizada por linha, a mesma matriz da etapa 10 e do
+LISA, 9.999 permutações) dos resíduos dos modelos (c) e (d) e dos dois resíduos de FWL.
+Um I positivo e significativo nos resíduos de (c) e (d) quer dizer que o MQO deixa
+estrutura espacial de fora, o que a etapa 13 trata com os modelos de defasagem e de erro.
+
+```{python}
+#| label: matriz
+municipios = (
+    gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg")
+    .sort_values("cd_mun")
+    .reset_index(drop=True)
+)
+for df in bases.values():
+    assert (df["cd_mun"].to_numpy() == municipios["cd_mun"].to_numpy()).all()
+w = ac.pesos_contiguidade(municipios)
+print(f"{w.n:,} municípios | {w.mean_neighbors:.2f} vizinhos em média | componentes: {w.n_components}")
+
+plot_mun = municipios[["cd_mun", "geometry"]].copy()
+plot_mun["geometry"] = plot_mun.geometry.simplify(TOLERANCIA_PLOT)
+plot_uf = municipios.dissolve(by="abbrev_state")[["geometry"]]
+plot_uf["geometry"] = plot_uf.geometry.simplify(TOLERANCIA_PLOT)
+```
+
+```{python}
+#| label: moran-residuos
+moran_res = []
+for ano, df in bases.items():
+    series = {
+        "resíduo de (c)": ajustes[(ano, "(c)")].resid,
+        "resíduo de (d)": ajustes[(ano, "(d)")].resid,
+        "r_esc": df["r_esc"],
+        "r_voto": df["r_voto"],
+        "% do PT (sem controle)": df["pc_pt"],
+    }
+    for nome, y in series.items():
+        moran_res.append({"ano": ano, "série": nome, **ac.moran_global(y.to_numpy(), w)})
+moran_res = pd.DataFrame(moran_res)
+moran_res.to_parquet(SAIDA / "moran_residuos_mqo.parquet", index=False)
+moran_res.pivot(index="série", columns="ano", values=["I", "z_sim", "p_sim"])
+```
+
+## 3. LISA dos resíduos
+
+Moran Local (`ac.lisa`: 9.999 permutações, semente 2008, p < 0,05, sem correção para
+múltiplos testes, como nos dois textos) de `r_esc` e de `r_voto`, em cada ano. Leitura
+das classes:
+
+- **Alto-Alto em `r_esc`:** grupo de municípios com mais superior completo do que a renda
+  e a UF preveem, cercados de municípios iguais. **Baixo-Baixo:** o contrário.
+- **Alto-Alto em `r_voto`:** grupo onde o PT vai melhor do que a renda e a UF preveem.
+
+Onde os dois mapas coincidem (Alto-Alto com Alto-Alto, Baixo-Baixo com Baixo-Baixo), a
+associação entre escolaridade e voto no PT, descontadas renda e UF, é positiva naquele
+lugar; onde se cruzam (Alto-Alto com Baixo-Baixo), é negativa.
+
+```{python}
+#| label: lisa
+VARS_LISA = {
+    "r_esc": "Escolaridade além da renda e da UF",
+    "r_voto": "Voto no PT além da renda e da UF",
+}
+lisas = {(v, ano): ac.lisa(bases[ano][v].to_numpy(), w) for v in VARS_LISA for ano in ANOS}
+for (v, ano), l in lisas.items():
+    bases[ano][f"classe_{v}"] = l["classe_lisa"].to_numpy()
+
+contagem = pd.DataFrame({(v, ano): l["classe_lisa"].value_counts().reindex(ac.CLASSES_LISA) for (v, ano), l in lisas.items()})
+contagem.columns.names = ["variável", "ano"]
+pd.concat({"municípios": contagem, "%": 100 * contagem / contagem.sum()}, axis=1).round(1)
+```
+
+### Mapa
+
+```{python}
+#| label: funcoes-mapa
+LEGENDA_LISA = [Patch(facecolor=c, edgecolor="#999999", label=r) for c, r in zip(cores.CORES_LISA, ac.CLASSES_LISA)]
+
+
+def mapa_lisa(ax, classe, titulo):
+    cor = pd.Series(pd.Categorical(classe, categories=ac.CLASSES_LISA)).cat.codes.map(dict(enumerate(cores.CORES_LISA)))
+    plot_mun.plot(ax=ax, color=cor.to_numpy(), edgecolor="face", linewidth=0.2)
+    plot_uf.boundary.plot(ax=ax, color="#555555", linewidth=0.3)
+    ax.set_title(titulo, fontsize=12)
+    ax.set_axis_off()
+```
+
+```{python}
+#| label: mapa-lisa
+#| fig-cap: "Moran Local dos resíduos de escolaridade e de voto no PT, descontados log da renda e UF, por município, 2º turno de 2018 e 2026."
+fig, eixos = plt.subplots(2, 2, figsize=(13, 13))
+for i, (v, rotulo) in enumerate(VARS_LISA.items()):
+    for j, ano in enumerate(ANOS):
+        mapa_lisa(eixos[i, j], lisas[(v, ano)]["classe_lisa"], f"{rotulo}\n{NOME_PT_POR_ANO[ano]} {ano}")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False, fontsize=11)
+plt.tight_layout(rect=(0, 0.04, 1, 1))
+fig.savefig(SAIDA / "mapa_lisa_residuos_2018_2026.png", dpi=300, bbox_inches="tight", facecolor="white")
+```
+
+### Concentração por região e por UF
+
+Municípios de cada classe significativa, por região:
+
+```{python}
+#| label: lisa-regiao
+SIGNIFICATIVAS = [c for c in ac.CLASSES_LISA if c != ac.NAO_SIGNIFICATIVO]
+por_regiao = []
+for (v, ano), l in lisas.items():
+    t = pd.crosstab(l["classe_lisa"].to_numpy(), bases[ano]["regiao"].to_numpy(), colnames=["região"])
+    t = t.reindex(SIGNIFICATIVAS).fillna(0).astype(int)
+    t.index = pd.MultiIndex.from_product([[v], [ano], t.index], names=["variável", "ano", "classe"])
+    por_regiao.append(t)
+por_regiao = pd.concat(por_regiao)
+por_regiao["total"] = por_regiao.sum(axis=1)
+por_regiao
+```
+
+As cinco UFs com mais municípios Alto-Alto e Baixo-Baixo:
+
+```{python}
+#| label: lisa-uf
+def top_ufs(classe, uf, alvo, n=5):
+    contagem = pd.Series(uf[classe == alvo]).value_counts().head(n)
+    return ", ".join(f"{u} {k}" for u, k in contagem.items())
+
+
+pd.DataFrame([
+    {"variável": v, "ano": ano, "classe": alvo,
+     "municípios": int((l["classe_lisa"] == alvo).sum()),
+     "UFs": top_ufs(l["classe_lisa"].to_numpy(), bases[ano]["sg_uf"].to_numpy(), alvo)}
+    for (v, ano), l in lisas.items() for alvo in ac.COESAS
+]).set_index(["variável", "ano", "classe"])
+```
+
+### Sobreposição dos agrupamentos
+
+Classe de `r_esc` (linhas) × classe de `r_voto` (colunas), em municípios:
+
+```{python}
+#| label: sobreposicao
+sobreposicao = {
+    ano: pd.crosstab(
+        pd.Categorical(lisas[("r_esc", ano)]["classe_lisa"], categories=ac.CLASSES_LISA),
+        pd.Categorical(lisas[("r_voto", ano)]["classe_lisa"], categories=ac.CLASSES_LISA),
+        rownames=["r_esc"], colnames=["r_voto"], dropna=False, margins=True, margins_name="total",
+    )
+    for ano in ANOS
+}
+pd.concat(sobreposicao)
+```
+
+Resumo: entre os municípios que estão num agrupamento coeso (Alto-Alto ou Baixo-Baixo)
+nos dois mapas, quantos coincidem (associação positiva local) e quantos se cruzam
+(associação negativa local).
+
+```{python}
+#| label: sobreposicao-resumo
+def resumo_sobreposicao(ano):
+    e, v = bases[ano]["classe_r_esc"], bases[ano]["classe_r_voto"]
+    return {
+        "Alto-Alto nos dois": int(((e == ac.ALTO_ALTO) & (v == ac.ALTO_ALTO)).sum()),
+        "Baixo-Baixo nos dois": int(((e == ac.BAIXO_BAIXO) & (v == ac.BAIXO_BAIXO)).sum()),
+        "escolaridade Alto-Alto, voto Baixo-Baixo": int(((e == ac.ALTO_ALTO) & (v == ac.BAIXO_BAIXO)).sum()),
+        "escolaridade Baixo-Baixo, voto Alto-Alto": int(((e == ac.BAIXO_BAIXO) & (v == ac.ALTO_ALTO)).sum()),
+        "coeso em r_esc": int(e.isin(ac.COESAS).sum()),
+        "coeso em r_voto": int(v.isin(ac.COESAS).sum()),
+    }
+
+
+pd.DataFrame({ano: resumo_sobreposicao(ano) for ano in ANOS})
+```
+
+Onde ficam as coincidências e os cruzamentos, por região:
+
+```{python}
+#| label: sobreposicao-regiao
+linhas = []
+for ano, df in bases.items():
+    e, v = df["classe_r_esc"], df["classe_r_voto"]
+    tipo = np.select(
+        [(e == v) & e.isin(ac.COESAS), e.isin(ac.COESAS) & v.isin(ac.COESAS)],
+        ["coincide", "cruza"], default="",
+    )
+    linhas.append(
+        pd.crosstab([np.full(len(df), ano), tipo], df["regiao"], rownames=["ano", "agrupamentos"], colnames=["região"])
+        .drop(index="", level=1, errors="ignore")
+    )
+pd.concat(linhas)
+```
+
+### Extra: contribuição local à correlação
+
+`c_i = z(r_esc) · z(r_voto)`, com os dois resíduos padronizados (desvio-padrão
+populacional). A média de `c_i` é exatamente a correlação entre os resíduos: cada
+município contribui com a sua parte. `c_i > 0` quando os dois resíduos têm o mesmo sinal
+(os dois acima ou os dois abaixo da média); `c_i < 0` quando têm sinais opostos. O LISA
+de `c_i` mostra onde essas contribuições se agrupam. **"Baixo" em `c_i` quer dizer abaixo
+da média, que é a própria correlação, não necessariamente negativo.**
+
+```{python}
+#| label: contribuicao
+for ano, df in bases.items():
+    z_esc = (df["r_esc"] - df["r_esc"].mean()) / df["r_esc"].std(ddof=0)
+    z_voto = (df["r_voto"] - df["r_voto"].mean()) / df["r_voto"].std(ddof=0)
+    df["c_i"] = z_esc * z_voto
+    assert np.isclose(df["c_i"].mean(), df["r_esc"].corr(df["r_voto"]))
+
+lisas_ci = {ano: ac.lisa(bases[ano]["c_i"].to_numpy(), w) for ano in ANOS}
+for ano, l in lisas_ci.items():
+    bases[ano]["classe_c_i"] = l["classe_lisa"].to_numpy()
+
+
+def resumo_ci(ano):
+    df = bases[ano].assign(
+        ci_negativo=lambda d: d["c_i"] < 0,
+        dois_positivos=lambda d: (d["r_esc"] > 0) & (d["r_voto"] > 0),
+        dois_negativos=lambda d: (d["r_esc"] < 0) & (d["r_voto"] < 0),
+    )
+    g = df.groupby("classe_c_i")
+    return pd.DataFrame({
+        "municípios": g.size(),
+        "c_i médio": g["c_i"].mean(),
+        "% com c_i < 0": 100 * g["ci_negativo"].mean(),
+        "% com os dois resíduos > 0": 100 * g["dois_positivos"].mean(),
+        "% com os dois resíduos < 0": 100 * g["dois_negativos"].mean(),
+    }).reindex(ac.CLASSES_LISA)
+
+
+pd.concat({ano: resumo_ci(ano) for ano in ANOS})
+```
+
+```{python}
+#| label: mapa-contribuicao
+#| fig-cap: "Moran Local da contribuição local à correlação entre os resíduos de escolaridade e de voto no PT (c_i), 2º turno de 2018 e 2026."
+fig, eixos = plt.subplots(1, 2, figsize=(13, 7))
+for ax, ano in zip(eixos, ANOS):
+    mapa_lisa(ax, lisas_ci[ano]["classe_lisa"], f"Contribuição local (c_i)\n{NOME_PT_POR_ANO[ano]} {ano}")
+fig.legend(handles=LEGENDA_LISA, loc="lower center", ncol=5, frameon=False, fontsize=11)
+plt.tight_layout(rect=(0, 0.06, 1, 1))
+fig.savefig(SAIDA / "mapa_lisa_contribuicao_local.png", dpi=300, bbox_inches="tight", facecolor="white")
+```
+
+### Saída
+
+```{python}
+#| label: saida-residuos
+pd.concat([
+    df[["cd_mun", "nm_mun", "sg_uf", "regiao", "r_esc", "r_voto", "c_i", "classe_r_esc", "classe_r_voto", "classe_c_i"]]
+    .assign(ano=ano)
+    for ano, df in bases.items()
+]).to_parquet(SAIDA / "residuos_lisa_municipio.parquet", index=False)
+```
+
 ## Conferência
 
 ```{python}
 #| label: conferencia
 for ano, df in bases.items():
     assert len(df) == 5570 and df["cd_mun"].is_unique, ano
-    usadas = ["pc_pt", "superior", "log_renda", "urbanizacao", "urbanizacao_ibge", "log_densidade", "log_pop",
+    usadas = ["pc_pt", "superior", "log_renda", "urbanizacao", "urbanizacao_cv", "log_densidade", "log_pop",
               "idade_media", "pc_feminino", "qt_validos", "sg_uf"]
     assert df[usadas].notna().all().all(), df[usadas].isna().sum()
     assert np.isfinite(df[["log_renda", "log_densidade", "log_pop"]]).all().all()
     assert df["pc_pt"].between(0, 100).all() and df["superior"].between(0, 100).all()
+    assert (df["urbanizacao"] >= df["urbanizacao_cv"]).all()
 
 # Todos os modelos com os 5.570 municípios.
 assert (coefs["n"] == 5570).all() and (cheq["n"] == 5570).all()
@@ -261,5 +601,16 @@ for ano in ANOS:
     assert np.allclose(a.loc[(ano, "(c) + idade + mulheres")], a.loc[(ano, "(c) + idade + mulheres, EP por UF")])
 # 27 UFs no efeito fixo (26 dummies).
 assert sum(c.startswith("uf_") for c in ajustes[(ANOS[0], "(c)")].params.index) == 26
+
+# Frisch-Waugh-Lovell: a inclinação dos resíduos é o coeficiente de (c).
+assert np.allclose(fwl.loc["coeficiente em (c)"], fwl.loc["inclinação de r_voto em r_esc"])
+# Matriz: linhas somando 1, um componente, mesma ordem da base.
+assert np.allclose(np.asarray(w.sparse.sum(axis=1)).ravel(), 1) and w.n_components == 1 and w.n == 5570
+# Classes do LISA cobrindo os 5.570 municípios.
+for l in [*lisas.values(), *lisas_ci.values()]:
+    assert l["classe_lisa"].notna().all() and len(l) == 5570
+# Tabela cruzada fecha com o total.
+for ano in ANOS:
+    assert sobreposicao[ano].loc["total", "total"] == 5570
 print("conferência ok")
 ```

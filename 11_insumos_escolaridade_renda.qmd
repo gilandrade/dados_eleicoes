@@ -162,27 +162,28 @@ situacao["cidades_e_vilas"] = situacao["cd_sit"].isin(ev.SIT_CIDADES_E_VILAS)
 situacao
 ```
 
-**Regra principal: códigos 1 e 2**, as duas únicas categorias que o IBGE descreve como
-"de cidade ou vila". O código 3 ("núcleo urbano") é área urbana fora da cidade ou vila:
-entra na situação "Urbana" oficial do IBGE, mas não em "cidades e vilas". A taxa com
-1 + 2 + 3 (a situação "Urbana" oficial) fica como checagem na etapa 12. O código 9
-(massas de água) não tem morador.
+**Regra principal: a situação "Urbana" oficial do IBGE, códigos 1, 2 e 3**
+(`urbanizacao`, decidido em 26/11/2026). Os códigos 1 e 2 são as duas únicas categorias
+que o IBGE descreve como "de cidade ou vila", o mais próximo do "cidades e vilas" de
+Soares e Terron; o 3 ("núcleo urbano") é área urbana fora da cidade ou vila. A taxa só
+com 1 + 2 (`urbanizacao_cv`) fica como checagem na etapa 12. O código 9 (massas de
+água) não tem morador.
 
 A densidade demográfica é a população sobre a área dos setores sem as massas de água.
 
 ```{python}
 #| label: urbanizacao
-censo["urbanizacao"] = ev.taxa_urbanizacao(censo, ev.SIT_CIDADES_E_VILAS)
-censo["urbanizacao_ibge"] = ev.taxa_urbanizacao(censo, ev.SIT_URBANA_IBGE)
+censo["urbanizacao"] = ev.taxa_urbanizacao(censo, ev.SIT_URBANA_IBGE)
+censo["urbanizacao_cv"] = ev.taxa_urbanizacao(censo, ev.SIT_CIDADES_E_VILAS)
 censo["densidade"] = censo["pop_total"] / censo["area_km2_terra"]
 
 print(f"Brasil: {censo[[f'pop_sit_{c}' for c in ev.SIT_CIDADES_E_VILAS]].sum().sum() / censo['pop_total'].sum():.1%} "
       f"em cidades e vilas (1+2); {censo[[f'pop_sit_{c}' for c in ev.SIT_URBANA_IBGE]].sum().sum() / censo['pop_total'].sum():.1%} "
       "na situação Urbana (1+2+3)")
-print(f"Correlação entre as duas taxas, por município: {censo['urbanizacao'].corr(censo['urbanizacao_ibge']):.3f}")
-diferenca = censo["urbanizacao_ibge"] - censo["urbanizacao"]
+print(f"Correlação entre as duas taxas, por município: {censo['urbanizacao'].corr(censo['urbanizacao_cv']):.3f}")
+diferenca = censo["urbanizacao"] - censo["urbanizacao_cv"]
 print(f"Municípios em que o núcleo urbano (3) soma mais de 10 p.p.: {(diferenca > 0.10).sum()}")
-censo[["urbanizacao", "urbanizacao_ibge", "densidade"]].describe()
+censo[["urbanizacao", "urbanizacao_cv", "densidade"]].describe()
 ```
 
 ## 4. Saídas
@@ -218,8 +219,8 @@ assert round(tot["pop_elegivel"]) == 159_445_362, tot["pop_elegivel"]
 
 assert set(censo["cd_mun"]) == municipios
 assert censo["pop_total"].sum() == 203_080_756
-assert censo[["urbanizacao", "urbanizacao_ibge"]].stack().between(0, 1).all()
-assert (censo["urbanizacao_ibge"] >= censo["urbanizacao"]).all()
+assert censo[["urbanizacao", "urbanizacao_cv"]].stack().between(0, 1).all()
+assert (censo["urbanizacao"] >= censo["urbanizacao_cv"]).all()
 assert (censo["area_km2_terra"] > 0).all() and (censo["pop_total"] > 0).all()
 
 # Nenhum CSV dos microdados ficou na pasta temporária.
