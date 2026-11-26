@@ -231,7 +231,7 @@ arquivos_df.drop(columns=["_camada", "_cargo"])
 
 ## LEIAME, dicionário e zips
 
-Um zip por base (`EL{ano}_{MU,LV}_BRA.zip`), com os 7 arquivos de cargo, o dicionário em
+Um zip por base (`zips/EL{ano}_{MU,LV}_BRA.zip`), com os 7 arquivos de cargo, o dicionário em
 PDF (`DIC_EL{ano}_{MU,LV}_BRA.pdf`, nos moldes dos PDFs do CEM), o LEIAME e o dicionário de
 colunas; e `cadastro_cem.xlsx`, uma linha por base no formato da planilha de DOI do CEM.
 

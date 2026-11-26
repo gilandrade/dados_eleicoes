@@ -1721,11 +1721,14 @@ def arquivos_base(ano: int, unidade: str) -> list[str]:
 
 
 def compacta_base(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> Path:
-    """`EL{ano}_{unidade}_BRA.zip`: gpkg e xlsx dos 7 arquivos, o PDF, o LEIAME e o dicionário."""
+    """`zips/EL{ano}_{unidade}_BRA.zip`: gpkg e xlsx dos 7 arquivos, o PDF, o LEIAME e o dicionário."""
     pasta = Path(pasta)
     entregues = [pasta / f"{a}.{ext}" for a in arquivos_base(ano, unidade) for ext in ("gpkg", "xlsx")]
     entregues += [pasta / f"DIC_EL{ano}_{unidade}_BRA.pdf", pasta / "LEIAME.md", pasta / "dicionario_colunas.csv"]
-    return compacta(entregues, pasta / f"EL{ano}_{unidade}_BRA.zip")
+    zips = pasta / "zips"
+    zips.mkdir(exist_ok=True)
+    (pasta / f"EL{ano}_{unidade}_BRA.zip").unlink(missing_ok=True)  # local antigo, na raiz
+    return compacta(entregues, zips / f"EL{ano}_{unidade}_BRA.zip")
 
 
 def descricao_cadastro(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> str:

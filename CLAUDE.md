@@ -143,7 +143,7 @@ data model (geometry files vs. result files joined by a shared id).
   `EL2022_MU_BRA_CEM` trazem, com Censo 2022 e malha IBGE 2022 nos três anos: locais
   de votação e municípios do Brasil, 2018/2022/2026, um arquivo por cargo com os
   códigos do CEM, `EL{ano}_{LV|MU}_BRA_{PS1,PS2,GO1,GO2,SE,DF,DE}`, em `.gpkg` (camada
-  + tabela `candidatos`) e `.xlsx`, um zip por base (`EL{ano}_{MU,LV}_BRA.zip`, como as bases do
+  + tabela `candidatos`) e `.xlsx`, um zip por base (`zips/EL{ano}_{MU,LV}_BRA.zip`, como as bases do
   CEM, uma linha e um DOI cada; `cadastro_cem.xlsx` traz as 6 linhas no formato da planilha
   de DOI do CEM, com DOI e data em branco e fórmulas para o HTML do site e o SQL). Votos em `votos_{nr}` (em GO/SE,
   nulo nas UFs sem aquele número), percentuais de 0 a 100, exterior sem geometria
