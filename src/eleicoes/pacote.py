@@ -1320,7 +1320,7 @@ EQUIPE_TRANSFERENCIA = [
 CONSELHO_CEM = [
     "Adrián Gurza Lavalle", "Bianca Freire-Medeiros", "Charles Kirschbaum", "Eduardo Marques",
     "Gabriela Lotta", "Jonathan Phillips", "Marcos Nobre", "Mariana Giannotti", "Marta Arretche",
-    "Renata Mirândola Bichir", "Úrsula Peres", "Vera Schattan Coelho",
+    "Renata Mirandola Bichir", "Úrsula Peres", "Vera Schattan Coelho",
 ]
 # Bases novas (todas, menos município de 2018 e 2022): logo novo e créditos atuais.
 LOGO_CEM = Path(__file__).resolve().parents[2] / "assets" / "cem" / "CEM_LOGO_COMPLETO_VER.svg"
