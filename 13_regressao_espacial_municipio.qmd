@@ -275,11 +275,18 @@ def titulo_painel(ano):
     return f"{NOME_PT_POR_ANO[ano]} × {NOME_BOLSONARO_POR_ANO[ano]}, 2º turno de {ano}"
 
 
-def grava(tabelas, nome):
-    """CSV com os dois painéis empilhados e markdown com um título por painel."""
-    pd.concat({titulo_painel(a): t for a, t in tabelas.items()}, names=["painel", "linha"]).to_csv(SAIDA / f"{nome}.csv")
+def grava(tabelas, nome, nota=NOTA):
+    """CSV com os dois painéis empilhados (a nota na última linha) e markdown com um título por painel."""
+    caminho_csv = SAIDA / f"{nome}.csv"
+    pd.concat({titulo_painel(a): t for a, t in tabelas.items()}, names=["painel", "linha"]).to_csv(caminho_csv)
+    with open(caminho_csv, "a", encoding="utf-8", newline="") as saida:
+        saida.write('"Nota: ' + nota.replace('"', '""') + '"\n')
     partes = [f"### {titulo_painel(a)}\n\n{ev.para_markdown(t)}" for a, t in tabelas.items()]
-    (SAIDA / f"{nome}.md").write_text("\n\n".join(partes) + f"\n\n{NOTA}\n", encoding="utf-8")
+    (SAIDA / f"{nome}.md").write_text("\n\n".join(partes) + f"\n\n{nota}\n", encoding="utf-8")
+
+
+def texto_p(p):
+    return "p < 0,001" if p < 0.001 else f"p = {ev.numero(p, 3)}"
 ```
 
 ### Tabela completa
@@ -304,31 +311,53 @@ pd.concat({titulo_painel(a): t for a, t in completa.items()})
 
 ### Tabela compacta
 
-(a), (c), (d) e o modelo espacial de (d) escolhido pelos LM robustos, nos dois anos. O
-parâmetro espacial fica numa linha só ("ρ ou λ"); a linha "Modelo espacial" diz qual é.
+Para o artigo: (a), (c), (d) e os dois modelos espaciais de (d), lado a lado como em
+Soares e Terron (2008), com 2018 em cima e 2026 embaixo. O parâmetro espacial fica numa
+linha só: ρ na coluna da defasagem, λ na do erro. Os LM robustos são do MQO de (d). A nota
+traz o efeito total da defasagem, β / (1 − ρ), e o modelo que os LM robustos preferem em
+cada ano. A tabela completa, com os modelos espaciais de (c), fica só neste notebook (seção
+anterior).
 
 ```{python}
 #| label: tabela-compacta
 ROTULOS_COMPACTA = {**{k: v for k, v in ROTULOS.items() if k not in ("rho", "lambda")},
-                    "espacial": "ρ ou λ (parâmetro espacial)"}
-COLUNAS_COMPACTA = ["(a)", "(c)", "(d)", "(d) espacial"]
+                    "espacial": "ρ (defasagem) ou λ (erro)"}
+ORIGEM_COMPACTA = {"(a) MQO": "(a)", "(c) MQO": "(c)", "(d) MQO": "(d)",
+                   "(d) defasagem": "(d) defasagem", "(d) erro": "(d) erro"}
+COLUNAS_COMPACTA = list(ORIGEM_COMPACTA.values())
+NOME_CURTO = {"superior": "superior completo", "log_renda": "renda", "urbanizacao": "urbanização"}
+
 compacta = {}
 for ano in ANOS:
-    tipo = preferidos[(ano, "(d)")][0]
-    assert tipo in TIPOS, f"{ano}: a regra de Anselin ficou com o MQO"
-    origem = {"(a) MQO": "(a)", "(c) MQO": "(c)", "(d) MQO": "(d)", f"(d) {tipo}": "(d) espacial"}
-    sub = coefs.loc[(coefs["ano"] == ano) & coefs["coluna"].isin(origem)].copy()
-    sub["coluna"] = sub["coluna"].map(origem)
+    sub = coefs.loc[(coefs["ano"] == ano) & coefs["coluna"].isin(ORIGEM_COMPACTA)].copy()
+    sub["coluna"] = sub["coluna"].map(ORIGEM_COMPACTA)
     sub["preditor"] = sub["preditor"].replace({"rho": "espacial", "lambda": "espacial"})
     compacta[ano] = ev.tabela_regressao(
-        sub, COLUNAS_COMPACTA, ROTULOS_COMPACTA,
-        estatisticas=("ef_uf", "n", "r2", "logll", "aic"), rotulo_r2="R² (pseudo-R² no espacial)",
-        extras={
-            "Modelo espacial": {"(d) espacial": "defasagem (ρ)" if tipo == "defasagem" else "erro (λ)"},
-            **{k: v for k, v in extras_lm(ano, {"(c)": "(c)", "(d)": "(d)"}).items() if "robusto" in k},
-        },
+        sub, COLUNAS_COMPACTA, ROTULOS_COMPACTA, estatisticas=("aic",),
+        extras={k: v for k, v in extras_lm(ano, {"(d)": "(d)"}).items() if "robusto" in k},
     )
-grava(compacta, "tabela_modelos_compacta")
+
+
+def nota_compacta():
+    frases = []
+    for ano in ANOS:
+        tipo = preferidos[(ano, "(d)")][0]
+        assert tipo in TIPOS, f"{ano}: a regra de Anselin ficou com o MQO"
+        ef = efeitos.loc[(efeitos["ano"] == ano) & (efeitos["modelo"] == "(d)")].set_index("preditor")
+        totais = ", ".join(f"{NOME_CURTO[p]} {ev.numero(ef.at[p, 'total'])} ({texto_p(ef.at[p, 'p_total'])})"
+                           for p in ESPECIFICACOES["(d)"][0])
+        frases.append(f"Em {ano}, efeito total na defasagem de (d), β/(1−ρ): {totais}; os LM robustos "
+                      f"preferem o modelo de {tipo}.")
+    return ("Coeficientes padronizados: variação do % de votos válidos do PT, em p.p., para +1 desvio-padrão "
+            "do preditor. Erro-padrão entre parênteses (HC1 no MQO; máxima verossimilhança nos modelos "
+            "espaciais). N = 5.570 municípios. (c), (d) e os modelos espaciais têm efeito fixo de UF (26 "
+            "dummies). Matriz de contiguidade de primeira ordem (Queen), padronizada por linha. LM robustos do "
+            "MQO de (d). " + " ".join(frases) + " * p < 0,05; ** p < 0,01; *** p < 0,001.")
+
+
+NOTA_COMPACTA = nota_compacta()
+grava(compacta, "tabela_modelos_compacta", nota=NOTA_COMPACTA)
+print(NOTA_COMPACTA)
 pd.concat({titulo_painel(a): t for a, t in compacta.items()})
 ```
 
@@ -355,6 +384,8 @@ numeros = pd.DataFrame({
     for ano in ANOS
 })
 correlacao_anos = bases[2018]["superior"].corr(bases[2026]["superior"])
+queda_superior = int((bases[2026]["superior"] < bases[2018]["superior"]).sum())
+print(f"Municípios em que o % de superior completo cai de 2018 para 2026: {queda_superior}")
 numeros
 ```
 
@@ -377,7 +408,11 @@ print(f"""
    eleitor atualiza o título; o próprio TSE avisa que pode estar defasada. Tende a
    subestimar quem concluiu o superior depois de se alistar. O cadastro dá
    {f(n18['% nacional com superior completo'], 1)}% de superior completo em 2018 e
-   {f(n26['% nacional com superior completo'], 1)}% em 2026.
+   {f(n26['% nacional com superior completo'], 1)}% em 2026. Entre os dois cadastros, o % de
+   superior completo **cai** em {f(queda_superior, 0)} dos 5.570 municípios, o que indica ruído de
+   medida. Ruído na escolaridade tende a atenuar o coeficiente dela (viés em direção a
+   zero). Com renda e UF no modelo, a atenuação é maior, porque o ruído pesa mais na parte
+   da escolaridade que sobra depois dos controles.
 4. **Parte da diferença entre 2018 e 2026 pode ser de medida.** Renda e urbanização são do
    Censo 2022, mais perto de 2026 do que de 2018, e o cadastro pode ter sido atualizado
    entre as duas eleições (revisões do eleitorado, biometria). A correlação entre
