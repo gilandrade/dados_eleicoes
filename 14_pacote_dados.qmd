@@ -231,8 +231,9 @@ arquivos_df.drop(columns=["_camada", "_cargo"])
 
 ## LEIAME, dicionário e zips
 
-Um zip por ano, cada um com o LEIAME, o dicionário de todos os arquivos e os dois
-dicionários em PDF do ano (`DIC_EL{ano}_{MU,LV}_BRA.pdf`), nos moldes dos PDFs do CEM.
+Um zip por base (`EL{ano}_{MU,LV}_BRA.zip`), com os 7 arquivos de cargo, o dicionário em
+PDF (`DIC_EL{ano}_{MU,LV}_BRA.pdf`, nos moldes dos PDFs do CEM), o LEIAME e o dicionário de
+colunas; e `cadastro_cem.xlsx`, uma linha por base no formato da planilha de DOI do CEM.
 
 ```{python}
 #| label: documentacao
@@ -252,17 +253,17 @@ leiame = pacote.escreve_leiame(
 )
 # O zip único da versão anterior (só Presidente) sai do caminho.
 (PACOTE_DIR / "EL_PS_BRA_2018_2026.zip").unlink(missing_ok=True)
+# Um zip por base (ano × unidade), como as bases do CEM: os 7 arquivos de cargo,
+# o dicionário em PDF, o LEIAME e o dicionário de colunas. Os zips por ano da
+# versão anterior saem do caminho.
 for ano in ANOS:
-    nomes = arquivos_df.loc[arquivos_df["ano"] == ano, "arquivo"]
-    entregues = [PACOTE_DIR / f"{a}.{ext}" for a in nomes for ext in ("gpkg", "xlsx")]
-    # Dicionário em PDF nos moldes do CEM, um por base (ano × unidade).
-    entregues += [
+    (PACOTE_DIR / f"EL{ano}_BRA.zip").unlink(missing_ok=True)
+    for unidade in ("MU", "LV"):
         pacote.escreve_dicionario_pacote(ano, unidade, PACOTE_DIR / f"DIC_EL{ano}_{unidade}_BRA.pdf")
-        for unidade in ("MU", "LV")
-    ]
-    entregues += [leiame, PACOTE_DIR / "dicionario_colunas.csv"]
-    zip_ano = pacote.compacta(entregues, PACOTE_DIR / f"EL{ano}_BRA.zip")
-    print(zip_ano.name, round(zip_ano.stat().st_size / 1e6, 1), "MB")
+        zip_base = pacote.compacta_base(ano, unidade)
+        print(zip_base.name, round(zip_base.stat().st_size / 1e6, 1), "MB")
+# Linhas para a planilha de DOI do CEM (uma por base).
+pacote.escreve_cadastro_cem(PACOTE_DIR / "cadastro_cem.xlsx")
 ```
 
 ## Versão 2 do `EL2022_MU_BRA_CEM` (Censo 2022)

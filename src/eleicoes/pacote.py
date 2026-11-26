@@ -1700,3 +1700,141 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
 def _ty_inline(texto: str) -> str:
     """Parágrafo como string Typst inline (`#"..."`)."""
     return "#" + _ty(texto)
+
+
+# ==== Zips por base e planilha de cadastro do CEM ==============================
+
+# Colunas da planilha "DOI-Bases e Sistemas Interativos > Projetos cartográficos" do CEM.
+COLUNAS_CADASTRO_CEM = [
+    "Camadas", "Codigos", "DOI", "count DOI", "Título", "Descrição", "Descrição Site CEM",
+    "DATA DE REFERÊNCIA:", "DATA DE LANÇAMENTO:", "Fontes", "Fonte", "Tema", "Região", "Links documentos",
+    "Situação", "Obervação", "descricao_do_tipo_de_arquivo", "nome_arquivo", "Link GDrive",
+    "DOI da versão anterior", "SQL abstract", "SQL data edition", "SQL date publication",
+]
+# DOI das bases de município do CEM que as de 2018 e 2022 atualizam.
+DOI_ANTERIOR_CEM = {(2018, "MU"): "10.55881/CEM.db.ele102", (2022, "MU"): "10.55881/CEM.db.ele094"}
+
+
+def arquivos_base(ano: int, unidade: str) -> list[str]:
+    """Os 7 arquivos (um por cargo e turno) de uma base do pacote."""
+    return [nome_arquivo(ano, c, t, unidade) for c in CARGOS_GERAIS for t in turnos(c)]
+
+
+def compacta_base(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> Path:
+    """`EL{ano}_{unidade}_BRA.zip`: gpkg e xlsx dos 7 arquivos, o PDF, o LEIAME e o dicionário."""
+    pasta = Path(pasta)
+    entregues = [pasta / f"{a}.{ext}" for a in arquivos_base(ano, unidade) for ext in ("gpkg", "xlsx")]
+    entregues += [pasta / f"DIC_EL{ano}_{unidade}_BRA.pdf", pasta / "LEIAME.md", pasta / "dicionario_colunas.csv"]
+    return compacta(entregues, pasta / f"EL{ano}_{unidade}_BRA.zip")
+
+
+def descricao_cadastro(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> str:
+    """Descrição no padrão do CEM ("Base cartográfica georreferenciada em formato ...")."""
+    cargos = "Presidente (1º e 2º turnos), Governador (1º e 2º turnos), Senador, Deputado federal e Deputado estadual/distrital"
+    if unidade == "MU":
+        n = pyogrio.read_info(malha_municipios(ano))["features"]
+        malha = 2024 if ano >= ANO_MALHA_2024 else 2022
+        texto = (
+            f"Base cartográfica georreferenciada em formato GeoPackage contendo os resultados eleitorais "
+            f"dos {_votos(n)} municípios do Brasil na eleição de {ano}, um arquivo por cargo: {cargos}, com "
+            "os votos por candidato (por partido, nos deputados), aptos, comparecimento, abstenção, brancos, "
+            "nulos e votos anulados. Inclui população, domicílios, área e densidade do Censo Demográfico "
+            f"2022 sobre a malha municipal do IBGE de {malha}."
+        )
+        if (ano, unidade) in DOI_ANTERIOR_CEM:
+            texto += f" Atualiza a base EL{ano}_MU_BRA_CEM (antes com Censo 2010)."
+    else:
+        ps1 = pyogrio.read_dataframe(
+            Path(pasta) / f"{nome_arquivo(ano, 'presidente', 1, 'LV')}.gpkg", layer="locais",
+            columns=["sg_uf"], read_geometry=False,
+        )
+        texto = (
+            f"Base cartográfica georreferenciada em formato GeoPackage contendo os resultados eleitorais "
+            f"dos {_votos(len(ps1))} locais de votação do Brasil na eleição de {ano} (inclusive "
+            f"{int((ps1['sg_uf'] == 'ZZ').sum())} no exterior), um arquivo por cargo e turno: {cargos}, com "
+            "os votos por candidato (por partido, nos deputados), aptos, comparecimento, abstenção, brancos, "
+            "nulos e votos anulados."
+        )
+    return texto + " Acompanha uma tabela em formato excel com os dados descritos e o dicionário em PDF."
+
+
+def escreve_cadastro_cem(destino: Path, pasta: Path = PACOTE_DIR) -> Path:
+    """Planilha com uma linha por base do pacote, nas colunas da planilha de DOI do CEM.
+
+    DOI, data de lançamento e link ficam em branco para o CEM preencher; a
+    descrição do site e as linhas de SQL são fórmulas que leem essas células, como
+    nas linhas antigas.
+    """
+    import openpyxl
+    from openpyxl.styles import Alignment, Font
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Projetos cartográficos"
+    ws.append(COLUNAS_CADASTRO_CEM)
+    for celula in ws[1]:
+        celula.font = Font(bold=True)
+    col = {nome: openpyxl.utils.get_column_letter(i + 1) for i, nome in enumerate(COLUNAS_CADASTRO_CEM)}
+    bases = [(ano, u) for u in ("MU", "LV") for ano in (2018, 2022, 2026)]
+    for linha, (ano, unidade) in enumerate(bases, start=2):
+        municipio = unidade == "MU"
+        anterior = DOI_ANTERIOR_CEM.get((ano, unidade), "")
+
+        def ref(nome: str) -> str:
+            return f"{col[nome]}{linha}"
+
+        doi, desc, codigos, lanc = ref("DOI"), ref("Descrição"), ref("Codigos"), ref("DATA DE LANÇAMENTO:")
+        site = (
+            f'="<p>"&{desc}&"</p>"&CHAR(10)&CHAR(10)&"<p><strong>DOI:&nbsp;</strong> "&{doi}&"</p>"'
+            f'&CHAR(10)&CHAR(10)&"<p><a href=\'http://api.crossref.org/works/"&{doi}'
+            f'&"/transform/application/x-bibtex\' target=\'_blank\' title=\'Bibtex\'>Bibtex</a></p>"'
+        )
+        valores = {
+            "Camadas": len(arquivos_base(ano, unidade)),
+            "Codigos": ",".join(arquivos_base(ano, unidade)),
+            "DOI": "",
+            "count DOI": f'=IF({doi}="","",1)',
+            "Título": f"Resultado eleitoral por {'município' if municipio else 'local de votação'} no Brasil em {ano}",
+            "Descrição": descricao_cadastro(ano, unidade, pasta),
+            "Descrição Site CEM": site,
+            "DATA DE REFERÊNCIA:": ano,
+            "DATA DE LANÇAMENTO:": None,
+            "Fontes": None,
+            "Fonte": "TSE, IBGE",
+            "Tema": "eleições",
+            "Região": "Brasil",
+            "Links documentos": None,
+            "Situação": None,
+            "Obervação": (
+                f"Nova versão de EL{ano}_MU_BRA_CEM: Censo 2022, malha IBGE 2022, um arquivo por cargo e turno"
+                if anterior else "Base nova"
+            ),
+            "descricao_do_tipo_de_arquivo": (
+                f"Resultado eleitoral por {'município' if municipio else 'local de votação'} no Brasil"
+            ),
+            "nome_arquivo": f"EL{ano}_{unidade}_BRA.zip",
+            "Link GDrive": None,
+            "DOI da versão anterior": anterior or None,
+            "SQL abstract": (
+                f'="update public.base_resourcebase set abstract=\'<p>"&SUBSTITUTE({desc},"\'","\'\'")'
+                f'&"</p>\' where title=\'"&{codigos}&"\'"'
+            ),
+            "SQL data edition": f'="update public.base_resourcebase set edition=\'{ano}\' where title=\'"&{codigos}&"\'"',
+            "SQL date publication": (
+                f'=IF({lanc}="","","update public.base_resourcebase set date=\'"&TEXT({lanc},"0")'
+                f'&"\' where title=\'"&{codigos}&"\'")'
+            ),
+        }
+        ws.append([valores[c] for c in COLUNAS_CADASTRO_CEM])
+        ws[ref("DATA DE LANÇAMENTO:")].number_format = "DD/MM/YYYY"
+    for nome, largura in (("Codigos", 40), ("Título", 45), ("Descrição", 70), ("Descrição Site CEM", 50),
+                          ("Obervação", 40), ("descricao_do_tipo_de_arquivo", 35), ("nome_arquivo", 22),
+                          ("SQL abstract", 50)):
+        ws.column_dimensions[col[nome]].width = largura
+    for linha in ws.iter_rows(min_row=2):
+        for celula in linha:
+            celula.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.freeze_panes = "C2"
+    Path(destino).parent.mkdir(parents=True, exist_ok=True)
+    wb.save(destino)
+    return Path(destino)
