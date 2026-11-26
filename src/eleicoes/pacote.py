@@ -1205,6 +1205,10 @@ EQUIPE_TRANSFERENCIA = [
     "Kaue Oliveira Almeida",
     "Gil Andrade Gontijo",
 ]
+# Logo novo do CEM (vertical, completo), usado a partir de 2026; antes, o logo das
+# páginas do PDF de 2022 do CEM.
+LOGO_CEM = Path(__file__).resolve().parents[2] / "assets" / "cem" / "CEM_LOGO_COMPLETO_VER.svg"
+ANO_LOGO_NOVO = 2026
 CONSELHO_CEM = [
     "Adrián Gurza Lavalle", "Bianca Freire-Medeiros", "Charles Kirschbaum", "Eduardo Marques",
     "Gabriela Lotta", "Jonathan Phillips", "Marcos Nobre", "Mariana Giannotti", "Marta Arretche",
@@ -1275,13 +1279,14 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
 
     Lê os arquivos já escritos em `pasta` (tabela `candidatos` de cada GeoPackage e
     `dicionario_colunas.csv`). Capa e créditos usam o logo das páginas do dicionário
-    de 2022 do CEM, com o texto refeito; a seção de atualização só entra nos
+    de 2022 do CEM (o logo novo, `LOGO_CEM`, a partir de 2026), com o texto refeito; a seção de atualização só entra nos
     municípios de 2018 e 2022, que têm base anterior no CEM.
     """
     import re
     import subprocess
 
     municipio = unidade == "MU"
+    logo_novo = ano >= ANO_LOGO_NOVO
     chaves = [(cargo, turno) for cargo in CARGOS_GERAIS for turno in turnos(cargo)]
     arquivos = {chave: nome_arquivo(ano, *chave, unidade) for chave in chaves}
     dic = pd.read_csv(Path(pasta) / "dicionario_colunas.csv", dtype=str)
@@ -1300,7 +1305,7 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         {
             "Arquivo": arquivo, "Cargo": CARGOS[cargo]["rotulo"],
             "Turno": f"{turno}º" if len(turnos(cargo)) > 1 else "único",
-            "Linhas": f"{pyogrio.read_info(Path(pasta) / f'{arquivo}.gpkg')['features']:,}".replace(",", "."),
+            "Linhas": f"{pyogrio.read_info(Path(pasta) / f'{arquivo}.gpkg', layer=('municipios' if municipio else 'locais'))['features']:,}".replace(",", "."),
         }
         for (cargo, turno), arquivo in arquivos.items()
     ])
@@ -1342,8 +1347,13 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         "            let p = here().page()",
         "            let ultima = counter(page).final().first()",
         "            if p == 1 or p == ultima {",
-        f"              image(\"original.pdf\", page: if p == 1 {{ 1 }} else {{ {n_original} }}, width: 100%)",
-        "              place(top + left, dy: 5.5cm, rect(fill: white, width: 100%, height: 100%))",
+        *(
+            ["              place(top + center, dy: 1.6cm, image(\"logo.svg\", width: 4.6cm))"]
+            if logo_novo else [
+                f"              image(\"original.pdf\", page: if p == 1 {{ 1 }} else {{ {n_original} }}, width: 100%)",
+                "              place(top + left, dy: 5.5cm, rect(fill: white, width: 100%, height: 100%))",
+            ]
+        ),
         "            }",
         "          },",
         "          footer: context {",
@@ -1434,6 +1444,7 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "original.pdf").write_bytes(original)
+        shutil.copyfile(LOGO_CEM, tmp / "logo.svg")
         qmd = tmp / f"{Path(destino_pdf).stem}.qmd"
         qmd.write_text("\n".join(partes), encoding="utf-8")
         subprocess.run(f'quarto render "{qmd.name}" --to typst', cwd=tmp, check=True, shell=True)
