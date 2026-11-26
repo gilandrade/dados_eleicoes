@@ -8,7 +8,8 @@ execute:
 Monta os arquivos para distribuir os resultados das eleições gerais de 2018, 2022 e
 2026 como acréscimo às bases eleitorais do Download de Dados do CEM. Os arquivos
 trazem, no mínimo, tudo o que as bases de município do CEM (`EL2018_MU_BRA_CEM`,
-`EL2022_MU_BRA_CEM`) trazem, com Censo 2022 e malha municipal do IBGE de 2022:
+`EL2022_MU_BRA_CEM`) trazem, com Censo 2022 e malha municipal do IBGE de 2022 (2018 e
+2022) ou de 2024 (2026, com Boa Esperança do Norte; `pacote.ANO_MALHA_2024`):
 
 - **cargos**: Presidente (`PS1`, `PS2`), Governador (`GO1`, `GO2`), Senador (`SE`),
   Deputado federal (`DF`) e Deputado estadual/distrital (`DE`), com os códigos de
@@ -118,7 +119,7 @@ for chave in CHAVES:
     assert reais["cd_mun"].is_unique and reais.geometry.notna().all(), chave
     assert mu.loc[mu["cd_mun"].isna(), "cd_mun_tse"].isin(list(pacote.MUNICIPIOS_SEM_IBGE)).all(), chave
     if turno == 1:
-        assert len(reais) == 5_570, (chave, len(reais))
+        assert len(reais) == (5_571 if ano >= pacote.ANO_MALHA_2024 else 5_570), (chave, len(reais))
     # Soma por número: locais = municípios = resultado da 04.
     for col in [c for c in lv.columns if c.startswith("votos_")]:
         nr = col.removeprefix("votos_")

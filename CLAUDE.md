@@ -159,6 +159,9 @@ data model (geometry files vs. result files joined by a shared id).
   o logo antigo é só a faixa do topo rasterizada (um `image` maior que a página sai
   centralizado, cortar com `box(clip: true)`). Descrições por ano e camada em
   `pacote.descricao_coluna`.
+  Malha municipal: IBGE 2022 em 2018/2022 e 2024 em 2026 (5.571, com Boa Esperança do
+  Norte, 5101837); os setores do Censo 2022 de Sorriso e Nova Ubiratã vão para o município
+  da malha de 2024 que contém o ponto interno (14 setores, 2.735 pessoas).
   Também gera `cem/EL2022_MU_BRA_CEM_V2.zip`: a base do CEM com
   BA_001/BA_002/AREA_KM2/HAB_KM2 do Censo 2022 no lugar do Censo 2010, e o PDF de
   dicionário refeito com Quarto + Typst e uma seção "Atualização". O zip original
@@ -498,6 +501,8 @@ data model (geometry files vs. result files joined by a shared id).
   - **Boa Esperança do Norte (MT, código TSE 73709)** foi emancipada depois da malha
     do IBGE de 2022: sem `cd_mun` no crosswalk, seus 3 locais ficam fora do mapa e
     os votos caem na linha `EXTERIOR` (conservam o total, não aparecem em mapa).
+    No pacote (14) de 2026 ele tem código (5101837) e polígono: a 14 usa a malha de
+    2024 (`municipios_2024.gpkg`, 00_insumos) a partir de `pacote.ANO_MALHA_2024`.
   - **Conferido contra o TSE:** Prefeito de São Paulo 2024 (Nunes 1.801.139, Boulos
     1.776.127, Marçal 1.719.274 no 1º turno; 3.393.110 × 2.323.901 no 2º) e o
     mais votado = eleito em todos os 5.477 municípios decididos no 1º turno.

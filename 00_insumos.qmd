@@ -154,6 +154,21 @@ stopifnot(nrow(municipios) == 5570)
 st_write(municipios, file.path(AUX_DIR, "municipios.gpkg"), delete_dsn = TRUE)
 ```
 
+Malha de 2024, usada só no pacote de dados de 2026 (`14_pacote_dados.qmd`): tem
+Boa Esperança do Norte (MT, 5101837), criado depois da malha de 2022 a partir de
+Sorriso e Nova Ubiratã.
+
+```{r municipios-2024}
+municipios_2024 <- geobr::read_municipality(code_muni = "all", year = 2024)
+stopifnot(!is.null(municipios_2024), nrow(municipios_2024) == 5571)
+municipios_2024 <- municipios_2024 |>
+  rename(cd_mun = code_muni) |>
+  mutate(cd_mun = as.character(cd_mun)) |>
+  st_transform(4674)
+stopifnot("5101837" %in% municipios_2024$cd_mun)
+st_write(municipios_2024, file.path(AUX_DIR, "municipios_2024.gpkg"), delete_dsn = TRUE)
+```
+
 ## 3. População adulta estimada por setor (`pop18`)
 
 `pop18(s) = total(s) − [0,4] − [5,9] − [10,14] − 0,6 × [15,19]`, a mesma conta

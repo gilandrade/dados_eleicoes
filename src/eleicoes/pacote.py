@@ -39,6 +39,7 @@ from .config import (
     GEOMETRIAS_DIR,
     PROCESSADO_DIR,
     RESULTADOS_DIR,
+    SETORES_2022_GPKG,
     UFS_27,
 )
 from .fontes import le_consulta_cand, votos_nao_validos
@@ -317,10 +318,10 @@ def partidos(ano: int, cargo: str, res: pd.DataFrame) -> pd.DataFrame:
 # ==== Contagens e atributos ====================================================
 
 
-def _municipios_ibge() -> pd.DataFrame:
+def _municipios_ibge(ano: int | None = None) -> pd.DataFrame:
     mun = pd.DataFrame(
         pyogrio.read_dataframe(
-            PROCESSADO_DIR / "aux" / "municipios.gpkg",
+            malha_municipios(ano),
             columns=["cd_mun", "name_muni", "abbrev_state", "name_state", "name_region"],
             read_geometry=False,
         )
@@ -349,16 +350,39 @@ def contagens_secao(ano: int, turno: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     return por_local, por_mun.reset_index()
 
 
-def censo_municipio() -> pd.DataFrame:
+def censo_municipio(ano: int | None = None) -> pd.DataFrame:
     """População (V0001), domicílios particulares ocupados (V0007) e área por município.
 
     Soma dos setores do Censo 2022 (tabela Básico). `hab_km2` = população / área.
+    Com a malha de 2024 (`ano` >= ANO_MALHA_2024), os setores dos municípios que
+    perderam território para um município novo vão para o município da malha de
+    2024 que contém o ponto interno do setor.
     """
+    if ano is not None and ano >= ANO_MALHA_2024:
+        return _censo_municipio_2024().copy()
     return _censo_municipio().copy()
 
 
 @functools.lru_cache(maxsize=1)
-def _censo_municipio() -> pd.DataFrame:
+def _censo_municipio_2024() -> pd.DataFrame:
+    origens = sorted({o for info in MUNICIPIOS_SEM_IBGE.values() for o in info["desmembrado_de"]})
+    lista = ", ".join(f"'{c}'" for c in origens)
+    setores = gpd.read_file(SETORES_2022_GPKG, where=f"CD_MUN IN ({lista})", columns=["CD_SETOR", "CD_MUN"])
+    malha = gpd.read_file(malha_municipios(ANO_MALHA_2024), columns=["cd_mun"]).to_crs(setores.crs)
+    pontos = setores.assign(geometry=setores.representative_point())
+    destino = gpd.sjoin(pontos, malha, how="left", predicate="within")
+    destino = destino.drop_duplicates("CD_SETOR").set_index("CD_SETOR")["cd_mun"]
+    if destino.isna().any():
+        raise ValueError(f"Setores fora da malha de 2024: {list(destino[destino.isna()].index)}")
+    setores = _setores_censo().copy()
+    movidos = destino[destino != destino.index.str[:7]]
+    novo = setores["CD_SETOR"].map(movidos)
+    setores["CD_MUN"] = novo.fillna(setores["CD_MUN"])
+    return _agrega_censo(setores)
+
+
+@functools.lru_cache(maxsize=1)
+def _setores_censo() -> pd.DataFrame:
     # O duckdb recusa o arquivo como latin-1 (bytes de controle); pandas lê só as
     # colunas usadas, direto do zip.
     setores = pd.read_csv(
@@ -368,6 +392,15 @@ def _censo_municipio() -> pd.DataFrame:
     setores["pop"] = pd.to_numeric(setores["v0001"], errors="coerce")
     setores["dom"] = pd.to_numeric(setores["v0007"], errors="coerce")
     setores["area"] = pd.to_numeric(setores["AREA_KM2"].str.replace(",", "."), errors="coerce")
+    return setores
+
+
+@functools.lru_cache(maxsize=1)
+def _censo_municipio() -> pd.DataFrame:
+    return _agrega_censo(_setores_censo())
+
+
+def _agrega_censo(setores: pd.DataFrame) -> pd.DataFrame:
     df = setores.groupby("CD_MUN").agg(
         pop_2022=("pop", "sum"), dom_2022=("dom", "sum"), area_km2=("area", "sum"),
         setores_sem_pop=("pop", lambda s: int(s.isna().sum())),
@@ -383,9 +416,30 @@ def _censo_municipio() -> pd.DataFrame:
 
 # Municípios que existem no TSE mas não na malha/crosswalk do IBGE de 2022 (criados
 # depois). Sem esta tabela, seus locais e votos caem no exterior (CLAUDE.md).
+# A partir de ANO_MALHA_2024 o pacote usa a malha municipal de 2024, que já os tem
+# (`cd_mun_2024`); os setores do Censo 2022 dos municípios de origem
+# (`desmembrado_de`) são realocados pelo ponto interno (`censo_municipio`).
 MUNICIPIOS_SEM_IBGE = {
-    "73709": {"nm_mun": "Boa Esperança do Norte", "sg_uf": "MT", "nm_uf": "Mato Grosso", "nm_regiao": "Centro-Oeste"},
+    "73709": {
+        "nm_mun": "Boa Esperança do Norte", "sg_uf": "MT", "nm_uf": "Mato Grosso", "nm_regiao": "Centro-Oeste",
+        "cd_mun_2024": "5101837", "desmembrado_de": ("5107925", "5106240"),  # Sorriso, Nova Ubiratã
+    },
 }
+ANO_MALHA_2024 = 2026
+MALHA_MUNICIPIOS = PROCESSADO_DIR / "aux" / "municipios.gpkg"
+MALHA_MUNICIPIOS_2024 = PROCESSADO_DIR / "aux" / "municipios_2024.gpkg"  # 00_insumos.qmd
+
+
+def malha_municipios(ano: int | None = None) -> Path:
+    """Malha municipal do IBGE do pacote: 2022, ou 2024 a partir de ANO_MALHA_2024."""
+    return MALHA_MUNICIPIOS_2024 if ano is not None and ano >= ANO_MALHA_2024 else MALHA_MUNICIPIOS
+
+
+def _cd_mun_novo(ano: int) -> dict[str, str]:
+    """Código TSE -> código IBGE dos MUNICIPIOS_SEM_IBGE que a malha do ano já tem."""
+    if ano < ANO_MALHA_2024:
+        return {}
+    return {tse: info["cd_mun_2024"] for tse, info in MUNICIPIOS_SEM_IBGE.items()}
 
 
 def _chave_municipio(cd_mun: pd.Series, cd_mun_tse: pd.Series) -> pd.Series:
@@ -436,9 +490,13 @@ def monta_locais(ano: int, turno: int, cargo: str = "presidente") -> gpd.GeoData
         columns=["id_local", "fonte_coord", "flag_sem_coord"],
     ).to_crs(CRS_SIRGAS2000)
     por_local, _ = contagens_secao(ano, turno)
-    mun = _municipios_ibge()[["cd_mun", "nm_mun"]]
+    mun = _municipios_ibge(ano)[["cd_mun", "nm_mun"]]
 
     base = res[["id_local"]].merge(locais, on="id_local", how="left", validate="1:1")
+    # Municípios novos que a malha do ano já tem (2026: Boa Esperança do Norte).
+    novos = base["id_local"].str[:5].map(_cd_mun_novo(ano))
+    novo = base["cd_mun"].isna() & novos.notna()
+    base["cd_mun"] = base["cd_mun"].fillna(novos)
     base = base.merge(mun, on="cd_mun", how="left")
     base = base.merge(geom, on="id_local", how="left", validate="1:1")
     base = base.merge(por_local, on="id_local", how="left")
@@ -451,11 +509,25 @@ def monta_locais(ano: int, turno: int, cargo: str = "presidente") -> gpd.GeoData
     nome = base["nm_mun"].where(~exterior, "Exterior")
     nome = nome.where(~sem_ibge, cd_tse.map(lambda c: MUNICIPIOS_SEM_IBGE.get(c, {}).get("nm_mun")))
     uf = base["sg_uf"].where(~exterior, "ZZ")
-    uf = uf.where(~sem_ibge, cd_tse.map(lambda c: MUNICIPIOS_SEM_IBGE.get(c, {}).get("sg_uf")))
+    # O cadastro de locais não traz a UF de quem não tem código IBGE de 2022.
+    uf = uf.where(~(sem_ibge | novo), cd_tse.map(lambda c: MUNICIPIOS_SEM_IBGE.get(c, {}).get("sg_uf")))
     if sem_ibge.any():
         pontos_tse = gpd.points_from_xy(base["longitude"], base["latitude"], crs=CRS_SIRGAS2000)
         base["geometry"] = base["geometry"].where(~sem_ibge, pd.Series(list(pontos_tse), index=base.index))
         base["fonte_coord"] = base["fonte_coord"].where(~sem_ibge, "tse_nao_validada")
+    if novo.any():
+        # A etapa 02 não tinha o polígono: coordenada do TSE, validada aqui contra a
+        # malha de 2024 (dentro: tse; fora: centroide do município novo).
+        malha = gpd.read_file(malha_municipios(ano), columns=["cd_mun"]).to_crs(CRS_SIRGAS2000).set_index("cd_mun")
+        pontos_tse = gpd.GeoSeries(
+            gpd.points_from_xy(base["longitude"], base["latitude"]), index=base.index, crs=CRS_SIRGAS2000
+        )
+        poligono = gpd.GeoSeries(malha.geometry.reindex(base["cd_mun"]).to_numpy(), index=base.index, crs=CRS_SIRGAS2000)
+        dentro = pontos_tse.within(poligono)
+        centro = poligono.representative_point()
+        base.loc[novo, "geometry"] = pontos_tse.where(dentro, centro)[novo]
+        base.loc[novo, "fonte_coord"] = np.where(dentro[novo], "tse", "centroide_municipio")
+        base.loc[novo, "flag_sem_coord"] = ~dentro[novo]
     atributos = pd.DataFrame({
         "id_local": base["id_local"],
         "nr_local": base["id_local"].str[-4:],
@@ -495,13 +567,16 @@ def monta_municipios(ano: int, turno: int, cargo: str = "presidente") -> gpd.Geo
     """Uma linha por município com resultado do cargo no turno (+ exterior sem
     geometria, em Presidente), com Censo 2022."""
     res = le_resultado(cargo, ano, turno, "municipio")
-    poligonos = gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg", columns=["cd_mun"]).to_crs(CRS_SIRGAS2000)
-    mun = _municipios_ibge()
+    poligonos = gpd.read_file(malha_municipios(ano), columns=["cd_mun"]).to_crs(CRS_SIRGAS2000)
+    mun = _municipios_ibge(ano)
     crosswalk = pd.read_parquet(PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet", columns=["cd_mun", "cd_mun_tse"])
     _, por_mun = contagens_secao(ano, turno)
-    censo = censo_municipio()[["cd_mun", "pop_2022", "dom_2022", "area_km2", "hab_km2"]]
+    censo = censo_municipio(ano)[["cd_mun", "pop_2022", "dom_2022", "area_km2", "hab_km2"]]
 
     res = _separa_sem_ibge_do_exterior(res, ano, turno, cargo)
+    # Municípios novos que a malha do ano já tem: ganham código IBGE, polígono e Censo.
+    for cd_tse, cd_ibge in _cd_mun_novo(ano).items():
+        res.loc[res["chave"] == f"TSE{cd_tse}", "cd_mun"] = cd_ibge
     base = res[["cd_mun"]].merge(mun, on="cd_mun", how="left", validate="1:1")
     base = base.merge(crosswalk, on="cd_mun", how="left", validate="1:1")
     base = base.merge(por_mun.rename(columns={"cd_mun": "chave"}), left_on=res["chave"].to_numpy(), right_on="chave", how="left")
@@ -971,15 +1046,14 @@ DESCRICOES = {
     "fonte_coord": "Origem da coordenada: tse (do TSE, validada no município); tse_confirmado (do TSE, "
     "reprovada na validação, mas a menos de 800 m de outra referência); ano_2018/ano_2022 (coordenada "
     "validada do mesmo local em outra eleição); hidalgo (geocodificação de Hidalgo et al.); geocodebr "
-    "(endereço geocodificado com o CNEFE); centroide_municipio; tse_nao_validada (município sem malha do "
-    "IBGE de 2022, coordenada do TSE sem validação)",
+    "(endereço geocodificado com o CNEFE); centroide_municipio",
     "coord_aproximada": "Verdadeiro quando o ponto é o centroide do município (coordenada não resolvida)",
     "latitude": "Latitude do ponto (SIRGAS 2000)",
     "longitude": "Longitude do ponto (SIRGAS 2000)",
     "n_secoes": "Número de seções eleitorais do cadastro do TSE no turno (inclui seções agregadas)",
     # Município
-    "cd_mun": "Código IBGE do município (7 dígitos); EXTERIOR para os votos do exterior (só Presidente); vazio "
-    "para município criado depois da malha de 2022 (Boa Esperança do Norte, MT)",
+    "cd_mun": "Código IBGE do município (7 dígitos); EXTERIOR na linha dos votos do exterior (só Presidente) "
+    "no arquivo de municípios e vazio (sg_uf = ZZ) nos locais",
     "cd_mun_tse": "Código TSE do município (5 dígitos)",
     "nm_mun": "Nome do município",
     "nm_mun_sem_acento": "Nome do município em maiúsculas, sem acento (como MUN_NOME nas bases do CEM)",
@@ -1029,20 +1103,15 @@ def descricao_coluna(coluna: str, ano: int | None = None, camada: str | None = N
     """Descrição de uma coluna; com `ano` e `camada`, o texto que vale naquela base."""
     if ano is None:
         return DESCRICOES[coluna]
-    novo = ano >= 2026  # Boa Esperança do Norte (MT) só existe a partir de 2026
+    novo = ano >= ANO_MALHA_2024  # sem o painel de Hidalgo et al.
+    malha = 2024 if novo else 2022
     if coluna == "cd_mun":
-        texto = "Código IBGE do município (7 dígitos); " + (
+        return f"Código IBGE do município (7 dígitos, malha de {malha}); " + (
             "EXTERIOR na linha dos votos do exterior (só Presidente)" if camada == "municipios"
             else "vazio no exterior (sg_uf = ZZ)"
         )
-        if novo:
-            texto += "; vazio em Boa Esperança do Norte (MT), criado depois da malha de 2022"
-        return texto
     if coluna == "id_zona_mun":
-        texto = "Zona eleitoral × município: código IBGE do município (7) + zona (4); EXTERIOR + zona para o exterior"
-        if novo:
-            texto += "; TSE + código TSE + zona para Boa Esperança do Norte (MT), sem código IBGE"
-        return texto
+        return "Zona eleitoral × município: código IBGE do município (7) + zona (4); EXTERIOR + zona para o exterior"
     if coluna == "fonte_coord":
         partes = [
             "tse (do TSE, validada no município)",
@@ -1052,8 +1121,6 @@ def descricao_coluna(coluna: str, ano: int | None = None, camada: str | None = N
         if not novo:
             partes.append("hidalgo (geocodificação de Hidalgo et al.)")
         partes += ["geocodebr (endereço geocodificado com o CNEFE)", "centroide_municipio"]
-        if novo:
-            partes.append("tse_nao_validada (município sem malha do IBGE de 2022, coordenada do TSE sem validação)")
         return "Origem da coordenada: " + "; ".join(partes)
     return DESCRICOES[coluna]
 
@@ -1170,10 +1237,16 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "## Observações",
         "",
         "- **Fonte.** TSE (Portal de Dados Abertos): `eleitorado_local_votacao`, `votacao_secao`, "
-        "`detalhe_votacao_secao` e `consulta_cand`. Malha municipal: IBGE 2022 (via geobr). Censo 2022: "
+        "`detalhe_votacao_secao` e `consulta_cand`. Malha municipal: IBGE 2022 (2018 e 2022) e 2024 (2026), "
+        "via geobr. Censo 2022: "
         "IBGE, " + CENSO_VERSAO + ".",
-        "- **Censo e malha de 2022 nos três anos.** A eleição de 2018 fica a 4 anos do Censo 2022 e a 8 "
-        "do Censo 2010. As bases do CEM de 2018 e 2022 usam o Censo 2010.",
+        "- **Censo 2022 nos três anos.** A eleição de 2018 fica a 4 anos do Censo 2022 e a 8 do Censo "
+        "2010. As bases do CEM de 2018 e 2022 usam o Censo 2010.",
+        "- **Malha municipal.** 2018 e 2022 usam a malha do IBGE de 2022 (5.570 municípios), a divisão "
+        "vigente nessas eleições. 2026 usa a de 2024 (5.571), que tem Boa Esperança do Norte (MT, "
+        "5101837), desmembrado de Sorriso e Nova Ubiratã. O Censo 2022 não separa o município novo: os "
+        "setores de Sorriso e Nova Ubiratã vão para o município da malha de 2024 que contém o ponto "
+        "interno do setor (14 setores, 2.735 pessoas), e os dois perdem essa parte em 2026.",
         "- **Aptos por cargo.** Vêm do TSE por seção (`detalhe_votacao_secao`). O eleitor em trânsito fora "
         "da sua UF só vota para Presidente, então os aptos de Presidente são maiores que os dos outros "
         "cargos. Onde a seção não está nesse arquivo, usa-se o eleitorado do cadastro de locais.",
@@ -1189,9 +1262,6 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "como nas bases do CEM. O número do partido são os 2 primeiros dígitos do número do candidato; "
         "o mesmo número pode ser de partidos diferentes em anos diferentes. Deputado estadual inclui o "
         "distrital, no DF.",
-        "- **Boa Esperança do Norte (MT)** foi criado depois da malha municipal do IBGE de 2022: não tem "
-        "código IBGE nem polígono. Seus locais trazem a coordenada do TSE (`fonte_coord = "
-        "tse_nao_validada`) e, no arquivo de municípios de 2026, ele é uma linha sem geometria.",
         "- **Coordenadas.** A coordenada do TSE é validada contra o município; quando falha, usa-se a "
         "coordenada validada do mesmo local em outra eleição, a geocodificação de Hidalgo et al., depois "
         "o endereço geocodificado com o CNEFE, e, em último caso, o centroide do município "
@@ -1320,7 +1390,7 @@ def _votos(v: object) -> str:
     return f"{int(v):,}".replace(",", ".")
 
 
-def _pc(v: object) -> str:
+def _pc_txt(v: object) -> str:
     if pd.isna(v):
         return ""
     if 0 < v < 0.005:
@@ -1358,7 +1428,7 @@ def _tabela_candidatos(cand: pd.DataFrame) -> str:
     """Tabela de candidatos (ou partidos) de um arquivo, nos moldes do CEM."""
     t = cand.copy()
     t["qt_votos"] = t["qt_votos"].map(_votos)
-    t["pc_validos"] = t["pc_validos"].map(_pc)
+    t["pc_validos"] = t["pc_validos"].map(_pc_txt)
     t["nm_partido"] = t["nm_partido"].map(_caixa_mista)
     if "nr_partido" in t:
         t = t.sort_values("nr_partido")[["nr_partido", "sg_partido", "nm_partido", "qt_votos", "pc_validos"]]
@@ -1452,17 +1522,21 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
     n_exterior = int((ps1["sg_uf"] == "ZZ").sum())
 
     cargos_txt = "Presidente, Governador, Senador, Deputado federal e Deputado estadual/distrital"
+    ano_malha = 2024 if ano >= ANO_MALHA_2024 else 2022
+    n_mun = _votos(pyogrio.read_info(malha_municipios(ano))["features"])
     if municipio:
         descricao = [
             "Base cartográfica georreferenciada em formato GeoPackage contendo os resultados das eleições "
-            f"gerais de {ano} ({cargos_txt}) nos 5.570 municípios do Brasil, com os votos de cada candidato "
-            "(ou partido, nos deputados) em colunas separadas, aptos, comparecimento, abstenção, brancos, "
-            "nulos e votos anulados. Inclui o total de pessoas residentes, os domicílios particulares "
-            "ocupados, a área e a densidade do Censo Demográfico 2022 do IBGE, sobre a malha municipal do "
-            "IBGE de 2022 (versão simplificada do geobr, Ipea). Os votos do exterior (só Presidente) estão "
-            "numa linha sem geometria."
-            + (" Boa Esperança do Norte (MT), criado depois da malha de 2022, também é uma linha sem "
-               "geometria, sem código IBGE e sem dados do Censo." if ano >= 2026 else ""),
+            f"gerais de {ano} ({cargos_txt}) nos {n_mun} municípios do Brasil, com os votos de cada "
+            "candidato (ou partido, nos deputados) em colunas separadas, aptos, comparecimento, abstenção, "
+            "brancos, nulos e votos anulados. Inclui o total de pessoas residentes, os domicílios "
+            "particulares ocupados, a área e a densidade do Censo Demográfico 2022 do IBGE, sobre a malha "
+            f"municipal do IBGE de {ano_malha} (versão simplificada do geobr, Ipea). Os votos do exterior "
+            "(só Presidente) estão numa linha sem geometria."
+            + (" A malha de 2024 tem Boa Esperança do Norte (MT), desmembrado de Sorriso e Nova Ubiratã "
+               "depois do Censo 2022: os setores do Censo desses dois municípios vão para o município da "
+               "malha de 2024 que contém o ponto interno do setor (14 setores, 2.735 pessoas)."
+               if ano_malha == 2024 else ""),
         ]
     else:
         geocod = (
@@ -1474,7 +1548,9 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
             f"(inclusive {n_exterior} no exterior, sem geometria), com os votos de cada candidato (ou "
             "partido, nos deputados) em colunas separadas, aptos, comparecimento, abstenção, brancos, "
             "nulos e votos anulados.",
-            "A coordenada do TSE é validada contra a malha municipal do IBGE de 2022. Quando falha, usa-se "
+            "A coordenada do TSE é validada contra a malha municipal do IBGE de 2022"
+            + (" (de 2024 em Boa Esperança do Norte, MT, criado depois)" if ano_malha == 2024 else "")
+            + ". Quando falha, usa-se "
             f"a coordenada validada do mesmo local em outra eleição, {geocod}o endereço geocodificado com o "
             "CNEFE 2022 ou, em último caso, o centroide do município (coord_aproximada; esses pontos "
             "continuam no arquivo). A coluna fonte_coord diz a origem"
@@ -1496,9 +1572,10 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         "votacao_candidato_munzona e consulta_cand."
     )
     fonte = (
-        "TSE - Portal de Dados Abertos; IBGE - Censo Demográfico 2022 e malha municipal 2022"
+        f"TSE - Portal de Dados Abertos; IBGE - Censo Demográfico 2022 e malha municipal {ano_malha}"
         if municipio else
-        "TSE - Portal de Dados Abertos; IBGE - malha municipal 2022 e CNEFE 2022"
+        "TSE - Portal de Dados Abertos; IBGE - malha municipal 2022"
+        + (" e 2024" if ano_malha == 2024 else "") + " e CNEFE 2022"
         + ("; Hidalgo et al. (geocode_br_polling_stations)" if ano < 2026 else "")
     )
     siglas = ", ".join(CARGOS[c]["sigla"] + (str(t) if len(turnos(c)) > 1 else "") for c, t in chaves)
@@ -1558,7 +1635,7 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         f"Tema: #strong({_ty(f'Eleições {ano}')})",
         "",
         "Base cartográfica: "
-        + _ty_inline("Municípios do Brasil (malha municipal IBGE 2022)" if municipio
+        + _ty_inline(f"Municípios do Brasil (malha municipal IBGE {ano_malha})" if municipio
                      else "Locais de votação do Brasil"),
         "",
         "Fonte de dados: " + _ty_inline(fonte),
