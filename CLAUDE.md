@@ -44,6 +44,7 @@ quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa d
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
 quarto render 10_autocorrelacao_espacial.qmd --profile local   # Moran/LISA do PT por município
 quarto render autocorrelacao.qmd             # página do site com o resultado da 10
+quarto render 14_pacote_dados.qmd --profile local   # pacote de dados para o CEM (dados/04_pacote/)
 quarto render 06_exporta_visualizador.qmd    # dados do site (docs/mapas/dados/)
 quarto render mapas.qmd                      # só a página, nunca o projeto inteiro
 cp assets/mapas.js assets/mapas.css docs/assets/   # o render de uma página só não copia assets/
@@ -115,6 +116,25 @@ data model (geometry files vs. result files joined by a shared id).
   visualizador): `quarto render autocorrelacao.qmd` depois da 10. As figuras dela
   (`docs/autocorrelacao_files/`) têm exceção no `.gitignore`. Os votos dos resultados
   vêm em int32: `100 * soma` estoura, converter para float antes.
+- **14 (Python, `14_pacote_dados.qmd`)**: pacote de dados para distribuir como
+  acréscimo ao Download de Dados do CEM (funções em `pacote.py`, saída em
+  `dados/04_pacote/`). Gera os locais de votação do Brasil, 1º e 2º turno de
+  2018/2022/2026, e os municípios de 2026. Os municípios de 2018/2022 ficam de fora
+  porque o CEM já os tem (`EL20xx_MU_BRA_CEM`, com os mesmos votos). Nome no padrão
+  CEM, `EL{ano}_{LV|MU}_BRA_PS{turno}`, em `.gpkg` (camada + tabela `candidatos`) e
+  `.xlsx`. Votos em `votos_{nr}`, percentuais de 0 a 100, exterior sem geometria.
+  Também gera `cem/EL2022_MU_BRA_CEM_V2.zip`: a base do CEM com
+  BA_001/BA_002/AREA_KM2/HAB_KM2 do Censo 2022 no lugar do Censo 2010, e o PDF de
+  dicionário refeito com Quarto + Typst e uma seção "Atualização". O zip original
+  não muda. Achados:
+  - O CSV da tabela Básico do Censo 2022 é recusado pelo duckdb como latin-1; ler com
+    pandas direto do zip.
+  - Na Básico, V0001 = pessoas e V0007 = domicílios particulares ocupados; não há
+    moradores só em domicílios particulares.
+  - No `consulta_cand`, o mesmo número pode ter dois candidatos (Lula/Haddad 2018,
+    Avalanche/Marçal 2026); vale o `NM_VOTAVEL` do `votacao_secao`.
+  - No Typst, um `#set page`/`#page` no corpo abre página em branco; vai no
+    `include-in-header`.
 - **Renderizar a 06 regrava todos os JSON do site** com os dados locais atuais: se
   eles divergem do que foi publicado (ex.: locais de 2018/2022), o `git status` mostra
   arquivos alterados que não fazem parte da mudança; conferir antes de commitar.

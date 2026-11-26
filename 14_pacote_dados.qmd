@@ -1,0 +1,237 @@
+---
+title: "14 · Pacote de dados: Presidente por local de votação e município"
+search: false
+execute:
+  echo: true
+---
+
+Monta os arquivos para distribuir os resultados de Presidente como acréscimo às bases
+eleitorais do Download de Dados do CEM:
+
+- **locais de votação** do Brasil inteiro, 1º e 2º turno de 2018, 2022 e 2026
+  (`EL{ano}_LV_BRA_PS{turno}`). O CEM só tem locais do estado de São Paulo e de
+  regiões metropolitanas;
+- **municípios** de 2026 (`EL2026_MU_BRA_PS{turno}`), com população, domicílios,
+  área e densidade do Censo 2022. Os de 2018 e 2022 já estão no CEM
+  (`EL2018_MU_BRA_CEM`, `EL2022_MU_BRA_CEM`), com os mesmos votos;
+- a **versão 2 do `EL2022_MU_BRA_CEM`**: a base do CEM com população, domicílios,
+  área e densidade do Censo 2022 no lugar do Censo 2010, e o dicionário em PDF
+  refeito com uma seção de atualização. O zip original não é alterado.
+
+Cada ano/turno sai em GeoPackage (camada principal + tabela `candidatos`) e em
+`.xlsx`. Votos por candidato em `votos_{número}`; percentuais de 0 a 100; o
+exterior entra como linha sem geometria. Tudo em `dados/04_pacote/`, com um
+`LEIAME.md`, o `dicionario_colunas.csv` e um zip.
+
+Insumos: as saídas de 01–04 de cada ano (`res_presidente_*`, `locais_*`,
+`secao_local_*`, `geom_locais_votacao_*`), o `consulta_cand_{ano}.zip` (baixado pela
+03b), o zip dos Agregados por Setores do Censo 2022 (tabela Básico) e o
+`EL2022_MU_BRA_CEM_0.zip` do CEM em `dados/01_bruto/cem/`.
+
+```bash
+quarto render 14_pacote_dados.qmd --profile local
+```
+
+```{python}
+#| label: setup
+import logging
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, "src")
+
+import geopandas as gpd
+import pandas as pd
+import pyogrio
+
+from eleicoes import pacote
+from eleicoes.config import RESULTADOS_DIR
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
+pd.options.display.float_format = "{:,.4f}".format
+
+ANOS_LOCAIS = (2018, 2022, 2026)
+ANO_MUNICIPIO = 2026
+TURNOS = (1, 2)
+PACOTE_DIR = pacote.PACOTE_DIR
+PACOTE_DIR.mkdir(parents=True, exist_ok=True)
+```
+
+## Locais de votação
+
+```{python}
+#| label: locais
+locais, candidatos, arquivos = {}, {}, []
+for ano in ANOS_LOCAIS:
+    for turno in TURNOS:
+        res_mun = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet")
+        cand = pacote.candidatos(ano, turno, res_mun)
+        gdf = pacote.monta_locais(ano, turno)
+        nome = pacote.nome_arquivo(ano, turno, "LV")
+        pacote.escreve_gpkg(gdf, cand, PACOTE_DIR / f"{nome}.gpkg", "locais")
+        pacote.escreve_xlsx(gdf, cand, PACOTE_DIR / f"{nome}.xlsx")
+        locais[(ano, turno)], candidatos[(ano, turno)] = gdf, cand
+        arquivos.append({"arquivo": nome, "unidade": "local de votação", "ano": ano, "turno": turno, "linhas": len(gdf)})
+        print(nome, len(gdf), "locais,", int(gdf.geometry.isna().sum()), "sem geometria")
+```
+
+## Municípios (2026)
+
+```{python}
+#| label: municipios
+municipios = {}
+for turno in TURNOS:
+    gdf = pacote.monta_municipios(ANO_MUNICIPIO, turno)
+    cand = candidatos[(ANO_MUNICIPIO, turno)]
+    nome = pacote.nome_arquivo(ANO_MUNICIPIO, turno, "MU")
+    pacote.escreve_gpkg(gdf, cand, PACOTE_DIR / f"{nome}.gpkg", "municipios")
+    pacote.escreve_xlsx(gdf, cand, PACOTE_DIR / f"{nome}.xlsx")
+    municipios[turno] = gdf
+    arquivos.append({"arquivo": nome, "unidade": "município", "ano": ANO_MUNICIPIO, "turno": turno, "linhas": len(gdf)})
+    print(nome, len(gdf), "linhas")
+```
+
+## Conferência
+
+```{python}
+#| label: conferencia
+TOTAIS_CONHECIDOS = {
+    (2022, 1): {13: 57_259_504, 22: 51_072_345},
+    (2026, 2): {13: 64_256_232, 22: 59_826_041},
+}
+for (ano, turno), gdf in locais.items():
+    res_mun = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet")
+    res_uf = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_uf.parquet")
+    assert gdf["id_local"].is_unique, (ano, turno)
+    # Geometria nula só no exterior (sg_uf = ZZ); sem cd_mun, só exterior e
+    # municípios sem código IBGE de 2022 (pacote.MUNICIPIOS_SEM_IBGE).
+    assert (gdf.geometry.isna() == (gdf["sg_uf"] == "ZZ")).all(), (ano, turno)
+    assert gdf.loc[gdf["cd_mun"].isna() & (gdf["sg_uf"] != "ZZ"), "cd_mun_tse"].isin(list(pacote.MUNICIPIOS_SEM_IBGE)).all()
+    # Soma por candidato: locais = município; UF (sem o exterior) = locais com código IBGE.
+    for col in [c for c in gdf.columns if c.startswith("votos_")]:
+        nr = col.removeprefix("votos_")
+        assert int(gdf[col].sum()) == int(res_mun[f"qt_votos_{nr}"].astype("int64").sum()), (ano, turno, nr)
+        assert int(gdf.loc[gdf["cd_mun"].notna(), col].sum()) == int(res_uf[f"qt_votos_{nr}"].astype("int64").sum()), (ano, turno, nr)
+    for nr, esperado in TOTAIS_CONHECIDOS.get((ano, turno), {}).items():
+        assert int(gdf[f"votos_{nr}"].sum()) == esperado, (ano, turno, nr)
+    # Identidade dos totais e percentuais dos válidos.
+    soma = gdf["qt_validos"] + gdf["qt_brancos"] + gdf["qt_nulos"] + gdf["qt_anulados_apu_sep"]
+    difere = soma != gdf["qt_comparecimento"]
+    print(ano, turno, "locais com válidos+brancos+nulos ≠ comparecimento:", int(difere.sum()))
+    assert difere.sum() == 0, (ano, turno)
+    pcs = gdf[[c for c in gdf.columns if c.startswith("pc_validos_")]].sum(axis=1)
+    assert ((pcs - 100).abs() < 0.01)[gdf["qt_validos"] > 0].all(), (ano, turno)
+    # Candidatos: um por número, com nome.
+    cand = candidatos[(ano, turno)]
+    assert cand["nr_candidato"].is_unique and cand["nm_urna"].notna().all(), (ano, turno)
+
+for turno, gdf in municipios.items():
+    reais = gdf[gdf["cd_mun"].notna() & (gdf["cd_mun"] != "EXTERIOR")]
+    assert len(reais) == 5_570 and reais["cd_mun"].is_unique and reais.geometry.notna().all()
+    assert (gdf["cd_mun"] == "EXTERIOR").sum() == 1
+    assert gdf.loc[gdf["cd_mun"].isna(), "cd_mun_tse"].isin(list(pacote.MUNICIPIOS_SEM_IBGE)).all()
+    # A linha do exterior é a soma dos locais do exterior (sem os municípios sem IBGE).
+    lv = locais[(ANO_MUNICIPIO, turno)]
+    assert int(gdf.loc[gdf["cd_mun"] == "EXTERIOR", "qt_aptos"].item()) == int(lv.loc[lv["sg_uf"] == "ZZ", "qt_aptos"].sum())
+    assert int(reais["pop_2022"].sum()) == pacote.POP_CENSO_2022_BRASIL
+    assert (reais["pop_2022"] > 0).all() and reais["cd_mun_tse"].notna().all()
+    for col in [c for c in gdf.columns if c.startswith("votos_")]:
+        assert int(gdf[col].sum()) == int(locais[(ANO_MUNICIPIO, turno)][col].sum()), (turno, col)
+    assert int(reais.loc[reais["cd_mun"] == "3550308", "pop_2022"].item()) == 11_451_999
+
+# Texto sem caractere de substituição (erro de codificação).
+for (ano, turno), gdf in locais.items():
+    assert gdf["sg_uf"].notna().all() and gdf["nm_mun"].notna().all(), (ano, turno)
+    for col in ("nm_local_votacao", "ds_endereco", "nm_bairro", "nm_mun"):
+        assert not gdf[col].fillna("").str.contains("�").any(), (ano, turno, col)
+    assert not candidatos[(ano, turno)].astype(str).apply(lambda s: s.str.contains("�")).any().any()
+```
+
+Releitura dos arquivos gravados: camadas, CRS, contagem e ids como texto.
+
+```{python}
+#| label: releitura
+for linha in arquivos:
+    gpkg = PACOTE_DIR / f"{linha['arquivo']}.gpkg"
+    camadas = [c[0] for c in pyogrio.list_layers(gpkg)]
+    principal = "locais" if linha["unidade"] == "local de votação" else "municipios"
+    assert camadas == [principal, "candidatos"], camadas
+    info = pyogrio.read_info(gpkg, layer=principal)
+    assert info["crs"] == "EPSG:4674" and info["features"] == linha["linhas"], (gpkg, info["crs"])
+    xlsx = pd.read_excel(PACOTE_DIR / f"{linha['arquivo']}.xlsx", sheet_name=None, dtype=str)
+    assert list(xlsx) == ["dados", "candidatos"] and len(xlsx["dados"]) == linha["linhas"]
+    chave = "id_local" if principal == "locais" else "cd_mun"
+    assert xlsx["dados"][chave].str.len().min() >= (13 if principal == "locais" else 7)
+    linha["MB_gpkg"] = round(gpkg.stat().st_size / 1e6, 1)
+    linha["MB_xlsx"] = round((PACOTE_DIR / f"{linha['arquivo']}.xlsx").stat().st_size / 1e6, 1)
+arquivos_df = pd.DataFrame(arquivos)
+arquivos_df
+```
+
+## LEIAME, dicionário e zip
+
+```{python}
+#| label: documentacao
+dicionario = pd.concat(
+    [pacote.dicionario_colunas(list(gdf.columns), "locais") for gdf in locais.values()]
+    + [pacote.dicionario_colunas(list(gdf.columns), "municipios") for gdf in municipios.values()]
+).drop_duplicates(["camada", "coluna"])
+dicionario.to_csv(PACOTE_DIR / "dicionario_colunas.csv", index=False, encoding="utf-8-sig")
+leiame = pacote.escreve_leiame(
+    PACOTE_DIR / "LEIAME.md",
+    arquivos_df[["arquivo", "unidade", "ano", "turno", "linhas"]],
+    candidatos,
+    dicionario,
+)
+entregues = (
+    [PACOTE_DIR / f"{a}.{ext}" for a in arquivos_df["arquivo"] for ext in ("gpkg", "xlsx")]
+    + [leiame, PACOTE_DIR / "dicionario_colunas.csv"]
+)
+zip_pacote = pacote.compacta(entregues, PACOTE_DIR / "EL_PS_BRA_2018_2026.zip")
+print(zip_pacote, round(zip_pacote.stat().st_size / 1e6, 1), "MB")
+```
+
+## Versão 2 do `EL2022_MU_BRA_CEM` (Censo 2022)
+
+`BA_001`, `BA_002`, `AREA_KM2` e `HAB_KM2` passam do Censo 2010 (e da área de 2021)
+para o Censo 2022: `BA_001` = domicílios particulares ocupados (V0007), `BA_002` =
+total de pessoas (V0001; a tabela Básico de 2022 não tem os moradores só dos
+domicílios particulares), `AREA_KM2` = soma dos setores, `HAB_KM2` = `BA_002 /
+AREA_KM2`. Geometria e as demais colunas ficam iguais.
+
+```{python}
+#| label: cem
+censo = pacote.censo_municipio()
+cem_dir = pacote.PACOTE_CEM_DIR
+cem_dir.mkdir(parents=True, exist_ok=True)
+with tempfile.TemporaryDirectory() as tmp:
+    original_dir = Path(tmp) / "original"
+    cem = pacote.le_cem_mu_2022(original_dir)
+    novo = pacote.atualiza_censo_cem(cem, censo)
+    nota = pacote.nota_atualizacao(cem, novo)
+
+    saida = Path(tmp) / "v2"
+    saida.mkdir()
+    shp = pacote.escreve_shapefile_cem(novo, saida)
+    xlsx = pacote.atualiza_xlsx_cem(original_dir / f"{pacote.CEM_MU_2022_NOME}.xlsx", saida / f"{pacote.CEM_MU_2022_NOME}.xlsx", censo, nota)
+    pdf = pacote.escreve_dicionario_cem(xlsx, original_dir / f"DIC_{pacote.CEM_MU_2022_NOME}.pdf", saida / f"DIC_{pacote.CEM_MU_2022_NOME}.pdf", nota)
+
+    # Conferência: só as quatro colunas mudam, a geometria não.
+    relido = gpd.read_file(saida / f"{pacote.CEM_MU_2022_NOME}.shp", encoding="ISO-8859-1")
+    assert len(relido) == len(cem) == 5_573
+    outras = [c for c in cem.columns if c not in pacote.COLUNAS_CENSO_CEM and c != "geometry"]
+    assert all(cem[c].equals(relido[c]) for c in outras), [c for c in outras if not cem[c].equals(relido[c])]
+    assert cem.geometry.geom_equals_exact(relido.geometry, 1e-9).all()
+    com_codigo = relido["CD_MUN_I"].notna()
+    assert int(relido.loc[com_codigo, "BA_002"].sum()) == pacote.POP_CENSO_2022_BRASIL
+    assert int(relido.loc[relido["CD_MUN_I"] == 3550308, "BA_002"].item()) == 11_451_999
+    assert relido.loc[relido["CD_MUN_I"] == 1200336, "MUN_NM_A"].item() == "Mâncio Lima"
+    xlsx_relido = pd.read_excel(xlsx, sheet_name=0)
+    assert int(xlsx_relido["BA_002"].sum()) == pacote.POP_CENSO_2022_BRASIL
+
+    zip_cem = pacote.compacta([*shp, xlsx, pdf], cem_dir / f"{pacote.CEM_MU_2022_NOME}_V2.zip")
+for linha in nota:
+    print("-", linha)
+print(zip_cem, round(zip_cem.stat().st_size / 1e6, 1), "MB")
+```
