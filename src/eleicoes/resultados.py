@@ -19,6 +19,7 @@ import pandas as pd
 
 from .config import (
     CODIGO_ANULADO_APURADO_SEPARADO,
+    CODIGO_ANULADO_INAPTO,
     CODIGO_BRANCO,
     CODIGO_NULO,
     CODIGOS_NAO_CANDIDATO,
@@ -545,8 +546,9 @@ def calcula_indicadores(
     df["pc_brancos"] = df.get(col_brancos, 0) / df["qt_comparecimento"]
     df["pc_nulos"] = df.get(col_nulos, 0) / df["qt_comparecimento"]
     col_anulados = f"qt_votos_{CODIGO_ANULADO_APURADO_SEPARADO}"
+    col_inaptos = f"qt_votos_{CODIGO_ANULADO_INAPTO}"
     df["pc_brancos_nulos"] = (
-        df.get(col_brancos, 0) + df.get(col_nulos, 0) + df.get(col_anulados, 0)
+        df.get(col_brancos, 0) + df.get(col_nulos, 0) + df.get(col_anulados, 0) + df.get(col_inaptos, 0)
     ) / df["qt_comparecimento"]
 
     for col in cols_votos_validos:

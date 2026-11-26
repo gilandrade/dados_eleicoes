@@ -43,11 +43,13 @@ import duckdb
 import pandas as pd
 
 from .config import (
+    ANOS_MUNICIPAIS,
     BRUTO_DIR,
     CARGO_PRESIDENTE,
     CARGOS,
     CD_ELEICAO_DIVULGACAO,
     CODIGO_ANULADO_APURADO_SEPARADO,
+    CODIGO_ANULADO_INAPTO,
     CODIGO_BRANCO,
     CODIGO_NULO,
     CODIGOS_NAO_CANDIDATO,
@@ -102,6 +104,12 @@ COLUNAS_VOTACAO_SECAO = (
     "cd_tipo_eleicao", "ds_eleicao", "sg_uf", "cd_municipio", "nr_zona", "nr_secao", "nr_turno",
     "cd_cargo", "nr_votavel", "nm_votavel", "qt_votos",
 )
+# Colunas do `consulta_cand_{ano}_BRASIL.csv` guardadas no parquet (candidatos de
+# todos os cargos), usadas no pacote de dados.
+COLUNAS_CONSULTA_CAND = (
+    "cd_tipo_eleicao", "nr_turno", "sg_uf", "cd_cargo", "nr_candidato", "nm_candidato",
+    "nm_urna_candidato", "sg_partido", "nm_partido", "ds_situacao_candidatura",
+)
 COLUNAS_DETALHE = (
     "cd_tipo_eleicao", "cd_municipio", "nr_zona", "nr_secao", "nr_turno", "cd_cargo", "qt_aptos",
     "qt_comparecimento",
@@ -117,6 +125,91 @@ def _sql_fonte(caminho: Path | list[Path]) -> str:
         return _sql_read_csv(unico)
     lista = ", ".join("'" + str(c).replace("'", "''") + "'" for c in caminhos)
     return f"read_parquet([{lista}])"
+
+
+def le_consulta_cand(ano: int) -> pd.DataFrame:
+    """Candidatos de todos os cargos do `consulta_cand_{ano}.zip` (eleição ordinária).
+
+    Converte o CSV do Brasil em parquet na primeira vez (`converte_zip_em_parquet`).
+    """
+    destino = BRUTO_DIR / str(ano)
+    parquet = converte_zip_em_parquet(
+        destino / f"consulta_cand_{ano}.zip",
+        destino / f"consulta_cand_{ano}_candidatos.parquet",
+        COLUNAS_CONSULTA_CAND,
+        nome_interno=f"consulta_cand_{ano}_BRASIL.csv",
+    )
+    cand = pd.read_parquet(parquet)
+    cand.columns = cand.columns.str.lower()
+    cand = cand[cand["cd_tipo_eleicao"].astype(int) == TIPO_ELEICAO_ORDINARIA].copy()
+    for col in ("nr_turno", "cd_cargo", "nr_candidato"):
+        cand[col] = cand[col].astype(int)
+    return cand
+
+
+def destinacao_votos(ano: int) -> pd.DataFrame:
+    """Destino dos votos de cada candidato, do `votacao_candidato_munzona_{ano}.zip`.
+
+    Uma linha por (turno, UF, cargo, número, nome) com `nm_tipo_destinacao_votos`
+    (Válido, Válido (legenda), Anulado, Anulado sub judice) e os votos nominais. É a
+    totalização atual do TSE: em 2018 o arquivo só traz os candidatos cujos votos
+    valeram (os anulados ficam de fora). Converte o CSV do Brasil em parquet na
+    primeira vez.
+    """
+    destino = BRUTO_DIR / str(ano)
+    parquet = destino / f"votacao_candidato_munzona_{ano}_destinacao.parquet"
+    if not parquet.exists():
+        csv = parquet.with_suffix(".csv")
+        extrai_csv_do_zip(
+            destino / f"votacao_candidato_munzona_{ano}.zip", csv,
+            nome_interno=f"votacao_candidato_munzona_{ano}_BRASIL.csv",
+        )
+        try:
+            df = duckdb.sql(f"""
+                select cd_tipo_eleicao as cd_tipo_eleicao, nr_turno as nr_turno, sg_uf as sg_uf,
+                    cd_cargo as cd_cargo, nr_candidato as nr_candidato, nm_candidato as nm_candidato,
+                    nm_urna_candidato as nm_urna_candidato, nm_tipo_destinacao_votos as nm_tipo_destinacao_votos,
+                    ds_situacao_candidatura as ds_situacao_candidatura, ds_sit_tot_turno as ds_sit_tot_turno,
+                    sum(cast(qt_votos_nominais as bigint)) as qt_votos_nominais,
+                    sum(cast(qt_votos_nominais_validos as bigint)) as qt_votos_nominais_validos
+                from {_sql_read_csv(csv)}
+                group by all
+            """).df()
+        finally:
+            csv.unlink(missing_ok=True)
+        df.to_parquet(parquet, index=False)
+    df = pd.read_parquet(parquet)
+    df = df[df["cd_tipo_eleicao"].astype(int) == TIPO_ELEICAO_ORDINARIA].copy()
+    for col in ("nr_turno", "cd_cargo", "nr_candidato"):
+        df[col] = df[col].astype(int)
+    return df
+
+
+def votos_nao_validos(ano: int, turno: int, cd_cargo: int | tuple[int, ...]) -> pd.DataFrame:
+    """Candidatos do cargo no `munzona`, com o código para onde vão os votos.
+
+    `i_cod` nulo = voto válido (Válido ou Válido (legenda), que conta para o
+    partido); `CODIGO_ANULADO_APURADO_SEPARADO` (97) = Anulado sub judice;
+    `CODIGO_ANULADO_INAPTO` (98) = Anulado. Quem não está no `munzona` também vai
+    para o 98 (`ler_votacao_secao`).
+    """
+    codigos = (cd_cargo,) if isinstance(cd_cargo, int) else tuple(cd_cargo)
+    d = destinacao_votos(ano)
+    d = d[d["cd_cargo"].isin(codigos) & (d["nr_turno"] == turno)]
+    tipo = d["nm_tipo_destinacao_votos"].fillna("").str.upper()
+    cod = pd.Series(pd.NA, index=d.index, dtype="Int64")
+    cod[tipo.str.startswith("ANULADO SUB")] = CODIGO_ANULADO_APURADO_SEPARADO
+    cod[tipo.str.startswith(("ANULADO", "NULO")) & ~tipo.str.startswith("ANULADO SUB")] = CODIGO_ANULADO_INAPTO
+    out = pd.DataFrame({
+        "i_sg_uf": d["sg_uf"], "i_nr": d["nr_candidato"], "i_nm": d["nm_candidato"].str.upper(), "i_cod": cod,
+    })
+    return out.drop_duplicates(["i_sg_uf", "i_nr", "i_nm"])
+
+
+def _sql_cargo(cd_cargo: int | tuple[int, ...]) -> str:
+    """Filtro SQL do cargo: `= 1` ou `in (7, 8)` (estadual + distrital)."""
+    codigos = (cd_cargo,) if isinstance(cd_cargo, int) else tuple(cd_cargo)
+    return f"in ({', '.join(str(int(c)) for c in codigos)})"
 
 
 def _executa(con: duckdb.DuckDBPyConnection, query: str, por_partido: bool) -> pd.DataFrame:
@@ -148,8 +241,9 @@ def ler_votacao_secao(
     turno: int,
     *,
     caminho_detalhe: Path | None = None,
-    cd_cargo: int = CARGO_PRESIDENTE,
+    cd_cargo: int | tuple[int, ...] = CARGO_PRESIDENTE,
     por_partido: bool = False,
+    destino: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Lê `votacao_secao_{ano}_BR.csv`, opcionalmente enriquecido com
     `detalhe_votacao_secao_{ano}_BR.csv` (ver módulo — nome do arquivo real,
@@ -165,12 +259,19 @@ def ler_votacao_secao(
             lista dos parquets por UF (`converte_zip_em_parquet`).
         ano: ano da eleição.
         turno: 1 ou 2.
-        cd_cargo: código TSE do cargo (`CD_CARGO`).
+        cd_cargo: código TSE do cargo (`CD_CARGO`), ou uma tupla de códigos
+            somados como um cargo só (deputado estadual 7 + distrital 8: cada
+            seção tem um ou outro, então o join com o detalhe não duplica).
         por_partido: se True, soma no próprio SQL os votos de cada partido por
             seção (`nr_votavel` vira o número do partido, os 2 primeiros
             dígitos; branco, nulo e anulado ficam como estão) e a coluna
             `nm_votavel` sai. Evita materializar uma linha por candidato — o
             que importa para o país inteiro em cargo proporcional.
+        destino: candidatos do cargo no `votacao_candidato_munzona`, com o
+            destino dos votos (`votos_nao_validos`). Voto em candidato anulado
+            ou ausente do `munzona` vai para `config.CODIGO_ANULADO_INAPTO`; sub
+            judice, para o 97 — antes da soma por partido. Os votos de legenda
+            (número de 2 dígitos nos cargos por partido) não mudam.
         caminho_detalhe: CSV de `detalhe_votacao_secao_{ano}_BR.csv` (dentro
             do zip `detalhe_votacao_secao_{ano}.zip`), com `QT_APTOS` e
             `QT_COMPARECIMENTO` reais por seção. Se `None` (padrão),
@@ -184,6 +285,24 @@ def ler_votacao_secao(
     """
     con = duckdb.connect()
     sql_votos = _sql_fonte(caminho_votacao_secao)
+    if destino is not None:
+        con.register("destino", destino[["i_sg_uf", "i_nr", "i_nm", "i_cod"]])
+        join_inaptos = (
+            "left join destino on i_sg_uf = sg_uf and i_nr = cast(nr_votavel as integer) "
+            "and i_nm = upper(nm_votavel)"
+        )
+        nao_candidato = ", ".join(str(c) for c in CODIGOS_NAO_CANDIDATO)
+        # Nos cargos por partido, número de 2 dígitos é voto de legenda.
+        e_candidato = "cast(nr_votavel as integer) >= 100" if por_partido else "true"
+        expr_nr = f"""case
+            when cast(nr_votavel as integer) in ({nao_candidato}) then cast(nr_votavel as integer)
+            when {e_candidato} and i_nr is null then {CODIGO_ANULADO_INAPTO}
+            when i_cod is not null then i_cod
+            else cast(nr_votavel as integer)
+        end"""
+    else:
+        join_inaptos = ""
+        expr_nr = "cast(nr_votavel as integer)"
 
     votos_query = f"""
         select
@@ -201,11 +320,12 @@ def ler_votacao_secao(
             cast(nr_zona as integer) as nr_zona,
             cast(nr_secao as integer) as nr_secao,
             cast(cd_cargo as integer) as cd_cargo,
-            cast(nr_votavel as integer) as nr_votavel,
+            {expr_nr} as nr_votavel,
             nm_votavel as nm_votavel,
             cast(qt_votos as integer) as qt_votos
         from {sql_votos}
-        where cast(cd_cargo as integer) = {cd_cargo}
+        {join_inaptos}
+        where cast(cd_cargo as integer) {_sql_cargo(cd_cargo)}
             and cast(nr_turno as integer) = {turno}
             and cast(cd_tipo_eleicao as integer) = {TIPO_ELEICAO_ORDINARIA}
     """
@@ -236,7 +356,7 @@ def ler_votacao_secao(
                 where cast(nr_turno as integer) = {turno}
                     -- nos anos municipais o detalhe tem uma linha por seção
                     -- por cargo; sem o filtro o join duplicaria os votos.
-                    and cast(cd_cargo as integer) = {cd_cargo}
+                    and cast(cd_cargo as integer) {_sql_cargo(cd_cargo)}
                     and cast(cd_tipo_eleicao as integer) = {TIPO_ELEICAO_ORDINARIA}
             )
         select
@@ -386,16 +506,18 @@ def converte_zip_em_parquet(
     return caminho_parquet
 
 
-def _obtem_resultados_municipais(
+def _obtem_resultados_por_uf(
     ano: int, turno: int, cargo: str, ufs: list[str] | None
 ) -> pd.DataFrame:
-    """Resultados por seção de um cargo municipal, dos zips por UF (ver módulo).
+    """Resultados por seção de um cargo que não é Presidente, dos zips por UF
+    (cargos municipais, ou governador, senador e deputados nos anos gerais).
 
-    Os zips vêm de `03b_baixa_resultados.qmd` (o CDN devolve 403 ao Python).
+    Os zips vêm de `03b_baixa_resultados.qmd` (o CDN devolve 403 ao Python; nos
+    anos gerais, com `-P por_uf:true`).
     """
     destino = BRUTO_DIR / str(ano)
-    # Sem DF: não tem eleição municipal.
-    ufs = ufs or [uf for uf in UFS_27 if uf != "DF"]
+    # Sem DF nos anos municipais: não tem eleição municipal.
+    ufs = ufs or [uf for uf in UFS_27 if uf != "DF" or ano not in ANOS_MUNICIPAIS]
     parquets = [
         converte_zip_em_parquet(
             destino / f"votacao_secao_{ano}_{uf}.zip",
@@ -416,9 +538,14 @@ def _obtem_resultados_municipais(
         logger.info("%s não encontrado — qt_aptos vem de locais.qt_eleitores.", caminho_zip_detalhe.name)
         caminho_detalhe = None
 
+    # Nos anos gerais, voto em candidato anulado não é válido (ver
+    # config.CODIGO_ANULADO_INAPTO); o destino vem da totalização do TSE
+    # (`votacao_candidato_munzona`). Os resultados municipais já publicados ficam
+    # como estavam.
+    destino_votos = None if ano in ANOS_MUNICIPAIS else votos_nao_validos(ano, turno, CARGOS[cargo]["cd_cargo"])
     return ler_votacao_secao(
         parquets, ano, turno, caminho_detalhe=caminho_detalhe,
-        cd_cargo=CARGOS[cargo]["cd_cargo"], por_partido=CARGOS[cargo]["por_partido"],
+        cd_cargo=CARGOS[cargo]["cd_cargo"], por_partido=CARGOS[cargo]["por_partido"], destino=destino_votos,
     )
 
 
@@ -432,12 +559,12 @@ def obtem_resultados_secao(
 ) -> pd.DataFrame:
     """Baixa (se pedido) e lê os resultados por seção, na fonte escolhida.
 
-    `cargo` é uma chave de `config.CARGOS`. Os cargos municipais só existem em
-    `votacao_secao`, um zip por UF já em disco (`fonte` e `deve_baixar` não se
+    `cargo` é uma chave de `config.CARGOS`. Os cargos que não são Presidente vêm
+    de `votacao_secao`, um zip por UF já em disco (`fonte` e `deve_baixar` não se
     aplicam); `ufs` restringe a leitura a algumas UFs, para testar.
     """
     if cargo != "presidente":
-        return _obtem_resultados_municipais(ano, turno, cargo, ufs)
+        return _obtem_resultados_por_uf(ano, turno, cargo, ufs)
 
     destino = BRUTO_DIR / str(ano)
 

@@ -1,8 +1,10 @@
-"""Pacote de dados para distribuição: Presidente por local de votação e por município.
+"""Pacote de dados para distribuição: eleições gerais por local de votação e por município.
 
-Funções chamadas por `13_pacote_dados.qmd`. Os arquivos seguem o padrão de nome do
-Download de Dados do CEM (`EL{ano}_{LV|MU}_BRA_PS{turno}`): um GeoPackage e um
-`.xlsx` por ano/turno, com os votos de cada candidato em colunas separadas.
+Funções chamadas por `14_pacote_dados.qmd`. Os arquivos seguem o padrão de nome do
+Download de Dados do CEM (`EL{ano}_{LV|MU}_BRA_{cargo}{turno}`, com os códigos de
+cargo do CEM: PS, GO, SE, DF, DE): um GeoPackage e um `.xlsx` por ano, cargo e
+turno, com os votos de cada candidato (ou partido, nos deputados) em colunas
+separadas.
 
 Também gera a versão 2 do `EL2022_MU_BRA_CEM` (base de municípios do CEM), com
 população, domicílios, área e densidade do Censo 2022 no lugar do Censo 2010.
@@ -10,8 +12,10 @@ população, domicílios, área e densidade do Censo 2022 no lugar do Censo 2010
 
 from __future__ import annotations
 
+import functools
 import shutil
 import tempfile
+import unicodedata
 import zipfile
 from pathlib import Path
 
@@ -22,8 +26,10 @@ import pyogrio
 
 from .config import (
     BRUTO_DIR,
-    CARGO_PRESIDENTE,
+    CARGOS,
+    CARGOS_COM_2_TURNO,
     CODIGO_ANULADO_APURADO_SEPARADO,
+    CODIGO_ANULADO_INAPTO,
     CODIGO_BRANCO,
     CODIGO_NULO,
     CODIGOS_NAO_CANDIDATO,
@@ -32,8 +38,9 @@ from .config import (
     GEOMETRIAS_DIR,
     PROCESSADO_DIR,
     RESULTADOS_DIR,
+    UFS_27,
 )
-from .fontes import TIPO_ELEICAO_ORDINARIA, converte_zip_em_parquet
+from .fontes import le_consulta_cand, votos_nao_validos
 from .resultados import SENTINELA_EXTERIOR
 from .visualizador import nomes_candidatos
 
@@ -53,12 +60,37 @@ POP_CENSO_2022_BRASIL = 203_080_756
 CEM_MU_2022_ZIP = BRUTO_DIR / "cem" / "EL2022_MU_BRA_CEM_0.zip"
 CEM_MU_2022_NOME = "EL2022_MU_BRA_CEM"
 
-PREFIXO = "EL{ano}_{unidade}_BRA_PS{turno}"
+
+def turnos(cargo: str) -> tuple[int, ...]:
+    """(1, 2) para os cargos com 2º turno; (1,) para senador e deputados."""
+    return (1, 2) if cargo in CARGOS_COM_2_TURNO else (1,)
 
 
-def nome_arquivo(ano: int, turno: int, unidade: str) -> str:
-    """`EL2022_LV_BRA_PS1` etc. (`unidade` = `LV` ou `MU`)."""
-    return PREFIXO.format(ano=ano, unidade=unidade, turno=turno)
+def nome_arquivo(ano: int, cargo: str, turno: int, unidade: str) -> str:
+    """`EL2022_LV_BRA_PS1`, `EL2022_MU_BRA_GO2`, `EL2022_MU_BRA_SE` etc.
+
+    `unidade` = `LV` ou `MU`. O turno só entra no nome dos cargos com 2º turno.
+    """
+    sufixo = str(turno) if cargo in CARGOS_COM_2_TURNO else ""
+    return f"EL{ano}_{unidade}_BRA_{CARGOS[cargo]['sigla']}{sufixo}"
+
+
+def le_resultado(cargo: str, ano: int, turno: int, nivel: str) -> pd.DataFrame:
+    """`res_{cargo}_{ano}_t{turno}_{nivel}.parquet` da etapa 04."""
+    caminho = RESULTADOS_DIR / f"res_{cargo}_{ano}_t{turno}_{nivel}.parquet"
+    if not caminho.exists():
+        raise FileNotFoundError(
+            f"{caminho.name} não existe: rode 04_resultados_turno.qmd -P ano:{ano} -P turno:{turno} -P cargo:{cargo}"
+        )
+    return pd.read_parquet(caminho)
+
+
+def sem_acento(texto: pd.Series) -> pd.Series:
+    """Maiúsculas sem acento, como o `MUN_NOME` do CEM (`SAO PAULO`)."""
+    return texto.map(
+        lambda s: None if s is None or (isinstance(s, float) and np.isnan(s))
+        else "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).upper()
+    )
 
 
 # ==== Colunas de resultado =====================================================
@@ -86,7 +118,7 @@ def _pc(num: pd.Series, den: pd.Series) -> pd.Series:
 
 
 def colunas_resultado(res: pd.DataFrame, ano: int, turno: int) -> pd.DataFrame:
-    """Colunas de resultado do pacote a partir de um `res_presidente_*` (formato largo).
+    """Colunas de resultado do pacote a partir de um `res_{cargo}_*` (formato largo).
 
     Mantém o índice de `res`. Percentuais de 0 a 100.
     """
@@ -97,6 +129,7 @@ def colunas_resultado(res: pd.DataFrame, ano: int, turno: int) -> pd.DataFrame:
     brancos = _inteiro(res, f"qt_votos_{CODIGO_BRANCO}")
     nulos = _inteiro(res, f"qt_votos_{CODIGO_NULO}")
     anulados = _inteiro(res, f"qt_votos_{CODIGO_ANULADO_APURADO_SEPARADO}")
+    inaptos = _inteiro(res, f"qt_votos_{CODIGO_ANULADO_INAPTO}")
     validos = sum(votos.values()) if votos else pd.Series(0, index=res.index, dtype="int64")
 
     out = pd.DataFrame(index=res.index)
@@ -108,6 +141,7 @@ def colunas_resultado(res: pd.DataFrame, ano: int, turno: int) -> pd.DataFrame:
     out["qt_validos"] = validos
     out["qt_brancos"] = brancos
     out["qt_nulos"] = nulos
+    out["qt_anulados"] = inaptos
     out["qt_anulados_apu_sep"] = anulados
     out["qt_brancos_nulos"] = brancos + nulos
     out["pc_comparecimento"] = _pc(comparecimento, aptos)
@@ -138,59 +172,143 @@ def colunas_resultado(res: pd.DataFrame, ano: int, turno: int) -> pd.DataFrame:
 
 def _consulta_cand(ano: int) -> pd.DataFrame:
     """Candidatos de todos os cargos do `consulta_cand_{ano}.zip` (eleição ordinária)."""
-    destino = BRUTO_DIR / str(ano)
-    parquet = converte_zip_em_parquet(
-        destino / f"consulta_cand_{ano}.zip",
-        destino / f"consulta_cand_{ano}_candidatos.parquet",
-        (
-            "cd_tipo_eleicao", "nr_turno", "sg_uf", "cd_cargo", "nr_candidato", "nm_candidato",
-            "nm_urna_candidato", "sg_partido", "nm_partido", "ds_situacao_candidatura",
-        ),
-        nome_interno=f"consulta_cand_{ano}_BRASIL.csv",
-    )
-    cand = pd.read_parquet(parquet)
-    cand.columns = cand.columns.str.lower()
-    cand = cand[cand["cd_tipo_eleicao"].astype(int) == TIPO_ELEICAO_ORDINARIA]
-    for col in ("nr_turno", "cd_cargo", "nr_candidato"):
-        cand[col] = cand[col].astype(int)
-    return cand
+    return le_consulta_cand(ano)
 
 
-def candidatos(ano: int, turno: int, res: pd.DataFrame) -> pd.DataFrame:
-    """Tabela `candidatos`: número, nome, nome de urna, partido e votos no Brasil.
+def _codigos_cargo(cargo: str) -> tuple[int, ...]:
+    cd = CARGOS[cargo]["cd_cargo"]
+    return (cd,) if isinstance(cd, int) else tuple(cd)
 
-    `res` é o resultado por município (com a linha do exterior), para os totais.
-    Quando o mesmo número tem mais de um registro (candidatura trocada, como Lula →
-    Haddad em 2018), vale o nome que aparece no `votacao_secao`.
+
+def _escolhe_registro(opcoes: pd.DataFrame, nome_votacao: str) -> pd.Series | None:
+    """Um registro do `consulta_cand` para o número. Quando há mais de um
+    (candidatura trocada, como Lula → Haddad em 2018), vale o nome que aparece no
+    `votacao_secao`; depois, a candidatura apta."""
+    escolha = opcoes[opcoes["nm_candidato"].str.upper() == (nome_votacao or "").upper()]
+    if escolha.empty:
+        escolha = opcoes[opcoes["ds_situacao_candidatura"].str.upper() == "APTO"]
+    if escolha.empty:
+        escolha = opcoes
+    return None if escolha.empty else escolha.iloc[0]
+
+
+def candidatos_anulados(ano: int, turno: int, cargo: str) -> pd.DataFrame:
+    """Candidatos com votos anulados na totalização (ver `config.CODIGO_ANULADO_INAPTO`):
+    UF, número, nome no `votacao_secao`, votos e destino (anulado ou sub judice).
+
+    Os votos deles estão em `qt_anulados`/`qt_anulados_apu_sep` dos arquivos, não
+    numa coluna `votos_{nr}`; a tabela `candidatos` os lista para não perder quem
+    eram (ex.: Daniel Silveira, Senado/RJ 2022).
     """
-    nrs = _nrs_candidatos(res)
-    nomes_votacao = {int(nr): nome.upper() for nr, nome in nomes_candidatos(ano, turno).items()}
+    import duckdb
+
+    codigos = ", ".join(str(c) for c in _codigos_cargo(cargo))
+    nao_candidato = ", ".join(str(c) for c in CODIGOS_NAO_CANDIDATO)
+    lista = ", ".join(
+        "'" + (BRUTO_DIR / str(ano) / f"votacao_secao_{ano}_{uf}.parquet").as_posix() + "'" for uf in UFS_27
+    )
+    votos = duckdb.sql(f"""
+        select sg_uf as sg_uf, cast(nr_votavel as integer) as nr_candidato, upper(nm_votavel) as nm_votavel,
+            sum(cast(qt_votos as bigint)) as qt_votos
+        from read_parquet([{lista}])
+        where cast(cd_cargo as integer) in ({codigos}) and cast(nr_turno as integer) = {turno}
+            and cast(cd_tipo_eleicao as integer) = 2 and cast(nr_votavel as integer) not in ({nao_candidato})
+        group by all
+    """).df()
+    destino = votos_nao_validos(ano, turno, CARGOS[cargo]["cd_cargo"])
+    m = votos.merge(
+        destino, left_on=["sg_uf", "nr_candidato", "nm_votavel"], right_on=["i_sg_uf", "i_nr", "i_nm"], how="left"
+    )
+    anulado = m["i_nr"].isna() | m["i_cod"].notna()
+    m = m[anulado].copy()
+    m["destino"] = np.where(
+        m["i_cod"].astype("Float64").fillna(CODIGO_ANULADO_INAPTO) == CODIGO_ANULADO_APURADO_SEPARADO,
+        "anulado sub judice", "anulado",
+    )
+    return m[["sg_uf", "nr_candidato", "nm_votavel", "qt_votos", "destino"]].reset_index(drop=True)
+
+
+def candidatos(ano: int, turno: int, cargo: str, res: pd.DataFrame) -> pd.DataFrame:
+    """Tabela `candidatos` do arquivo: número, nome, nome de urna, partido e votos.
+
+    - Presidente: um número por candidato, votos no Brasil (`res` é o resultado
+      por município, com a linha do exterior).
+    - Governador e Senador: uma linha por UF e número (o número muda de dono de
+      UF para UF), votos e % dos válidos na UF. Inclui os candidatos com votos
+      anulados (`destino`), sem percentual: os votos deles estão em `qt_anulados`.
+    - Deputados: uma linha por partido (ver `partidos`).
+    """
+    if CARGOS[cargo]["por_partido"]:
+        return partidos(ano, cargo, res)
     cand = _consulta_cand(ano)
-    cand = cand[(cand["cd_cargo"] == CARGO_PRESIDENTE) & (cand["nr_turno"] == turno)]
+    cand = cand[cand["cd_cargo"].isin(_codigos_cargo(cargo)) & (cand["nr_turno"] == turno)]
+
+    if cargo == "presidente":
+        nomes_votacao = {int(nr): nome for nr, nome in nomes_candidatos(ano, turno).items()}
+        base = pd.DataFrame({"nr_candidato": _nrs_candidatos(res)})
+        base["nm_votavel"] = base["nr_candidato"].map(nomes_votacao)
+        votos = pd.Series({nr: _inteiro(res, f"qt_votos_{nr}").sum() for nr in base["nr_candidato"]})
+        base["qt_votos"] = base["nr_candidato"].map(votos)
+        base["sg_uf"] = None
+    else:
+        # Nome e votos por UF, do arquivo que a 04 grava junto do resultado.
+        nomes = pd.read_parquet(RESULTADOS_DIR / f"candidatos_{cargo}_{ano}_t{turno}.parquet")
+        base = (
+            nomes.groupby(["sg_uf", "nr_votavel", "nm_votavel"], as_index=False)["qt_votos"].sum()
+            .rename(columns={"nr_votavel": "nr_candidato"})
+        )
+        if base.duplicated(["sg_uf", "nr_candidato"]).any():
+            raise ValueError(f"mais de um nome para o mesmo número na UF ({cargo}, {ano}, {turno})")
+        base["destino"] = "válido"
+        base = pd.concat([base, candidatos_anulados(ano, turno, cargo)], ignore_index=True)
 
     linhas = []
-    for nr in nrs:
-        opcoes = cand[cand["nr_candidato"] == nr]
-        alvo = nomes_votacao.get(nr, "")
-        escolha = opcoes[opcoes["nm_candidato"].str.upper() == alvo]
-        if escolha.empty:
-            escolha = opcoes[opcoes["ds_situacao_candidatura"].str.upper() == "APTO"]
-        if escolha.empty:
-            escolha = opcoes
-        if escolha.empty:
-            linhas.append({"nr_candidato": nr, "nm_candidato": alvo or None})
-            continue
-        linha = escolha.iloc[0]
+    for linha in base.itertuples(index=False):
+        opcoes = cand[cand["nr_candidato"] == int(linha.nr_candidato)]
+        if linha.sg_uf is not None:
+            opcoes = opcoes[opcoes["sg_uf"] == linha.sg_uf]
+        registro = _escolhe_registro(opcoes, linha.nm_votavel)
         linhas.append({
-            "nr_candidato": nr,
-            "nm_candidato": linha["nm_candidato"],
-            "nm_urna": linha["nm_urna_candidato"],
-            "sg_partido": linha["sg_partido"],
-            "nm_partido": linha["nm_partido"],
+            **({} if linha.sg_uf is None else {"sg_uf": linha.sg_uf}),
+            "nr_candidato": int(linha.nr_candidato),
+            "nm_candidato": linha.nm_votavel if registro is None else registro["nm_candidato"],
+            "nm_urna": None if registro is None else registro["nm_urna_candidato"],
+            "sg_partido": None if registro is None else registro["sg_partido"],
+            "nm_partido": None if registro is None else registro["nm_partido"],
+            "qt_votos": int(linha.qt_votos),
+            **({} if linha.sg_uf is None else {"destino": linha.destino}),
         })
     tabela = pd.DataFrame(linhas)
-    votos = pd.Series({nr: _inteiro(res, f"qt_votos_{nr}").sum() for nr in nrs}, dtype="int64")
-    tabela["qt_votos"] = tabela["nr_candidato"].map(votos).astype("int64")
+    tabela["qt_votos"] = tabela["qt_votos"].astype("int64")
+    if "sg_uf" in tabela:
+        validos = tabela["qt_votos"].where(tabela["destino"] == "válido")
+        total = validos.groupby(tabela["sg_uf"]).transform("sum")
+        tabela["pc_validos"] = (100 * validos / total).round(4)
+        tabela = tabela.sort_values(["sg_uf", "destino", "qt_votos"], ascending=[True, False, False])
+    else:
+        tabela["pc_validos"] = (100 * tabela["qt_votos"] / tabela["qt_votos"].sum()).round(4)
+    return tabela.reset_index(drop=True)
+
+
+def partidos(ano: int, cargo: str, res: pd.DataFrame) -> pd.DataFrame:
+    """Tabela `candidatos` dos deputados: uma linha por partido, votos no Brasil.
+
+    O número do partido são os 2 primeiros dígitos do número do candidato; sigla
+    e nome vêm do `consulta_cand` do ano (o número muda de dono entre anos).
+    """
+    cand = _consulta_cand(ano)
+    cand = cand[cand["cd_cargo"].isin(_codigos_cargo(cargo))].copy()
+    cand["nr_partido"] = cand["nr_candidato"].astype(str).str[:2].astype(int)
+    siglas = (
+        cand.groupby(["nr_partido", "sg_partido", "nm_partido"]).size().rename("n").reset_index()
+        .sort_values("n", ascending=False).drop_duplicates("nr_partido").set_index("nr_partido")
+    )
+    nrs = _nrs_candidatos(res)
+    tabela = pd.DataFrame({"nr_partido": nrs})
+    tabela["sg_partido"] = tabela["nr_partido"].map(siglas["sg_partido"])
+    tabela["nm_partido"] = tabela["nr_partido"].map(siglas["nm_partido"])
+    tabela["qt_votos"] = [int(_inteiro(res, f"qt_votos_{nr}").sum()) for nr in nrs]
+    tabela["qt_votos"] = tabela["qt_votos"].astype("int64")
     tabela["pc_validos"] = (100 * tabela["qt_votos"] / tabela["qt_votos"].sum()).round(4)
     return tabela
 
@@ -235,6 +353,11 @@ def censo_municipio() -> pd.DataFrame:
 
     Soma dos setores do Censo 2022 (tabela Básico). `hab_km2` = população / área.
     """
+    return _censo_municipio().copy()
+
+
+@functools.lru_cache(maxsize=1)
+def _censo_municipio() -> pd.DataFrame:
     # O duckdb recusa o arquivo como latin-1 (bytes de controle); pandas lê só as
     # colunas usadas, direto do zip.
     setores = pd.read_csv(
@@ -270,18 +393,19 @@ def _chave_municipio(cd_mun: pd.Series, cd_mun_tse: pd.Series) -> pd.Series:
     return cd_mun.fillna(("TSE" + sem_ibge).fillna(SENTINELA_EXTERIOR))
 
 
-def _separa_sem_ibge_do_exterior(res: pd.DataFrame, ano: int, turno: int) -> pd.DataFrame:
+def _separa_sem_ibge_do_exterior(res: pd.DataFrame, ano: int, turno: int, cargo: str) -> pd.DataFrame:
     """Tira da linha EXTERIOR do resultado por município os votos dos
     MUNICIPIOS_SEM_IBGE (somados dos locais) e cria uma linha para cada um.
 
     Acrescenta a coluna `chave` (`cd_mun`, `TSE{código}` ou EXTERIOR); essas linhas
-    ficam com `cd_mun` nulo.
+    ficam com `cd_mun` nulo. Fora de Presidente não há exterior: a linha EXTERIOR,
+    se só tinha os municípios sem IBGE, fica zerada e sai.
     """
     res = res.copy()
     qt = [c for c in res.columns if c.startswith("qt_")]
     res[qt] = res[qt].astype("float64")
     res["chave"] = res["cd_mun"]
-    res_local = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet")
+    res_local = le_resultado(cargo, ano, turno, "local")
     cd_tse = res_local["id_local"].str[:5]
     novas = []
     for codigo in MUNICIPIOS_SEM_IBGE:
@@ -296,12 +420,15 @@ def _separa_sem_ibge_do_exterior(res: pd.DataFrame, ano: int, turno: int) -> pd.
         novas.append({"cd_mun": None, "chave": f"TSE{codigo}", **soma.to_dict()})
     if novas:
         res = pd.concat([res, pd.DataFrame(novas)], ignore_index=True)
-    return res
+    vazio = (res["chave"] == SENTINELA_EXTERIOR) & (res[qt].fillna(0) == 0).all(axis=1)
+    if cargo == "presidente" and vazio.any():
+        raise ValueError(f"Linha do exterior zerada em Presidente ({ano}, {turno})")
+    return res[~vazio].reset_index(drop=True)
 
 
-def monta_locais(ano: int, turno: int) -> gpd.GeoDataFrame:
-    """Uma linha por local de votação, com o resultado do turno e o ponto."""
-    res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_local.parquet")
+def monta_locais(ano: int, turno: int, cargo: str = "presidente") -> gpd.GeoDataFrame:
+    """Uma linha por local de votação com resultado do cargo no turno, com o ponto."""
+    res = le_resultado(cargo, ano, turno, "local")
     locais = pd.read_parquet(PROCESSADO_DIR / f"locais_{ano}.parquet")
     geom = gpd.read_file(
         GEOMETRIAS_DIR / f"geom_locais_votacao_{ano}.gpkg",
@@ -363,16 +490,17 @@ def monta_locais(ano: int, turno: int) -> gpd.GeoDataFrame:
     return gdf.sort_values("id_local").reset_index(drop=True)
 
 
-def monta_municipios(ano: int, turno: int) -> gpd.GeoDataFrame:
-    """Uma linha por município (+ exterior sem geometria), com Censo 2022."""
-    res = pd.read_parquet(RESULTADOS_DIR / f"res_presidente_{ano}_t{turno}_municipio.parquet")
+def monta_municipios(ano: int, turno: int, cargo: str = "presidente") -> gpd.GeoDataFrame:
+    """Uma linha por município com resultado do cargo no turno (+ exterior sem
+    geometria, em Presidente), com Censo 2022."""
+    res = le_resultado(cargo, ano, turno, "municipio")
     poligonos = gpd.read_file(PROCESSADO_DIR / "aux" / "municipios.gpkg", columns=["cd_mun"]).to_crs(CRS_SIRGAS2000)
     mun = _municipios_ibge()
     crosswalk = pd.read_parquet(PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet", columns=["cd_mun", "cd_mun_tse"])
     _, por_mun = contagens_secao(ano, turno)
     censo = censo_municipio()[["cd_mun", "pop_2022", "dom_2022", "area_km2", "hab_km2"]]
 
-    res = _separa_sem_ibge_do_exterior(res, ano, turno)
+    res = _separa_sem_ibge_do_exterior(res, ano, turno, cargo)
     base = res[["cd_mun"]].merge(mun, on="cd_mun", how="left", validate="1:1")
     base = base.merge(crosswalk, on="cd_mun", how="left", validate="1:1")
     base = base.merge(por_mun.rename(columns={"cd_mun": "chave"}), left_on=res["chave"].to_numpy(), right_on="chave", how="left")
@@ -389,9 +517,10 @@ def monta_municipios(ano: int, turno: int) -> gpd.GeoDataFrame:
         base[col] = base[col].fillna(0).astype("int32")
     for col in ("pop_2022", "dom_2022"):
         base[col] = base[col].astype("Int64")
+    base["nm_mun_sem_acento"] = sem_acento(base["nm_mun"])
 
     atributos = base[[
-        "cd_mun", "cd_mun_tse", "nm_mun", "sg_uf", "nm_uf", "nm_regiao", "n_zonas", "n_locais",
+        "cd_mun", "cd_mun_tse", "nm_mun", "nm_mun_sem_acento", "sg_uf", "nm_uf", "nm_regiao", "n_zonas", "n_locais",
         "n_secoes", "pop_2022", "dom_2022", "area_km2", "hab_km2",
     ]]
     resultado = colunas_resultado(res, ano, turno)
@@ -401,6 +530,28 @@ def monta_municipios(ano: int, turno: int) -> gpd.GeoDataFrame:
         geometry=geometria.to_numpy(),
         crs=CRS_SIRGAS2000,
     )
+    return gdf
+
+
+def anula_fora_da_uf(gdf: gpd.GeoDataFrame, cand: pd.DataFrame) -> gpd.GeoDataFrame:
+    """Governador e Senador: `votos_{nr}` e `pc_validos_{nr}` nulos nas linhas de UF
+    em que não houve candidato válido com aquele número (em vez de 0).
+
+    `cand` é a tabela `candidatos` do arquivo (com `sg_uf` e `destino`). Sem
+    `sg_uf` (Presidente, deputados), devolve `gdf` como está.
+    """
+    if "sg_uf" not in cand:
+        return gdf
+    gdf = gdf.copy()
+    validos = cand[cand["destino"] == "válido"]
+    for coluna in [c for c in gdf.columns if c.startswith("votos_")]:
+        nr = int(coluna.removeprefix("votos_"))
+        ufs = set(validos.loc[validos["nr_candidato"] == nr, "sg_uf"])
+        fora = ~gdf["sg_uf"].isin(ufs)
+        if (gdf.loc[fora, coluna].fillna(0) != 0).any():
+            raise ValueError(f"{coluna} tem votos fora das UFs do candidato")
+        gdf[coluna] = gdf[coluna].astype("Int64").mask(fora)
+        gdf[f"pc_validos_{nr}"] = gdf[f"pc_validos_{nr}"].mask(fora)
     return gdf
 
 
@@ -732,6 +883,73 @@ def escreve_dicionario_cem(xlsx: Path, pdf_original: Path, destino_pdf: Path, no
     return Path(destino_pdf)
 
 
+# ==== Comparação com as bases de município do CEM ==============================
+
+CEM_MU_ZIP = BRUTO_DIR / "cem" / "EL{ano}_MU_BRA_CEM_0.zip"
+
+
+@functools.lru_cache(maxsize=4)
+def _le_cem_mu(ano: int) -> pd.DataFrame:
+    caminho = Path(str(CEM_MU_ZIP).format(ano=ano))
+    cem = pd.DataFrame(pyogrio.read_dataframe(
+        f"/vsizip/{caminho.as_posix()}/EL{ano}_MU_BRA_CEM.shp", encoding="ISO-8859-1", read_geometry=False
+    ))
+    cem = cem[cem["CD_MUN_I"].notna()].copy()
+    cem["cd_mun"] = cem["CD_MUN_I"].astype("int64").astype(str)
+    return cem
+
+
+def compara_cem(gdf: gpd.GeoDataFrame, ano: int, cargo: str, turno: int) -> pd.DataFrame:
+    """Compara o arquivo de municípios com a base `EL{ano}_MU_BRA_CEM`, coluna a coluna.
+
+    Colunas do CEM: `{sigla}{aa}_{turno}{nr}` nos cargos com 2º turno,
+    `{sigla}{aa}_{nr}` nos outros; 95 = brancos, 96 = nulos, `AP` = aptos.
+    Uma linha por coluna, com o número de municípios em que os valores diferem e
+    as somas dos dois lados. Municípios fora do arquivo (sem eleição no turno)
+    contam como 0.
+    """
+    cem = _le_cem_mu(ano)
+    prefixo = f"{CARGOS[cargo]['sigla']}{ano % 100:02d}_" + (str(turno) if cargo in CARGOS_COM_2_TURNO else "")
+    nosso = pd.DataFrame(gdf.drop(columns="geometry"))
+    nosso = nosso[nosso["cd_mun"].notna() & (nosso["cd_mun"] != SENTINELA_EXTERIOR)].set_index("cd_mun")
+    cem = cem.set_index("cd_mun")
+
+    def _nossa_coluna(sufixo: str) -> str | None:
+        if sufixo == str(CODIGO_BRANCO):
+            return "qt_brancos"
+        if sufixo == str(CODIGO_NULO):
+            return "qt_nulos"
+        if sufixo == "AP":
+            return "qt_aptos"
+        return f"votos_{sufixo}" if sufixo.isdigit() else None
+
+    linhas = []
+    colunas_cem = [c for c in cem.columns if c.startswith(prefixo)]
+    for col in colunas_cem:
+        sufixo = col.removeprefix(prefixo)
+        nossa = _nossa_coluna(sufixo)
+        if nossa is None:  # AB = abstenção em %: já coberta pelos aptos e pelo comparecimento
+            continue
+        a = cem[col].fillna(0).round().astype("int64")
+        b = (nosso[nossa] if nossa in nosso else pd.Series(dtype="float64")).reindex(cem.index).fillna(0)
+        if nossa == "qt_nulos":  # o CEM soma aos nulos os votos em candidato inapto
+            nossa = "qt_nulos + qt_anulados"
+            b = b + nosso["qt_anulados"].reindex(cem.index).fillna(0)
+        b = b.round().astype("int64")
+        linhas.append({
+            "coluna_cem": col, "coluna": nossa, "municipios_diferentes": int((a != b).sum()),
+            "soma_cem": int(a.sum()), "soma_pacote": int(b.sum()),
+        })
+    # Números que só o pacote tem.
+    usados = {f"votos_{c.removeprefix(prefixo)}" for c in colunas_cem}
+    for nossa in [c for c in nosso.columns if c.startswith("votos_") and c not in usados]:
+        linhas.append({
+            "coluna_cem": None, "coluna": nossa, "municipios_diferentes": int((nosso[nossa] != 0).sum()),
+            "soma_cem": 0, "soma_pacote": int(nosso[nossa].sum()),
+        })
+    return pd.DataFrame(linhas)
+
+
 # ==== Documentação do pacote ===================================================
 
 URL_REPOSITORIO = "https://github.com/gilandrade/dados_eleicoes"
@@ -759,10 +977,11 @@ DESCRICOES = {
     "longitude": "Longitude do ponto (SIRGAS 2000)",
     "n_secoes": "Número de seções eleitorais do cadastro do TSE no turno (inclui seções agregadas)",
     # Município
-    "cd_mun": "Código IBGE do município (7 dígitos); EXTERIOR para os votos do exterior; vazio para município "
-    "criado depois da malha de 2022 (Boa Esperança do Norte, MT)",
+    "cd_mun": "Código IBGE do município (7 dígitos); EXTERIOR para os votos do exterior (só Presidente); vazio "
+    "para município criado depois da malha de 2022 (Boa Esperança do Norte, MT)",
     "cd_mun_tse": "Código TSE do município (5 dígitos)",
     "nm_mun": "Nome do município",
+    "nm_mun_sem_acento": "Nome do município em maiúsculas, sem acento (como MUN_NOME nas bases do CEM)",
     "sg_uf": "Sigla da UF (ZZ = exterior)",
     "nm_uf": "Nome da UF",
     "nm_regiao": "Grande região",
@@ -775,114 +994,194 @@ DESCRICOES = {
     # Resultado
     "ano": "Ano da eleição",
     "turno": "Turno (1 ou 2)",
-    "qt_aptos": "Eleitores aptos (TSE, por seção; inclui o voto em trânsito)",
-    "qt_comparecimento": "Comparecimento (eleitores que votaram)",
+    "qt_aptos": "Eleitores aptos para o cargo (TSE, por seção). Em Presidente inclui o voto em trânsito de "
+    "outra UF, que só vota para Presidente; por isso os aptos mudam de um cargo para outro",
+    "qt_comparecimento": "Comparecimento (eleitores que votaram para o cargo)",
     "qt_abstencoes": "Abstenções (aptos − comparecimento)",
-    "qt_validos": "Votos válidos (soma dos votos nos candidatos)",
+    "qt_validos": "Votos válidos (soma das colunas votos_). Em Senador com 2 vagas (2018, 2026), cada eleitor "
+    "dá até 2 votos",
     "qt_brancos": "Votos em branco",
     "qt_nulos": "Votos nulos",
-    "qt_anulados_apu_sep": "Votos anulados e apurados em separado (código 97; só no 1º turno de 2018)",
+    "qt_anulados": "Votos anulados: em candidato cuja candidatura foi indeferida, cancelada ou cassada. O "
+    "TSE os publica por seção com o número do candidato, mas não os conta como válidos na totalização "
+    "(destino 'Anulado' no votacao_candidato_munzona); as bases do CEM os somam aos nulos",
+    "qt_anulados_apu_sep": "Votos anulados e apurados em separado: código 97 em Presidente (2018) e destino "
+    "'Anulado sub judice' nos outros cargos (candidatura ainda em julgamento)",
     "qt_brancos_nulos": "Votos em branco + nulos",
     "pc_comparecimento": "Comparecimento sobre aptos (%)",
     "pc_abstencao": "Abstenção sobre aptos (%)",
     "pc_brancos": "Brancos sobre comparecimento (%)",
     "pc_nulos": "Nulos sobre comparecimento (%)",
     "pc_brancos_nulos": "Brancos + nulos sobre comparecimento (%)",
-    "nr_mais_votado": "Número do candidato mais votado",
+    "nr_mais_votado": "Número do candidato (ou do partido, nos deputados) mais votado",
     "margem_validos": "Diferença entre o 1º e o 2º colocados, em pontos percentuais dos válidos",
 }
 
 
-def dicionario_colunas(colunas: list[str], camada: str) -> pd.DataFrame:
+def _descricao_votos(coluna: str, cargo: str) -> str:
+    prefixo, nr = coluna.rsplit("_", 1)
+    if CARGOS[cargo]["por_partido"]:
+        texto = f"Votos no partido de número {nr} (nominais + legenda; ver a tabela candidatos)"
+    elif cargo == "presidente":
+        texto = f"Votos no candidato de número {nr} (ver a tabela candidatos)"
+    else:
+        texto = f"Votos no candidato de número {nr} da UF da linha (ver a tabela candidatos, por UF)"
+    return texto + (" sobre os válidos (%)" if prefixo == "pc_validos" else "")
+
+
+def dicionario_colunas(colunas: list[str], camada: str, cargo: str) -> pd.DataFrame:
     """Uma linha por coluna da camada, com a descrição."""
     linhas = []
     for coluna in colunas:
         if coluna == "geometry":
             continue
-        if coluna.startswith("votos_"):
-            descricao = f"Votos no candidato de número {coluna.removeprefix('votos_')} (ver a tabela candidatos)"
-        elif coluna.startswith("pc_validos_"):
-            descricao = f"Votos no candidato de número {coluna.removeprefix('pc_validos_')} sobre os válidos (%)"
+        if coluna.startswith(("votos_", "pc_validos_")):
+            descricao = _descricao_votos(coluna, cargo)
         else:
             descricao = DESCRICOES[coluna]
-        linhas.append({"camada": camada, "coluna": coluna, "descricao": descricao})
+        linhas.append({"camada": camada, "cargo": CARGOS[cargo]["sigla"], "coluna": coluna, "descricao": descricao})
     return pd.DataFrame(linhas)
 
 
-def escreve_leiame(destino: Path, arquivos: pd.DataFrame, candidatos_por_turno: dict, dicionario: pd.DataFrame) -> Path:
-    """`LEIAME.md` do pacote: conteúdo, colunas, candidatos, observações e citação."""
+def _md(df: pd.DataFrame) -> str:
+    cab = "| " + " | ".join(df.columns) + " |"
+    sep = "|" + "|".join("---" for _ in df.columns) + "|"
+    corpo = ["| " + " | ".join("" if pd.isna(v) else str(v) for v in linha) + " |" for linha in df.itertuples(index=False)]
+    return "\n".join([cab, sep, *corpo])
 
-    def _md(df: pd.DataFrame) -> str:
-        cab = "| " + " | ".join(df.columns) + " |"
-        sep = "|" + "|".join("---" for _ in df.columns) + "|"
-        return "\n".join([cab, sep, *("| " + " | ".join(str(v) for v in linha) + " |" for linha in df.itertuples(index=False))])
 
+def _fmt_votos(tabela: pd.DataFrame) -> pd.DataFrame:
+    tabela = tabela.copy()
+    tabela["qt_votos"] = tabela["qt_votos"].map(lambda v: f"{v:,}".replace(",", "."))
+    tabela["pc_validos"] = tabela["pc_validos"].map(lambda v: f"{v:.2f}".replace(".", ","))
+    return tabela
+
+
+def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, dicionario: pd.DataFrame) -> Path:
+    """`LEIAME.md` do pacote: conteúdo, colunas, candidatos, observações e citação.
+
+    `tabelas` tem a tabela `candidatos` de cada arquivo, pela chave (ano, cargo, turno).
+    """
+    cargos = pd.DataFrame([
+        {"código": "PS1, PS2", "cargo": "Presidente", "turno": "1º e 2º", "colunas de votos": "por candidato"},
+        {"código": "GO1, GO2", "cargo": "Governador", "turno": "1º e 2º (o 2º só nas UFs que tiveram 2º turno)",
+         "colunas de votos": "por candidato (o número é do candidato da UF da linha)"},
+        {"código": "SE", "cargo": "Senador", "turno": "único",
+         "colunas de votos": "por candidato (o número é do candidato da UF da linha)"},
+        {"código": "DF", "cargo": "Deputado federal", "turno": "único", "colunas de votos": "por partido"},
+        {"código": "DE", "cargo": "Deputado estadual (e distrital, no DF)", "turno": "único",
+         "colunas de votos": "por partido"},
+    ])
+    colunas = (
+        dicionario.drop_duplicates("coluna")[["coluna", "descricao"]]
+        .loc[lambda d: ~d["coluna"].str.match(r"^(votos|pc_validos)_\d+$")]
+    )
     partes = [
-        "# Eleições para Presidente — locais de votação (2018, 2022, 2026) e municípios (2026)",
+        "# Eleições gerais de 2018, 2022 e 2026 por local de votação e por município",
         "",
-        "Resultados do 1º e do 2º turno para Presidente, com os votos de cada candidato em colunas "
-        "separadas. Complementam as bases eleitorais do Download de Dados do Centro de Estudos da "
-        "Metrópole (CEM): os locais de votação cobrem o Brasil inteiro (o CEM tem só o estado de "
-        "São Paulo e regiões metropolitanas) e o município de 2026 ainda não existe lá. Os municípios "
-        "de 2018 e 2022 estão nas bases `EL2018_MU_BRA_CEM` e `EL2022_MU_BRA_CEM` do CEM, com os "
-        "mesmos votos e também os outros cargos.",
+        "Resultados de Presidente, Governador, Senador e Deputados federal e estadual/distrital, por "
+        "local de votação e por município do Brasil, com os votos de cada candidato (ou partido, nos "
+        "deputados) em colunas separadas. Os arquivos de município trazem tudo o que as bases "
+        "`EL2018_MU_BRA_CEM` e `EL2022_MU_BRA_CEM` do Download de Dados do Centro de Estudos da "
+        "Metrópole (CEM) trazem, com população, domicílios, área e densidade do Censo 2022 e a malha "
+        "municipal do IBGE de 2022 nos três anos, e acrescentam 2026. Os locais de votação cobrem o "
+        "Brasil inteiro (o CEM tem só o estado de São Paulo e regiões metropolitanas).",
         "",
         "## Arquivos",
         "",
-        "Um GeoPackage (`.gpkg`) e um Excel (`.xlsx`) por ano e turno, com o mesmo conteúdo. No "
-        "GeoPackage, a camada principal (`locais` ou `municipios`) traz a geometria em SIRGAS 2000 "
-        "(EPSG:4674) e a tabela `candidatos` traz nome, nome de urna e partido de cada número. No "
-        "Excel, as abas são `dados` e `candidatos`.",
+        "Nome no padrão do CEM: `EL{ano}_{LV|MU}_BRA_{cargo}{turno}`, com `LV` = local de votação e "
+        "`MU` = município. Os códigos de cargo são os das colunas das bases do CEM:",
+        "",
+        _md(cargos),
+        "",
+        "Um GeoPackage (`.gpkg`) e um Excel (`.xlsx`) por arquivo, com o mesmo conteúdo. No GeoPackage, "
+        "a camada principal (`locais` ou `municipios`) traz a geometria em SIRGAS 2000 (EPSG:4674) e a "
+        "tabela `candidatos` traz nome, nome de urna e partido de cada número (nos deputados, sigla e "
+        "nome de cada partido). No Excel, as abas são `dados` e `candidatos`. Um zip por ano.",
         "",
         _md(arquivos),
         "",
         "## Colunas",
         "",
-        "Percentuais de 0 a 100. Votos por candidato em `votos_{número}` e `pc_validos_{número}`; "
-        "o nome de cada número está na tabela `candidatos` (e abaixo). A lista completa está em "
+        "Percentuais de 0 a 100. Votos em `votos_{número}` e `pc_validos_{número}`; o dono de cada "
+        "número está na tabela `candidatos` do arquivo. A lista completa, por arquivo, está em "
         "`dicionario_colunas.csv`.",
         "",
-        _md(dicionario.drop_duplicates("coluna")[["coluna", "descricao"]]
-            .loc[lambda d: ~d["coluna"].str.match(r"^(votos|pc_validos)_\d+$")]),
+        _md(colunas),
         "",
-        "## Candidatos",
+        "## Candidatos a Presidente",
         "",
     ]
-    for (ano, turno), cand in sorted(candidatos_por_turno.items()):
-        tabela = cand[["nr_candidato", "nm_urna", "sg_partido", "qt_votos", "pc_validos"]].copy()
-        tabela["qt_votos"] = tabela["qt_votos"].map(lambda v: f"{v:,}".replace(",", "."))
-        tabela["pc_validos"] = tabela["pc_validos"].map(lambda v: f"{v:.2f}".replace(".", ","))
+    for (ano, cargo, turno), cand in sorted(tabelas.items()):
+        if cargo != "presidente":
+            continue
+        tabela = _fmt_votos(cand[["nr_candidato", "nm_urna", "sg_partido", "qt_votos", "pc_validos"]])
         partes += [f"### {ano}, {turno}º turno", "", _md(tabela), ""]
+    partes += ["## Partidos (deputados)", ""]
+    for (ano, cargo, turno), cand in sorted(tabelas.items()):
+        if not CARGOS[cargo]["por_partido"]:
+            continue
+        tabela = _fmt_votos(cand[["nr_partido", "sg_partido", "qt_votos", "pc_validos"]])
+        partes += [f"### {CARGOS[cargo]['rotulo']}, {ano}", "", _md(tabela), ""]
     partes += [
+        "Os candidatos a Governador e a Senador, por UF, estão na tabela `candidatos` de cada arquivo.",
+        "",
         "## Observações",
         "",
         "- **Fonte.** TSE (Portal de Dados Abertos): `eleitorado_local_votacao`, `votacao_secao`, "
-        "`detalhe_votacao_secao` e `consulta_cand`. Malha municipal: IBGE (via geobr). Censo 2022: "
+        "`detalhe_votacao_secao` e `consulta_cand`. Malha municipal: IBGE 2022 (via geobr). Censo 2022: "
         "IBGE, " + CENSO_VERSAO + ".",
-        "- **Exterior.** Os votos do exterior estão numa linha sem geometria: `cd_mun = EXTERIOR` "
-        "no arquivo de municípios e `cd_mun` vazio (`sg_uf = ZZ`) nos locais. Com eles, a soma das "
-        "colunas dá o total oficial do Brasil.",
-        "- **Boa Esperança do Norte (MT)** foi criado depois da malha municipal do IBGE de 2022: "
-        "não tem código IBGE nem polígono. Seus 3 locais trazem a coordenada do TSE (`fonte_coord = "
+        "- **Censo e malha de 2022 nos três anos.** A eleição de 2018 fica a 4 anos do Censo 2022 e a 8 "
+        "do Censo 2010. As bases do CEM de 2018 e 2022 usam o Censo 2010.",
+        "- **Aptos por cargo.** Vêm do TSE por seção (`detalhe_votacao_secao`). O eleitor em trânsito fora "
+        "da sua UF só vota para Presidente, então os aptos de Presidente são maiores que os dos outros "
+        "cargos. Onde a seção não está nesse arquivo, usa-se o eleitorado do cadastro de locais.",
+        "- **Exterior.** Só há voto no exterior para Presidente. Esses votos estão numa linha sem "
+        "geometria: `cd_mun = EXTERIOR` no arquivo de municípios e `cd_mun` vazio (`sg_uf = ZZ`) nos "
+        "locais. Com eles, a soma das colunas dá o total oficial do Brasil.",
+        "- **Governador e Senador.** O número é do candidato da UF de cada linha: `votos_13` em São Paulo "
+        "e em Minas Gerais são candidatos diferentes. Os percentuais dos válidos da tabela `candidatos` "
+        "são sobre a UF. O 2º turno de Governador só traz as UFs em que ele aconteceu.",
+        "- **Senador com 2 vagas** (2018 e 2026): cada eleitor dá até 2 votos, então os válidos somam "
+        "quase o dobro do comparecimento.",
+        "- **Deputados.** Votos por partido: os nominais (dos candidatos do partido) mais os de legenda, "
+        "como nas bases do CEM. O número do partido são os 2 primeiros dígitos do número do candidato; "
+        "o mesmo número pode ser de partidos diferentes em anos diferentes. Deputado estadual inclui o "
+        "distrital, no DF.",
+        "- **Boa Esperança do Norte (MT)** foi criado depois da malha municipal do IBGE de 2022: não tem "
+        "código IBGE nem polígono. Seus locais trazem a coordenada do TSE (`fonte_coord = "
         "tse_nao_validada`) e, no arquivo de municípios de 2026, ele é uma linha sem geometria.",
-        "- **Aptos.** Vêm do TSE por seção (`detalhe_votacao_secao`) e incluem o voto em trânsito; "
-        "onde a seção não está nesse arquivo, usa-se o eleitorado do cadastro de locais.",
         "- **Coordenadas.** A coordenada do TSE é validada contra o município; quando falha, usa-se a "
-        "coordenada validada do mesmo local em outra eleição, a "
-        "geocodificação de Hidalgo et al., depois o endereço geocodificado com o CNEFE, e, em último "
-        "caso, o centróide do município (`coord_aproximada`). A coluna `fonte_coord` diz a origem.",
+        "coordenada validada do mesmo local em outra eleição, a geocodificação de Hidalgo et al., depois "
+        "o endereço geocodificado com o CNEFE, e, em último caso, o centróide do município "
+        "(`coord_aproximada`). A coluna `fonte_coord` diz a origem.",
         "- **Seções agregadas.** Uma seção agregada vota no local da sua seção principal; `n_secoes` "
         "conta as seções do cadastro, agregadas incluídas.",
-        "- **Números de candidato mudam entre eleições.** Bolsonaro foi 17 (PSL) em 2018 e 22 (PL) "
-        "em 2022; em 2026 o 22 é Flávio Bolsonaro. Compare pelo nome da tabela `candidatos`.",
-        "- **Código 97** (voto anulado e apurado em separado) só aparece no 1º turno de 2018.",
+        "- **Números de candidato mudam entre eleições.** Bolsonaro foi 17 (PSL) em 2018 e 22 (PL) em "
+        "2022; em 2026 o 22 é Flávio Bolsonaro. Compare pelo nome da tabela `candidatos`.",
+        "- **Votos anulados.** Voto em candidato cuja candidatura foi indeferida, cancelada ou cassada "
+        "está em `qt_anulados`, fora dos válidos e dos votos do partido: o TSE o publica por seção com o "
+        "número do candidato, mas não o conta na totalização. O destino de cada candidato vem do "
+        "`votacao_candidato_munzona` do TSE (válido, válido para a legenda, anulado, anulado sub judice), "
+        "na versão atual da totalização. Os votos anulados sub judice estão em `qt_anulados_apu_sep`. "
+        "Entram aqui também candidatos cassados ou com registro negado depois da eleição, como Selma "
+        "Arruda (Senado/MT, 2018), Daniel Silveira (Senado/RJ, 2022) e Ricardo Coutinho (Senado/PB, "
+        "2022). Na tabela `candidatos` de Governador e Senador eles aparecem com `destino = anulado` (ou "
+        "`anulado sub judice`) e o total de votos na UF, sem percentual. As bases do CEM somam os "
+        "anulados aos nulos (`qt_nulos + qt_anulados`) e usam uma versão mais antiga da totalização: "
+        "nela, por exemplo, os votos de Daniel Silveira ainda contam como válidos, e alguns partidos de "
+        "deputado diferem um pouco (cerca de 0,4% dos votos).",
+        "- **Senado em Mato Grosso, 2018.** A base `EL2018_MU_BRA_CEM` traz em MT os candidatos da eleição "
+        "suplementar de 2020 (que substituiu Selma Arruda), não os de 2018. Aqui está a eleição de 2018.",
         "- **Local de votação muda entre turnos** em uma pequena fração das seções; por isso os "
         "arquivos de locais são por turno.",
+        "- **Diferenças em relação às bases do CEM.** Não há os 3 polígonos sem município (lagoas dos "
+        "Patos e Mirim, baía de Oiapoque). A abstenção vem em quantidade e em percentual.",
         "",
         "## Como citar",
         "",
-        "Centro de Estudos da Metrópole (CEM/USP). Eleições para Presidente por local de votação "
-        "(2018, 2022 e 2026) e por município (2026). Dados do TSE e do IBGE. Novembro de 2026. "
+        "Centro de Estudos da Metrópole (CEM/USP). Eleições gerais de 2018, 2022 e 2026 por local de "
+        "votação e por município. Dados do TSE e do IBGE. Novembro de 2026. "
         f"Código: {URL_REPOSITORIO}.",
         "",
         "Licença: Creative Commons Atribuição 4.0 (CC BY 4.0).",

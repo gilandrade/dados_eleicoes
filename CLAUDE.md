@@ -42,6 +42,8 @@ quarto render 05_mudanca_votacao.qmd -P de:2018 -P para:2022
 quarto render 03b_baixa_resultados.qmd -P ano:2024        # zips de resultado (R; 26 UFs nos municipais)
 quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true   # baixa de novo; o antigo vai para backup/
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito   # ou vereador
+quarto render 03b_baixa_resultados.qmd -P ano:2022 -P por_uf:true   # ano geral: + 27 zips por UF (todos os cargos)
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:2 -P cargo:governador   # senador, deputado_federal, deputado_estadual
 quarto render 10_autocorrelacao_espacial.qmd --profile local   # Moran/LISA do PT por município
 quarto render autocorrelacao.qmd             # página do site com o resultado da 10
 quarto render 14_pacote_dados.qmd --profile local   # pacote de dados para o CEM (dados/04_pacote/)
@@ -116,13 +118,38 @@ data model (geometry files vs. result files joined by a shared id).
   visualizador): `quarto render autocorrelacao.qmd` depois da 10. As figuras dela
   (`docs/autocorrelacao_files/`) têm exceção no `.gitignore`. Os votos dos resultados
   vêm em int32: `100 * soma` estoura, converter para float antes.
-- **14 (Python, `14_pacote_dados.qmd`)**: pacote de dados para distribuir como
-  acréscimo ao Download de Dados do CEM (funções em `pacote.py`, saída em
-  `dados/04_pacote/`). Gera os locais de votação do Brasil, 1º e 2º turno de
-  2018/2022/2026, e os municípios de 2026. Os municípios de 2018/2022 ficam de fora
-  porque o CEM já os tem (`EL20xx_MU_BRA_CEM`, com os mesmos votos). Nome no padrão
-  CEM, `EL{ano}_{LV|MU}_BRA_PS{turno}`, em `.gpkg` (camada + tabela `candidatos`) e
-  `.xlsx`. Votos em `votos_{nr}`, percentuais de 0 a 100, exterior sem geometria.
+- **Cargos gerais além de Presidente (26/11/2026)**: Governador, Senador, Deputado
+  federal e Deputado estadual (+ distrital, cargo 8) em `config.CARGOS`/`CARGOS_GERAIS`,
+  lidos dos 27 `votacao_secao_{ano}_{UF}.zip` (`03b -P por_uf:true`) pela 04 com
+  `-P cargo:governador` etc.; deputados somados por partido. Voto em candidato
+  anulado na totalização vai para o código interno 98 (`qt_votos_98`), e o sub judice
+  para o 97; o destino vem do `votacao_candidato_munzona_{ano}.zip`
+  (`fontes.votos_nao_validos`), casado por (UF, número, **nome**): o mesmo número
+  pode ter o candidato indeferido e o substituto. Achados:
+  - O `DS_SITUACAO_CANDIDATURA` do `consulta_cand` não serve: em 2026 vem `#NE` para
+    todos, e "INAPTO" inclui eleitos cassados depois cujos votos valeram.
+    `DS_SIT_TOT_TURNO = #NULO` também não (em 2018 é `#NULO#` e não marca os
+    governadores anulados).
+  - O `munzona` de 2018 não lista os candidatos anulados; os de 2022/2026 listam com
+    `NM_TIPO_DESTINACAO_VOTOS` (Válido, Válido (legenda), Anulado, Anulado sub judice).
+  - O `votacao_secao` e o `detalhe` contam os votos anulados como nominais.
+  - O renv do projeto trava na ativação (R parado, 1 núcleo a 100%) quando outra
+    sessão tem R rodando; para um download avulso, `Rscript --no-init-file` com
+    `.libPaths("renv/library/windows/R-4.5/x86_64-w64-mingw32")`. O CDN do TSE
+    respondeu a `curl` com user-agent de navegador.
+- **14 (Python, `14_pacote_dados.qmd`)**: pacote de dados para distribuir na
+  coleção do Download de Dados do CEM (funções em `pacote.py`, saída em
+  `dados/04_pacote/`). Traz no mínimo tudo o que as bases `EL2018_MU_BRA_CEM` e
+  `EL2022_MU_BRA_CEM` trazem, com Censo 2022 e malha IBGE 2022 nos três anos: locais
+  de votação e municípios do Brasil, 2018/2022/2026, um arquivo por cargo com os
+  códigos do CEM, `EL{ano}_{LV|MU}_BRA_{PS1,PS2,GO1,GO2,SE,DF,DE}`, em `.gpkg` (camada
+  + tabela `candidatos`) e `.xlsx`, um zip por ano. Votos em `votos_{nr}` (em GO/SE,
+  nulo nas UFs sem aquele número), percentuais de 0 a 100, exterior sem geometria
+  (só Presidente), anulados em `qt_anulados`. A Conferência compara coluna a coluna
+  com o CEM (`pacote.compara_cem`): Presidente e Governador 2018 batem; as diferenças
+  vêm da versão da totalização (o CEM conta Daniel Silveira, Senado/RJ 2022, como
+  válido; deputados diferem ~0,4%) e de um erro do CEM (Senado/MT 2018 traz a
+  suplementar de 2020).
   Também gera `cem/EL2022_MU_BRA_CEM_V2.zip`: a base do CEM com
   BA_001/BA_002/AREA_KM2/HAB_KM2 do Censo 2022 no lugar do Censo 2010, e o PDF de
   dicionário refeito com Quarto + Typst e uma seção "Atualização". O zip original

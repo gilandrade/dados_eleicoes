@@ -10,12 +10,14 @@ Lê os resultados por seção (boletim de urna ou `votacao_secao`) e agrega por
 pesos da etapa 03, por **setor**. Só lê, agrega e escreve; não recalcula nada
 espacial. Ver PLAN.md > Noite da eleição.
 
-Roda uma vez por ano × turno × **cargo**: Presidente (padrão) nos anos gerais;
-Prefeito e Vereador nos municipais (2020, 2024), a partir dos zips por UF de
-`03b_baixa_resultados.qmd`. Em Prefeito, `qt_votos_{nr}` é o número do
-candidato, que é o do partido — a pessoa muda de município para município
-(nomes em `candidatos_prefeito_{ano}_t{turno}.parquet`). Em Vereador, os votos
-são somados por partido (nominais + legenda).
+Roda uma vez por ano × turno × **cargo**. Presidente (padrão) vem do zip `_BR`;
+os outros cargos, dos zips por UF de `03b_baixa_resultados.qmd` (nos anos gerais,
+com `-P por_uf:true`): Governador, Senador e Deputados federal e estadual (+
+distrital) nos anos gerais; Prefeito e Vereador nos municipais (2020, 2024). Em
+Governador, Senador e Prefeito, `qt_votos_{nr}` é o número do candidato, e a
+pessoa muda de UF ou município para outro (nomes em
+`candidatos_{cargo}_{ano}_t{turno}.parquet`). Nos deputados e em Vereador, os
+votos são somados por partido (nominais + legenda).
 
 Antes de o `votacao_secao` do turno sair, `04c_resultados_divulgacao.qmd` grava
 uma versão preliminar da zona × município e do município; esta etapa a
@@ -25,6 +27,8 @@ sobrescreve com os mesmos números.
 quarto render 04_resultados_turno.qmd -P ano:2026 -P turno:1 -P fonte:bweb -P baixar:true
 quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:2 -P cargo:governador
+quarto render 04_resultados_turno.qmd -P ano:2022 -P turno:1 -P cargo:deputado_federal
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:vereador
 quarto render 04_resultados_turno.qmd -P ano:2024 -P turno:1 -P cargo:prefeito -P uf:PI   # teste numa UF
 ```
@@ -41,6 +45,7 @@ import pandas as pd
 from eleicoes import exporta, fontes, resultados
 from eleicoes.config import (
     CARGOS,
+    CARGOS_COM_2_TURNO,
     CODIGOS_NAO_CANDIDATO,
     NOME_BOLSONARO_POR_ANO,
     NOME_PT_POR_ANO,
@@ -60,8 +65,8 @@ ano = 2022
 turno = 1
 fonte = "votacao_secao"  # "bweb" = caminho rápido (boletim de urna); "votacao_secao" = consolidado oficial
 baixar = False           # baixa os arquivos antes de ler
-cargo = "presidente"     # ou "prefeito" / "vereador" (anos municipais)
-uf = ""                  # só cargos municipais: uma ou mais UFs, separadas por vírgula; vazio = Brasil
+cargo = "presidente"     # ou governador / senador / deputado_federal / deputado_estadual (anos gerais), prefeito / vereador (municipais)
+uf = ""                  # só cargos ≠ presidente: uma ou mais UFs, separadas por vírgula; vazio = Brasil
 ```
 
 ```{python}
@@ -69,6 +74,8 @@ uf = ""                  # só cargos municipais: uma ou mais UFs, separadas por
 ano, turno = int(ano), int(turno)
 if cargo not in CARGOS:
     raise ValueError(f"cargo desconhecido: {cargo!r} (use {', '.join(CARGOS)})")
+if turno == 2 and cargo not in CARGOS_COM_2_TURNO:
+    raise ValueError(f"{cargo} não tem 2º turno")
 ufs = [u.strip().upper() for u in str(uf).split(",") if u.strip()] or None
 # Rodada de teste (uma UF) não sobrescreve os arquivos do Brasil.
 prefixo = f"res_{cargo}_{ano}_t{turno}" + (f"_{'_'.join(ufs)}" if ufs else "")
@@ -180,14 +187,15 @@ exporta.escreve_resultados(res_setor, RESULTADOS_DIR / f"{prefixo}_setor.parquet
 ```
 
 Nomes dos candidatos por município (só quando o cargo é lido por candidato e o
-candidato muda de um município para outro): o formato largo guarda só o número.
+candidato muda de uma UF ou município para outro: Governador, Senador, Prefeito):
+o formato largo guarda só o número.
 
 ```{python}
 #| label: candidatos
 if cargo != "presidente" and not CARGOS[cargo]["por_partido"]:
     nomes = (
         com_id.loc[~com_id["nr_votavel"].isin(CODIGOS_NAO_CANDIDATO)]
-        .groupby(["cd_mun_tse", "nr_votavel", "nm_votavel"], as_index=False)["qt_votos"].sum()
+        .groupby(["sg_uf", "cd_mun_tse", "nr_votavel", "nm_votavel"], as_index=False)["qt_votos"].sum()
         .merge(
             pd.read_parquet(PROCESSADO_DIR / "aux" / "crosswalk_mun_tse_ibge.parquet")[["cd_mun_tse", "cd_mun"]],
             on="cd_mun_tse", how="left",

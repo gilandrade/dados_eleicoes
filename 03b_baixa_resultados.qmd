@@ -4,6 +4,7 @@ search: false
 params:
   ano: 2024
   atualizar: false
+  por_uf: false
 ---
 
 Baixa do CDN do TSE os zips que a etapa 04 lê, para `dados/01_bruto/{ano}/`.
@@ -11,6 +12,11 @@ Fica em R porque o CDN devolve 403 ao `requests` do Python. Pula o que já
 estiver em disco.
 
 - **Ano geral** (2018, 2022, 2026): `votacao_secao_{ano}_BR.zip` (Presidente).
+  Com `-P por_uf:true`, também os 27 `votacao_secao_{ano}_{UF}.zip` (com DF), que
+  trazem todos os cargos (governador, senador, deputados), e o
+  `votacao_candidato_munzona_{ano}.zip` (destino dos votos de cada candidato: válido,
+  legenda ou anulado), usados pela 04 com `-P cargo:governador` etc. e pelo pacote
+  de dados (14).
 - **Ano municipal** (2020, 2024): um `votacao_secao_{ano}_{UF}.zip` por UF (26,
   sem DF) — não existe `_BR` nesses anos.
 - Nos dois casos, `detalhe_votacao_secao_{ano}.zip` (aptos e comparecimento por
@@ -23,6 +29,7 @@ anterior vai para `backup/`, com a data do arquivo no nome.
 ```bash
 quarto render 03b_baixa_resultados.qmd -P ano:2024
 quarto render 03b_baixa_resultados.qmd -P ano:2026 -P atualizar:true
+quarto render 03b_baixa_resultados.qmd -P ano:2022 -P por_uf:true
 ```
 
 ```{r setup}
@@ -31,6 +38,7 @@ library(httr2)
 
 ano <- as.integer(params$ano)
 atualizar <- isTRUE(as.logical(params$atualizar))
+por_uf <- isTRUE(as.logical(params$por_uf))
 BRUTO_DIR <- file.path("dados/01_bruto", ano)
 dir.create(BRUTO_DIR, showWarnings = FALSE, recursive = TRUE)
 
@@ -45,6 +53,13 @@ UFS_26 <- c(
 ```{r arquivos}
 votacao_secao <- if (ano %in% ANOS_MUNICIPAIS) {
   sprintf("votacao_secao/votacao_secao_%d_%s.zip", ano, UFS_26)
+} else if (por_uf) {
+  c(
+    sprintf("votacao_secao/votacao_secao_%d_BR.zip", ano),
+    sprintf("votacao_secao/votacao_secao_%d_%s.zip", ano, sort(c(UFS_26, "DF"))),
+    # destino dos votos de cada candidato (válido, legenda, anulado) na totalização
+    sprintf("votacao_candidato_munzona/votacao_candidato_munzona_%d.zip", ano)
+  )
 } else {
   sprintf("votacao_secao/votacao_secao_%d_BR.zip", ano)
 }

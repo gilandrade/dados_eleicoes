@@ -81,19 +81,41 @@ CARGO_PRESIDENTE = 1  # código TSE do cargo Presidente (CD_CARGO / NR_CARGO = 1
 ANOS_MUNICIPAIS = (2020, 2024)
 CARGO_PREFEITO = 11
 CARGO_VEREADOR = 13
+# Anos gerais: os cargos além de Presidente vêm dos `votacao_secao_{ano}_{UF}.zip`
+# (03b com `-P por_uf:true`). Governador e Senador por candidato (o número muda de
+# dono de UF para UF); deputados somados por partido, como o CEM. Deputado distrital
+# (cargo 8, só no DF) entra junto do estadual (7). `sigla` = código do cargo no
+# Download de Dados do CEM (colunas `PS22_113`, `GO22_113`, `DF22_13`...).
 CARGOS = {
-    "presidente": {"cd_cargo": CARGO_PRESIDENTE, "por_partido": False, "rotulo": "Presidente"},
-    "prefeito": {"cd_cargo": CARGO_PREFEITO, "por_partido": False, "rotulo": "Prefeito"},
-    "vereador": {"cd_cargo": CARGO_VEREADOR, "por_partido": True, "rotulo": "Vereador"},
+    "presidente": {"cd_cargo": CARGO_PRESIDENTE, "por_partido": False, "rotulo": "Presidente", "sigla": "PS"},
+    "governador": {"cd_cargo": 3, "por_partido": False, "rotulo": "Governador", "sigla": "GO"},
+    "senador": {"cd_cargo": 5, "por_partido": False, "rotulo": "Senador", "sigla": "SE"},
+    "deputado_federal": {"cd_cargo": 6, "por_partido": True, "rotulo": "Deputado federal", "sigla": "DF"},
+    "deputado_estadual": {
+        "cd_cargo": (7, 8), "por_partido": True, "rotulo": "Deputado estadual/distrital", "sigla": "DE",
+    },
+    "prefeito": {"cd_cargo": CARGO_PREFEITO, "por_partido": False, "rotulo": "Prefeito", "sigla": "PR"},
+    "vereador": {"cd_cargo": CARGO_VEREADOR, "por_partido": True, "rotulo": "Vereador", "sigla": "VE"},
 }
 CARGOS_MUNICIPAIS = ("prefeito", "vereador")
+CARGOS_GERAIS = ("presidente", "governador", "senador", "deputado_federal", "deputado_estadual")
+# Cargos com 2º turno (os outros só têm o 1º).
+CARGOS_COM_2_TURNO = ("presidente", "governador", "prefeito")
 CODIGO_BRANCO = 95
 CODIGO_NULO = 96
 # "Voto anulado e apurado em separado" — existe no 2018 (1º turno), não em
 # 2022. Não é candidato: sem excluí-lo, entra como "voto válido" e distorce
 # todos os percentuais. Conta como nulo em `pc_brancos_nulos`.
 CODIGO_ANULADO_APURADO_SEPARADO = 97
-CODIGOS_NAO_CANDIDATO = (CODIGO_BRANCO, CODIGO_NULO, CODIGO_ANULADO_APURADO_SEPARADO)
+# Voto anulado (candidatura indeferida, cancelada, cassada): o `votacao_secao` e o
+# `detalhe` o trazem como nominal, com o número do candidato, mas na totalização
+# ele não é válido (o CEM o soma aos nulos). O destino de cada candidato vem do
+# `votacao_candidato_munzona` (`NM_TIPO_DESTINACAO_VOTOS`; em 2018 os anulados nem
+# aparecem nele). Código interno, não do TSE: `fontes.ler_votacao_secao(destino=...)`
+# troca o número por ele (cargos ≠ Presidente dos anos gerais). Ex.: 1.113 votos no
+# 13190 (PT), distrital do DF, 2022. Anulado sub judice vai para o 97.
+CODIGO_ANULADO_INAPTO = 98
+CODIGOS_NAO_CANDIDATO = (CODIGO_BRANCO, CODIGO_NULO, CODIGO_ANULADO_APURADO_SEPARADO, CODIGO_ANULADO_INAPTO)
 
 # 2º turno: Lula/Haddad contra Bolsonaro, que troca de número (partido) a cada eleição.
 # Em 2026 o "bolsonarista" é Flávio Bolsonaro (PL, 22), não o próprio Jair.
