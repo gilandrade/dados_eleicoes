@@ -230,7 +230,8 @@ arquivos_df.drop(columns=["_camada", "_cargo"])
 
 ## LEIAME, dicionário e zips
 
-Um zip por ano, cada um com o LEIAME e o dicionário de todos os arquivos.
+Um zip por ano, cada um com o LEIAME, o dicionário de todos os arquivos e os dois
+dicionários em PDF do ano (`DIC_EL{ano}_{MU,LV}_BRA.pdf`), nos moldes dos PDFs do CEM.
 
 ```{python}
 #| label: documentacao
@@ -253,6 +254,11 @@ leiame = pacote.escreve_leiame(
 for ano in ANOS:
     nomes = arquivos_df.loc[arquivos_df["ano"] == ano, "arquivo"]
     entregues = [PACOTE_DIR / f"{a}.{ext}" for a in nomes for ext in ("gpkg", "xlsx")]
+    # Dicionário em PDF nos moldes do CEM, um por base (ano × unidade).
+    entregues += [
+        pacote.escreve_dicionario_pacote(ano, unidade, PACOTE_DIR / f"DIC_EL{ano}_{unidade}_BRA.pdf")
+        for unidade in ("MU", "LV")
+    ]
     entregues += [leiame, PACOTE_DIR / "dicionario_colunas.csv"]
     zip_ano = pacote.compacta(entregues, PACOTE_DIR / f"EL{ano}_BRA.zip")
     print(zip_ano.name, round(zip_ano.stat().st_size / 1e6, 1), "MB")
