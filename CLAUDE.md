@@ -141,9 +141,12 @@ data model (geometry files vs. result files joined by a shared id).
   coleção do Download de Dados do CEM (funções em `pacote.py`, saída em
   `dados/04_pacote/`). Traz no mínimo tudo o que as bases `EL2018_MU_BRA_CEM` e
   `EL2022_MU_BRA_CEM` trazem, com Censo 2022 e malha IBGE 2022 nos três anos: locais
-  de votação e municípios do Brasil, 2018/2022/2026, um arquivo por cargo com os
-  códigos do CEM, `EL{ano}_{LV|MU}_BRA_{PS1,PS2,GO1,GO2,SE,DF,DE}_CEM` (`_CEM_V2` nos MU 2018/2022, nova versão das bases do CEM), em `.gpkg` (camada
-  + tabela `candidatos`) e `.xlsx`, um zip por base (`zips/EL{ano}_{MU,LV}_BRA_CEM[_V2].zip`, como as bases do
+  de votação e municípios do Brasil, 2018/2022/2026, um `.gpkg` e um `.xlsx` por base,
+  `EL{ano}_{LV|MU}_BRA_CEM` (`_CEM_V2` nos MU 2018/2022, nova versão das bases do CEM), com
+  15 camadas (`pacote.escreve_base`): a de geometria (`municipios`/`locais`, uma vez só),
+  uma tabela por cargo com os códigos do CEM (`PS1,PS2,GO1,GO2,SE,DF,DE`, ligadas por
+  `cd_mun`/`id_local`) e `candidatos_{código}`. Um arquivo por cargo repetia a malha 7
+  vezes (MU 2018: 137 MB contra ~20 MB do CEM). Um zip por base (`zips/EL{ano}_{MU,LV}_BRA_CEM[_V2].zip`, como as bases do
   CEM, uma linha e um DOI cada; `cadastro_cem.xlsx` traz as 6 linhas no formato da planilha
   de DOI do CEM, com DOI e data em branco e fórmulas para o HTML do site e o SQL). Votos em `votos_{nr}` (em GO/SE,
   nulo nas UFs sem aquele número), percentuais de 0 a 100, exterior sem geometria

@@ -1,10 +1,11 @@
 """Pacote de dados para distribuição: eleições gerais por local de votação e por município.
 
 Funções chamadas por `14_pacote_dados.qmd`. Os arquivos seguem o padrão de nome do
-Download de Dados do CEM (`EL{ano}_{LV|MU}_BRA_{cargo}{turno}`, com os códigos de
-cargo do CEM: PS, GO, SE, DF, DE): um GeoPackage e um `.xlsx` por ano, cargo e
-turno, com os votos de cada candidato (ou partido, nos deputados) em colunas
-separadas.
+Download de Dados do CEM (`EL{ano}_{LV|MU}_BRA_CEM[_V2]`): um GeoPackage e um
+`.xlsx` por ano e unidade, com várias camadas: a de geometria (`locais` ou
+`municipios`), uma tabela por cargo e turno com os códigos de cargo do CEM (`PS1`,
+`PS2`, `GO1`, `GO2`, `SE`, `DF`, `DE`), com os votos de cada candidato (ou partido,
+nos deputados) em colunas separadas, e as tabelas de candidatos.
 
 Também gera a versão 2 do `EL2022_MU_BRA_CEM` (base de municípios do CEM), com
 população, domicílios, área e densidade do Censo 2022 no lugar do Censo 2010.
@@ -81,15 +82,6 @@ def sufixo_cem(ano: int, unidade: str) -> str:
 def codigo_base(ano: int, unidade: str) -> str:
     """Código da base no padrão do CEM: `EL2018_MU_BRA_CEM_V2`, `EL2026_LV_BRA_CEM` etc."""
     return f"EL{ano}_{unidade}_BRA{sufixo_cem(ano, unidade)}"
-
-
-def nome_arquivo(ano: int, cargo: str, turno: int, unidade: str) -> str:
-    """`EL2022_LV_BRA_PS1_CEM`, `EL2022_MU_BRA_GO2_CEM_V2`, `EL2026_MU_BRA_SE_CEM` etc.
-
-    `unidade` = `LV` ou `MU`. O turno só entra no nome dos cargos com 2º turno.
-    """
-    t = str(turno) if cargo in CARGOS_COM_2_TURNO else ""
-    return f"EL{ano}_{unidade}_BRA_{CARGOS[cargo]['sigla']}{t}{sufixo_cem(ano, unidade)}"
 
 
 def le_resultado(cargo: str, ano: int, turno: int, nivel: str) -> pd.DataFrame:
@@ -649,27 +641,134 @@ def anula_fora_da_uf(gdf: gpd.GeoDataFrame, cand: pd.DataFrame) -> gpd.GeoDataFr
 # ==== Escrita ==================================================================
 
 
-def escreve_gpkg(gdf: gpd.GeoDataFrame, cand: pd.DataFrame, caminho: Path, camada: str) -> Path:
-    """GeoPackage com a camada principal e a tabela `candidatos` (sem geometria)."""
-    caminho = Path(caminho)
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    caminho.unlink(missing_ok=True)
-    if gdf.crs is None or gdf.crs.to_epsg() != CRS_SIRGAS2000:
-        raise ValueError(f"GeoDataFrame fora de EPSG:{CRS_SIRGAS2000} antes de escrever {caminho}")
-    gdf.to_file(caminho, layer=camada, driver="GPKG")
-    pyogrio.write_dataframe(cand, caminho, layer="candidatos", driver="GPKG", append=True)
-    return caminho
+
+# ==== Um GeoPackage por base (várias camadas) ==================================
+#
+# Cada base (ano × unidade) é um GeoPackage só: a camada com geometria (`municipios`
+# ou `locais`), uma tabela sem geometria por cargo e turno (`PS1` ... `DE`) e uma
+# tabela de candidatos por cargo (`candidatos_PS1` ...). A geometria entra uma vez,
+# como nas bases do CEM; as tabelas de cargo se ligam à camada pela chave.
+
+CAMADA_PRINCIPAL = {"LV": "locais", "MU": "municipios"}
+CHAVE_UNIDADE = {"LV": "id_local", "MU": "cd_mun"}
+# Atributos que mudam de um turno para outro: vão para a tabela do cargo.
+ATRIBUTOS_POR_TURNO = {"LV": ["n_secoes"], "MU": ["n_zonas", "n_locais", "n_secoes"]}
+# Identificação repetida nas tabelas de cargo, para lê-las sem a junção.
+IDENTIFICACAO = {"LV": ["id_local", "cd_mun", "nm_mun", "sg_uf"], "MU": ["cd_mun", "nm_mun", "sg_uf"]}
+ABA_CONTEUDO = "conteudo"
 
 
-def escreve_xlsx(gdf: gpd.GeoDataFrame, cand: pd.DataFrame, caminho: Path) -> Path:
-    """`.xlsx` com as abas `dados` (sem geometria) e `candidatos`."""
-    caminho = Path(caminho)
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    dados = pd.DataFrame(gdf.drop(columns="geometry"))
-    with pd.ExcelWriter(caminho, engine="openpyxl") as escritor:
-        dados.to_excel(escritor, sheet_name="dados", index=False)
-        cand.to_excel(escritor, sheet_name="candidatos", index=False)
-    return caminho
+def codigo_cargo(cargo: str, turno: int) -> str:
+    """`PS1`, `GO2`, `SE`, `DF`, `DE`: nome da tabela do cargo no GeoPackage e da aba no Excel."""
+    return CARGOS[cargo]["sigla"] + (str(turno) if cargo in CARGOS_COM_2_TURNO else "")
+
+
+def caminho_base(ano: int, unidade: str, ext: str, pasta: Path = PACOTE_DIR) -> Path:
+    """`EL2018_MU_BRA_CEM_V2.gpkg`, `EL2026_LV_BRA_CEM.xlsx` etc."""
+    return Path(pasta) / f"{codigo_base(ano, unidade)}.{ext}"
+
+
+def camadas_base(ano: int, unidade: str) -> pd.DataFrame:
+    """Camadas do GeoPackage (e abas do Excel) de uma base, na ordem, com o que cada uma traz."""
+    principal, chave = CAMADA_PRINCIPAL[unidade], CHAVE_UNIDADE[unidade]
+    malha = 2024 if ano >= ANO_MALHA_2024 else 2022
+    if unidade == "MU":
+        conteudo = (
+            f"Polígonos dos municípios (malha IBGE {malha}) com código, nome, UF e Censo 2022; "
+            "inclui a linha do exterior, sem geometria"
+        )
+    else:
+        conteudo = (
+            "Pontos dos locais de votação com nome, endereço e origem da coordenada; locais de todos os "
+            "cargos e turnos (os do exterior sem geometria)"
+        )
+    linhas = [{"camada": principal, "tipo": "geometria", "conteudo": conteudo}]
+    chaves = [(c, t) for c in CARGOS_GERAIS for t in turnos(c)]
+    for cargo, turno in chaves:
+        t = f", {turno}º turno" if cargo in CARGOS_COM_2_TURNO else ""
+        linhas.append({
+            "camada": codigo_cargo(cargo, turno), "tipo": "tabela",
+            "conteudo": f"Resultado de {CARGOS[cargo]['rotulo']}{t}; liga-se a {principal} por {chave}",
+        })
+    for cargo, turno in chaves:
+        quem = "Partidos" if CARGOS[cargo]["por_partido"] else "Candidatos"
+        linhas.append({
+            "camada": f"candidatos_{codigo_cargo(cargo, turno)}", "tipo": "tabela",
+            "conteudo": f"{quem} da tabela {codigo_cargo(cargo, turno)}: número, nome, partido e votos",
+        })
+    return pd.DataFrame(linhas)
+
+
+def separa_base(gdfs: dict, unidade: str) -> tuple[gpd.GeoDataFrame, dict[str, pd.DataFrame]]:
+    """Camada com geometria e uma tabela por cargo, a partir dos GeoDataFrames por (cargo, turno).
+
+    A camada principal junta as linhas de todos os cargos e turnos (o local de
+    votação pode mudar entre turnos; o exterior só existe em Presidente), com os
+    atributos que não mudam. Falha se um mesmo id tiver atributos diferentes.
+    """
+    chave = CHAVE_UNIDADE[unidade]
+    por_turno = ATRIBUTOS_POR_TURNO[unidade]
+    primeiro = next(iter(gdfs.values()))
+    fixas = [c for c in primeiro.columns[: list(primeiro.columns).index("ano")] if c not in por_turno]
+    todas = pd.concat([pd.DataFrame(g[fixas + ["geometry"]]) for g in gdfs.values()], ignore_index=True)
+    sem_repeticao = todas.drop_duplicates(subset=fixas)
+    if not sem_repeticao[chave].is_unique:
+        repetidos = sem_repeticao.loc[sem_repeticao[chave].duplicated(keep=False), chave].unique()[:5]
+        raise ValueError(f"{chave} com atributos diferentes entre cargos ou turnos: {list(repetidos)}")
+    principal = gpd.GeoDataFrame(
+        sem_repeticao.sort_values(chave).reset_index(drop=True), geometry="geometry", crs=primeiro.crs
+    )
+    tabelas = {}
+    for (cargo, turno), g in gdfs.items():
+        resultado = [c for c in g.columns[list(g.columns).index("ano"):] if c != "geometry"]
+        tabelas[codigo_cargo(cargo, turno)] = (
+            pd.DataFrame(g[IDENTIFICACAO[unidade] + por_turno + resultado]).sort_values(chave).reset_index(drop=True)
+        )
+    return principal, tabelas
+
+
+def escreve_base(
+    ano: int, unidade: str, gdfs: dict, cands: dict, pasta: Path = PACOTE_DIR,
+) -> tuple[Path, Path]:
+    """GeoPackage e Excel de uma base, com várias camadas (ver `camadas_base`).
+
+    `gdfs` e `cands` são os GeoDataFrames e as tabelas de candidatos por (cargo, turno).
+    """
+    principal, tabelas = separa_base(gdfs, unidade)
+    if principal.crs is None or principal.crs.to_epsg() != CRS_SIRGAS2000:
+        raise ValueError(f"camada principal fora de EPSG:{CRS_SIRGAS2000}")
+    camadas = camadas_base(ano, unidade)
+    descricao = dict(zip(camadas["camada"], camadas["conteudo"]))
+    candidatos = {f"candidatos_{codigo_cargo(*k)}": c for k, c in cands.items()}
+    conteudo = {**{CAMADA_PRINCIPAL[unidade]: principal}, **tabelas, **candidatos}
+
+    gpkg, xlsx = caminho_base(ano, unidade, "gpkg", pasta), caminho_base(ano, unidade, "xlsx", pasta)
+    gpkg.parent.mkdir(parents=True, exist_ok=True)
+    gpkg.unlink(missing_ok=True)
+    for i, (nome, df) in enumerate(conteudo.items()):
+        pyogrio.write_dataframe(
+            df if isinstance(df, gpd.GeoDataFrame) else pd.DataFrame(df), gpkg, layer=nome, driver="GPKG",
+            append=i > 0, layer_options={"DESCRIPTION": descricao[nome]},
+        )
+    with pd.ExcelWriter(xlsx, engine="openpyxl") as escritor:
+        camadas.assign(linhas=[len(conteudo[c]) for c in camadas["camada"]]).rename(
+            columns={"camada": "aba"}
+        ).to_excel(escritor, sheet_name=ABA_CONTEUDO, index=False)
+        for nome, df in conteudo.items():
+            pd.DataFrame(df).drop(columns="geometry", errors="ignore").to_excel(escritor, sheet_name=nome, index=False)
+    return gpkg, xlsx
+
+
+def remove_arquivos_por_cargo(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> int:
+    """Apaga os gpkg/xlsx de um arquivo por cargo (versão anterior do pacote)."""
+    base = codigo_base(ano, unidade)
+    velhos = [
+        p for p in Path(pasta).glob(f"EL{ano}_{unidade}_BRA_*")
+        if p.suffix in (".gpkg", ".xlsx") and p.stem != base
+    ]
+    for p in velhos:
+        p.unlink()
+    return len(velhos)
 
 
 def compacta(arquivos: list[Path], caminho_zip: Path) -> Path:
@@ -1151,8 +1250,15 @@ def _descricao_votos(coluna: str, cargo: str) -> str:
     return texto + (" sobre os válidos (%)" if prefixo == "pc_validos" else "")
 
 
-def dicionario_colunas(colunas: list[str], camada: str, cargo: str, ano: int | None = None) -> pd.DataFrame:
-    """Uma linha por coluna da camada, com a descrição."""
+def dicionario_colunas(
+    colunas: list[str], camada: str, cargo: str | None, ano: int | None = None, unidade: str | None = None,
+) -> pd.DataFrame:
+    """Uma linha por coluna da camada, com a descrição.
+
+    `camada` é o nome da camada no GeoPackage (`municipios`, `PS1` ...); `unidade`
+    (`LV`/`MU`) escolhe o texto de `cd_mun`. Na camada com geometria, `cargo` é None.
+    """
+    principal = CAMADA_PRINCIPAL[unidade] if unidade else camada
     linhas = []
     for coluna in colunas:
         if coluna == "geometry":
@@ -1160,9 +1266,24 @@ def dicionario_colunas(colunas: list[str], camada: str, cargo: str, ano: int | N
         if coluna.startswith(("votos_", "pc_validos_")):
             descricao = _descricao_votos(coluna, cargo)
         else:
-            descricao = descricao_coluna(coluna, ano, camada)
-        linhas.append({"camada": camada, "cargo": CARGOS[cargo]["sigla"], "coluna": coluna, "descricao": descricao})
+            descricao = descricao_coluna(coluna, ano, principal)
+        linhas.append({"camada": camada, "coluna": coluna, "descricao": descricao})
     return pd.DataFrame(linhas)
+
+
+def dicionario_base(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> pd.DataFrame:
+    """Dicionário de todas as camadas de uma base, lido do GeoPackage já escrito."""
+    gpkg = caminho_base(ano, unidade, "gpkg", pasta)
+    por_codigo = {codigo_cargo(c, t): c for c in CARGOS_GERAIS for t in turnos(c)}
+    partes = []
+    for camada in camadas_base(ano, unidade)["camada"]:
+        if camada.startswith("candidatos_"):
+            continue
+        colunas = list(pyogrio.read_info(gpkg, layer=camada)["fields"])
+        partes.append(dicionario_colunas(colunas, camada, por_codigo.get(camada), ano, unidade))
+    return pd.concat(partes, ignore_index=True).assign(arquivo=codigo_base(ano, unidade))[
+        ["arquivo", "camada", "coluna", "descricao"]
+    ]
 
 
 def _md(df: pd.DataFrame) -> str:
@@ -1180,9 +1301,10 @@ def _fmt_votos(tabela: pd.DataFrame) -> pd.DataFrame:
 
 
 def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, dicionario: pd.DataFrame) -> Path:
-    """`LEIAME.md` do pacote: conteúdo, colunas, candidatos, observações e citação.
+    """`LEIAME.md` do pacote: conteúdo, camadas, colunas, candidatos, observações e citação.
 
-    `tabelas` tem a tabela `candidatos` de cada arquivo, pela chave (ano, cargo, turno).
+    `arquivos` tem uma linha por base; `tabelas`, a tabela de candidatos de cada
+    cargo, pela chave (ano, cargo, turno).
     """
     cargos = pd.DataFrame([
         {"código": "PS1, PS2", "cargo": "Presidente", "turno": "1º e 2º", "colunas de votos": "por candidato"},
@@ -1212,25 +1334,43 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "",
         "## Arquivos",
         "",
-        "Nome no padrão do CEM: `EL{ano}_{LV|MU}_BRA_{cargo}{turno}_CEM`, com `LV` = local de votação e "
-        "`MU` = município; os municípios de 2018 e 2022 levam `_CEM_V2`, por serem nova versão das bases "
-        "`EL2018_MU_BRA_CEM` e `EL2022_MU_BRA_CEM`. Os códigos de cargo são os das colunas das bases do CEM:",
-        "",
-        _md(cargos),
-        "",
-        "Um GeoPackage (`.gpkg`) e um Excel (`.xlsx`) por arquivo, com o mesmo conteúdo. No GeoPackage, "
-        "a camada principal (`locais` ou `municipios`) traz a geometria em SIRGAS 2000 (EPSG:4674) e a "
-        "tabela `candidatos` traz nome, nome de urna e partido de cada número (nos deputados, sigla e "
-        "nome de cada partido). No Excel, as abas são `dados` e `candidatos`. Um zip por base (ano e unidade), com o código da "
-        "base: `EL2018_MU_BRA_CEM_V2.zip`, `EL2026_LV_BRA_CEM.zip` etc.",
+        "Uma base por ano e unidade, com o código no padrão do CEM: `EL{ano}_{LV|MU}_BRA_CEM`, com "
+        "`LV` = local de votação e `MU` = município; os municípios de 2018 e 2022 levam `_CEM_V2`, por "
+        "serem nova versão das bases `EL2018_MU_BRA_CEM` e `EL2022_MU_BRA_CEM`. Cada base é um zip com "
+        "um GeoPackage (`.gpkg`) e um Excel (`.xlsx`) de mesmo conteúdo, o dicionário em PDF, este "
+        "LEIAME e o `dicionario_colunas.csv`.",
         "",
         _md(arquivos),
+        "",
+        "### O GeoPackage tem várias camadas",
+        "",
+        "Cada GeoPackage traz **15 camadas**: uma com geometria e 14 tabelas sem geometria. A geometria "
+        "entra uma vez só, e os resultados de cada cargo ficam numa tabela à parte, ligada à camada com "
+        "geometria pela chave (`cd_mun` nos municípios, `id_local` nos locais). No Excel, cada camada é "
+        "uma aba, e a aba `conteudo` lista todas.",
+        "",
+        _md(camadas_base(2022, "MU").assign(
+            conteudo=lambda d: d["conteudo"].str.replace("malha IBGE 2022", "malha IBGE 2022; de 2024 em 2026")
+        )),
+        "",
+        "Nos locais, a camada com geometria é `locais` e a chave é `id_local`; ela tem os locais de "
+        "todos os cargos e turnos, e cada tabela de cargo só os que tiveram seção naquele cargo e turno.",
+        "",
+        "Para mapear um cargo no QGIS: abra o GeoPackage e escolha a camada `municipios` (ou `locais`) e a "
+        "tabela do cargo (ex.: `PS1`); nas Propriedades da camada com geometria, em **Uniões**, adicione "
+        "a tabela pelo campo `cd_mun` (ou `id_local`) nos dois lados. Em R ou Python, leia as duas "
+        "camadas (`sf::st_read(arquivo, layer = \"PS1\")`, `geopandas.read_file(arquivo, layer=\"PS1\")`) e "
+        "junte pela chave. As tabelas de cargo repetem nome e UF, para serem lidas sem a junção.",
+        "",
+        "Os códigos de cargo são os das colunas das bases do CEM:",
+        "",
+        _md(cargos),
         "",
         "## Colunas",
         "",
         "Percentuais de 0 a 100. Votos em `votos_{número}` e `pc_validos_{número}`; o dono de cada "
-        "número está na tabela `candidatos` do arquivo. A lista completa, por arquivo, está em "
-        "`dicionario_colunas.csv`.",
+        "número está na tabela `candidatos_{código}` do cargo (ex.: `candidatos_PS1`). A lista "
+        "completa, por base e camada, está em `dicionario_colunas.csv`.",
         "",
         _md(colunas),
         "",
@@ -1249,7 +1389,8 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         tabela = _fmt_votos(cand[["nr_partido", "sg_partido", "qt_votos", "pc_validos"]])
         partes += [f"### {CARGOS[cargo]['rotulo']}, {ano}", "", _md(tabela), ""]
     partes += [
-        "Os candidatos a Governador e a Senador, por UF, estão na tabela `candidatos` de cada arquivo.",
+        "Os candidatos a Governador e a Senador, por UF, estão nas tabelas `candidatos_GO1`, "
+        "`candidatos_GO2` e `candidatos_SE` de cada base.",
         "",
         "## Observações",
         "",
@@ -1271,7 +1412,7 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "geometria: `cd_mun = EXTERIOR` no arquivo de municípios e `cd_mun` vazio (`sg_uf = ZZ`) nos "
         "locais. Com eles, a soma das colunas dá o total oficial do Brasil.",
         "- **Governador e Senador.** O número é do candidato da UF de cada linha: `votos_13` em São Paulo "
-        "e em Minas Gerais são candidatos diferentes. Os percentuais dos válidos da tabela `candidatos` "
+        "e em Minas Gerais são candidatos diferentes. Os percentuais dos válidos das tabelas de candidatos "
         "são sobre a UF. O 2º turno de Governador só traz as UFs em que ele aconteceu.",
         "- **Senador com 2 vagas** (2018 e 2026): cada eleitor dá até 2 votos, então os válidos somam "
         "quase o dobro do comparecimento.",
@@ -1286,7 +1427,7 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "- **Seções agregadas.** Uma seção agregada vota no local da sua seção principal; `n_secoes` "
         "conta as seções do cadastro, agregadas incluídas.",
         "- **Números de candidato mudam entre eleições.** Bolsonaro foi 17 (PSL) em 2018 e 22 (PL) em "
-        "2022; em 2026 o 22 é Flávio Bolsonaro. Compare pelo nome da tabela `candidatos`.",
+        "2022; em 2026 o 22 é Flávio Bolsonaro. Compare pelo nome das tabelas de candidatos.",
         "- **Votos anulados.** Voto em candidato cuja candidatura foi indeferida, cancelada ou cassada "
         "está em `qt_anulados`, fora dos válidos e dos votos do partido: o TSE o publica por seção com o "
         "número do candidato, mas não o conta na totalização. O destino de cada candidato vem do "
@@ -1294,15 +1435,15 @@ def escreve_leiame(destino: Path, arquivos: pd.DataFrame, tabelas: dict, diciona
         "na versão atual da totalização. Os votos anulados sub judice estão em `qt_anulados_apu_sep`. "
         "Entram aqui também candidatos cassados ou com registro negado depois da eleição, como Selma "
         "Arruda (Senado/MT, 2018), Daniel Silveira (Senado/RJ, 2022) e Ricardo Coutinho (Senado/PB, "
-        "2022). Na tabela `candidatos` de Governador e Senador eles aparecem com `destino = anulado` (ou "
+        "2022). Nas tabelas de candidatos de Governador e Senador eles aparecem com `destino = anulado` (ou "
         "`anulado sub judice`) e o total de votos na UF, sem percentual. As bases do CEM somam os "
         "anulados aos nulos (`qt_nulos + qt_anulados`) e usam uma versão mais antiga da totalização: "
         "nela, por exemplo, os votos de Daniel Silveira ainda contam como válidos, e alguns partidos de "
         "deputado diferem um pouco (cerca de 0,4% dos votos).",
         "- **Senado em Mato Grosso, 2018.** A base `EL2018_MU_BRA_CEM` traz em MT os candidatos da eleição "
         "suplementar de 2020 (que substituiu Selma Arruda), não os de 2018. Aqui está a eleição de 2018.",
-        "- **Local de votação muda entre turnos** em uma pequena fração das seções; por isso os "
-        "arquivos de locais são por turno.",
+        "- **Local de votação muda entre turnos** em uma pequena fração das seções; por isso a camada "
+        "`locais` tem os locais de todos os turnos, e as tabelas de 1º e 2º turno não têm as mesmas linhas.",
         "- **Diferenças em relação às bases do CEM.** Não há os 3 polígonos sem município (lagoas dos "
         "Patos e Mirim, baía de Oiapoque). A abstenção vem em quantidade e em percentual.",
         "",
@@ -1367,8 +1508,10 @@ def nota_atualizacao_pacote(ano: int) -> list[str]:
         "Polígonos da malha municipal do IBGE de 2022 (versão simplificada do geobr, Ipea), com 5.570 "
         "municípios. Saem os 3 polígonos sem município da base anterior (lagoas dos Patos e Mirim e baía "
         "de Oiapoque).",
-        "Um arquivo por cargo e turno (PS1, PS2, GO1, GO2, SE, DF e DE, os códigos das colunas da base "
-        "anterior), em GeoPackage e Excel, com os nomes das colunas por extenso. Os mesmos dados também "
+        "Um GeoPackage com várias camadas: a de municípios, com a geometria, e uma tabela por cargo e "
+        "turno (PS1, PS2, GO1, GO2, SE, DF e DE, os códigos das colunas da base anterior), ligada a ela "
+        "por cd_mun, mais as tabelas de candidatos; o Excel traz as mesmas tabelas em abas. Os nomes das "
+        "colunas vêm por extenso. Os mesmos dados também "
         f"saem por local de votação, para o Brasil inteiro (EL{ano}_LV_BRA).",
         "Aptos e abstenção de cada cargo, inclusive dos deputados, do detalhe_votacao_secao do TSE (a "
         "base anterior tinha aptos só de Presidente e de Governador/Senador, e abstenção só em "
@@ -1497,7 +1640,7 @@ def _pdf_dicionario_cem_2022() -> bytes:
 def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: Path = PACOTE_DIR) -> Path:
     """PDF de dicionário de uma base do pacote (`EL{ano}_{unidade}_BRA`), nos moldes do CEM.
 
-    Lê os arquivos já escritos em `pasta` (tabela `candidatos` de cada GeoPackage e
+    Lê os arquivos já escritos em `pasta` (as camadas do GeoPackage da base e o
     `dicionario_colunas.csv`) e escreve o documento em Typst. Município de 2018 e
     2022 (atualizações de bases do CEM): logo do PDF de 2022 do CEM (só a faixa do
     logo, rasterizada), créditos daquele PDF e seção de atualização. As demais
@@ -1512,11 +1655,17 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
     conselho = CONSELHO_CEM if atualiza else CONSELHO_CEM_ATUAL
 
     chaves = [(cargo, turno) for cargo in CARGOS_GERAIS for turno in turnos(cargo)]
-    arquivos = {chave: nome_arquivo(ano, *chave, unidade) for chave in chaves}
+    tabelas = {chave: codigo_cargo(*chave) for chave in chaves}
+    gpkg = caminho_base(ano, unidade, "gpkg", pasta)
+    chave_uni = CHAVE_UNIDADE[unidade]
     dic = pd.read_csv(Path(pasta) / "dicionario_colunas.csv", dtype=str)
-    dic = dic[dic["arquivo"].isin(arquivos.values())]
+    dic = dic[dic["arquivo"] == codigo_base(ano, unidade)]
+    atributos_geo = (
+        dic.loc[dic["camada"] == camada, ["coluna", "descricao"]].set_axis(["Variável", "Descrição"], axis=1)
+    )
     atributos = (
-        dic.loc[~dic["coluna"].str.match(r"^(votos|pc_validos)_\d+$"), ["coluna", "descricao"]]
+        dic.loc[(dic["camada"] != camada) & ~dic["coluna"].str.match(r"^(votos|pc_validos)_\d+$"),
+                ["coluna", "descricao"]]
         .drop_duplicates("coluna")
     )
     atributos = pd.concat([atributos, pd.DataFrame([
@@ -1525,17 +1674,10 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
          "nos deputados, votos nominais e de legenda do partido, sem os votos anulados (em qt_anulados)"},
         {"coluna": "pc_validos_NN", "descricao": "Votos do número NN sobre os válidos (%)"},
     ])], ignore_index=True).set_axis(["Variável", "Descrição"], axis=1)
-    lista = pd.DataFrame([
-        {
-            "Arquivo": arquivo, "Cargo": CARGOS[cargo]["rotulo"],
-            "Turno": f"{turno}º" if len(turnos(cargo)) > 1 else "único",
-            "Linhas": _votos(pyogrio.read_info(Path(pasta) / f"{arquivo}.gpkg", layer=camada)["features"]),
-        }
-        for (cargo, turno), arquivo in arquivos.items()
-    ])
-    ps1 = pyogrio.read_dataframe(
-        Path(pasta) / f"{arquivos[('presidente', 1)]}.gpkg", layer=camada, columns=["sg_uf"], read_geometry=False
-    )
+    lista = camadas_base(ano, unidade).assign(
+        linhas=lambda d: [_votos(pyogrio.read_info(gpkg, layer=c)["features"]) for c in d["camada"]]
+    ).set_axis(["Camada", "Tipo", "Conteúdo", "Linhas"], axis=1)
+    ps1 = pyogrio.read_dataframe(gpkg, layer=camada, columns=["sg_uf"], read_geometry=False)
     n_exterior = int((ps1["sg_uf"] == "ZZ").sum())
 
     cargos_txt = "Presidente, Governador, Senador, Deputado federal e Deputado estadual/distrital"
@@ -1561,8 +1703,8 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         )
         descricao = [
             "Base cartográfica georreferenciada em formato GeoPackage contendo os resultados das eleições "
-            f"gerais de {ano} ({cargos_txt}) nos {_votos(len(ps1))} locais de votação do 1º turno "
-            f"(inclusive {n_exterior} no exterior, sem geometria), com os votos de cada candidato (ou "
+            f"gerais de {ano} ({cargos_txt}) nos {_votos(len(ps1))} locais de votação (dos dois turnos; "
+            f"inclusive {n_exterior} no exterior, sem geometria), com os votos de cada candidato (ou "
             "partido, nos deputados) em colunas separadas, aptos, comparecimento, abstenção, brancos, "
             "nulos e votos anulados.",
             "A coordenada do TSE é validada contra a malha municipal do IBGE de 2022"
@@ -1572,7 +1714,8 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
             "CNEFE 2022 ou, em último caso, o centroide do município (coord_aproximada; esses pontos "
             "continuam no arquivo). A coluna fonte_coord diz a origem"
             + (" (o painel de Hidalgo et al. não cobre 2026)." if ano >= 2026 else ".")
-            + " O local de votação de uma seção pode mudar entre turnos, por isso há um arquivo por turno.",
+            + " O local de votação de uma seção pode mudar entre turnos: a camada locais traz os locais "
+            "dos dois turnos, e cada tabela de cargo só os que tiveram seção naquele turno.",
         ]
     senado = (
         "Em Senador havia 2 vagas por UF e cada eleitor deu 2 votos; brancos, nulos e anulados também "
@@ -1581,8 +1724,7 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         if ano in (2018, 2026) else "Em Senador havia 1 vaga por UF."
     )
     descricao.append(
-        "Cada arquivo tem um GeoPackage (camada principal e tabela candidatos) e um Excel (abas dados e "
-        f"candidatos), com o mesmo conteúdo. {senado} Nos deputados, os votos do partido são os nominais "
+        f"{senado} Nos deputados, os votos do partido são os nominais "
         "mais os de legenda; Deputado estadual inclui o distrital, no DF. Percentuais de 0 a 100. Nas "
         "tabelas, os candidatos com votos anulados aparecem com o destino entre parênteses e sem "
         "percentual. Dados do TSE: eleitorado_local_votacao, votacao_secao, detalhe_votacao_secao, "
@@ -1606,7 +1748,7 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         return " \\\n".join(f"#emph({_ty(n)})" for n in nomes)
 
     doc = [
-        f"#set document(title: {_ty(f'Dicionário EL{ano}_{unidade}_BRA')}, author: \"Centro de Estudos da Metrópole\")",
+        f"#set document(title: {_ty(f'Dicionário {codigo_base(ano, unidade)}')}, author: \"Centro de Estudos da Metrópole\")",
         '#set text(font: "Calibri", size: 11pt, lang: "pt", hyphenate: false)',
         "#set par(justify: true)",
         "#set page(",
@@ -1642,10 +1784,10 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         "",
         "Bases Eleitorais",
         "",
-        f"Arquivo: #strong({_ty(f'EL{ano}_{unidade}_BRA_{{{siglas}}}{sufixo_cem(ano, unidade)}')})",
+        f"Arquivo: #strong({_ty(codigo_base(ano, unidade))})",
         "",
         "#rect(width: 100%, stroke: 0.5pt, inset: 6pt)[",
-        f"  Formato: GeoPackage e Excel | Tipo: {'Polígonos (áreas)' if municipio else 'Pontos'} | Data: {ano} \\",
+        f"  Formato: GeoPackage ({len(lista)} camadas) e Excel ({len(lista) + 1} abas) | Tipo: {'Polígonos (áreas)' if municipio else 'Pontos'} | Data: {ano} \\",
         "  Projeção cartográfica: LatLong - SIRGAS 2000 (EPSG:4674)",
         "]",
         "",
@@ -1660,7 +1802,19 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
         "Descrição: " + _ty_inline(descricao[0]),
         "",
         *[x for p in descricao[1:] for x in (_ty_inline(p), "")],
-        _tabela_typst(lista, "(auto, 1fr, auto, auto)", ["left", "left", "center", "right"]),
+        f"#block(sticky: true, above: 1.4em)[#strong[O GeoPackage tem {len(lista)} camadas]]",
+        "",
+        _ty_inline(
+            f"O arquivo {codigo_base(ano, unidade)}.gpkg não tem uma camada só: tem a camada {camada}, com "
+            f"a geometria, e {len(lista) - 1} tabelas sem geometria, uma com o resultado de cada cargo e "
+            f"turno ({siglas}) e uma com os candidatos (ou partidos) de cada cargo. As tabelas de cargo se "
+            f"ligam à camada {camada} pelo campo {chave_uni}. No QGIS, ao abrir o arquivo, escolha a camada "
+            f"{camada} e a tabela do cargo (ex.: PS1); depois, nas Propriedades da camada {camada}, em "
+            f"Uniões, adicione a tabela pelo campo {chave_uni} nos dois lados. No Excel, cada camada é uma "
+            "aba, e a aba conteudo lista todas."
+        ),
+        "",
+        _tabela_typst(lista, "(auto, auto, 1fr, auto)", ["left", "center", "left", "right"]),
         "",
     ]
     if atualiza:
@@ -1671,14 +1825,17 @@ def escreve_dicionario_pacote(ano: int, unidade: str, destino_pdf: Path, pasta: 
             "",
         ]
     doc += [
-        "#block(sticky: true, above: 1.4em)[#strong[Atributos] (variáveis do banco de dados):]",
+        f"#block(sticky: true, above: 1.4em)[#strong[Atributos da camada {camada}] (com geometria):]",
+        _tabela_typst(atributos_geo, "(auto, 1fr)", ["left", "left"]),
+        "",
+        f"#block(sticky: true, above: 1.4em)[#strong[Atributos das tabelas de cargo] ({siglas}):]",
         _tabela_typst(atributos, "(auto, 1fr)", ["left", "left"]),
         "",
     ]
-    for (cargo, turno), arquivo in arquivos.items():
-        cand = pyogrio.read_dataframe(Path(pasta) / f"{arquivo}.gpkg", layer="candidatos")
+    for (cargo, turno), tabela in tabelas.items():
+        cand = pyogrio.read_dataframe(gpkg, layer=f"candidatos_{tabela}")
         sufixo = f" - {turno}º turno" if len(turnos(cargo)) > 1 else ""
-        titulo = f"{TITULO_CARGO[CARGOS[cargo]['sigla']]} - Eleição {ano}{sufixo} ({arquivo})"
+        titulo = f"{TITULO_CARGO[CARGOS[cargo]['sigla']]} - Eleição {ano}{sufixo} (tabela candidatos_{tabela})"
         doc += [
             f"#block(sticky: true, above: 1.8em)[#strong({_ty(titulo)})]",
             _tabela_candidatos(cand),
@@ -1732,15 +1889,10 @@ COLUNAS_CADASTRO_CEM = [
 DOI_ANTERIOR_CEM = {(2018, "MU"): "10.55881/CEM.db.ele102", (2022, "MU"): "10.55881/CEM.db.ele094"}
 
 
-def arquivos_base(ano: int, unidade: str) -> list[str]:
-    """Os 7 arquivos (um por cargo e turno) de uma base do pacote."""
-    return [nome_arquivo(ano, c, t, unidade) for c in CARGOS_GERAIS for t in turnos(c)]
-
-
 def compacta_base(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> Path:
-    """`zips/{codigo_base}.zip`: gpkg e xlsx dos 7 arquivos, o PDF, o LEIAME e o dicionário."""
+    """`zips/{codigo_base}.zip`: o gpkg e o xlsx da base, o PDF, o LEIAME e o dicionário."""
     pasta = Path(pasta)
-    entregues = [pasta / f"{a}.{ext}" for a in arquivos_base(ano, unidade) for ext in ("gpkg", "xlsx")]
+    entregues = [caminho_base(ano, unidade, "gpkg", pasta), caminho_base(ano, unidade, "xlsx", pasta)]
     entregues += [pasta / caminho_dicionario_pdf(ano, unidade).name, pasta / "LEIAME.md",
                   pasta / "dicionario_colunas.csv"]
     zips = pasta / "zips"
@@ -1761,7 +1913,7 @@ def descricao_cadastro(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> str:
         malha = 2024 if ano >= ANO_MALHA_2024 else 2022
         texto = (
             f"Base cartográfica georreferenciada em formato GeoPackage contendo os resultados eleitorais "
-            f"dos {_votos(n)} municípios do Brasil na eleição de {ano}, um arquivo por cargo: {cargos}, com "
+            f"dos {_votos(n)} municípios do Brasil na eleição de {ano}, com uma tabela por cargo: {cargos}, e "
             "os votos por candidato (por partido, nos deputados), aptos, comparecimento, abstenção, brancos, "
             "nulos e votos anulados. Inclui população, domicílios, área e densidade do Censo Demográfico "
             f"2022 sobre a malha municipal do IBGE de {malha}."
@@ -1770,17 +1922,20 @@ def descricao_cadastro(ano: int, unidade: str, pasta: Path = PACOTE_DIR) -> str:
             texto += f" Atualiza a base EL{ano}_MU_BRA_CEM (antes com Censo 2010)."
     else:
         ps1 = pyogrio.read_dataframe(
-            Path(pasta) / f"{nome_arquivo(ano, 'presidente', 1, 'LV')}.gpkg", layer="locais",
-            columns=["sg_uf"], read_geometry=False,
+            caminho_base(ano, unidade, "gpkg", pasta), layer="locais", columns=["sg_uf"], read_geometry=False,
         )
         texto = (
             f"Base cartográfica georreferenciada em formato GeoPackage contendo os resultados eleitorais "
             f"dos {_votos(len(ps1))} locais de votação do Brasil na eleição de {ano} (inclusive "
-            f"{int((ps1['sg_uf'] == 'ZZ').sum())} no exterior), um arquivo por cargo e turno: {cargos}, com "
+            f"{int((ps1['sg_uf'] == 'ZZ').sum())} no exterior), com uma tabela por cargo e turno: {cargos}, e "
             "os votos por candidato (por partido, nos deputados), aptos, comparecimento, abstenção, brancos, "
             "nulos e votos anulados."
         )
-    return texto + " Acompanha uma tabela em formato excel com os dados descritos e o dicionário em PDF."
+    return texto + (
+        " O GeoPackage tem várias camadas: a de geometria e uma tabela por cargo, ligadas pelo código "
+        f"{'do município' if unidade == 'MU' else 'do local'}. Acompanha uma tabela em formato excel com os "
+        "dados descritos e o dicionário em PDF."
+    )
 
 
 def escreve_cadastro_cem(destino: Path, pasta: Path = PACOTE_DIR) -> Path:
@@ -1815,8 +1970,8 @@ def escreve_cadastro_cem(destino: Path, pasta: Path = PACOTE_DIR) -> Path:
             f'&"/transform/application/x-bibtex\' target=\'_blank\' title=\'Bibtex\'>Bibtex</a></p>"'
         )
         valores = {
-            "Camadas": len(arquivos_base(ano, unidade)),
-            "Codigos": ",".join(arquivos_base(ano, unidade)),
+            "Camadas": 1,
+            "Codigos": codigo_base(ano, unidade),
             "DOI": "",
             "count DOI": f'=IF({doi}="","",1)',
             "Título": f"Resultado eleitoral por {'município' if municipio else 'local de votação'} no Brasil em {ano}",
@@ -1831,7 +1986,7 @@ def escreve_cadastro_cem(destino: Path, pasta: Path = PACOTE_DIR) -> Path:
             "Links documentos": None,
             "Situação": None,
             "Obervação": (
-                f"Nova versão de EL{ano}_MU_BRA_CEM: Censo 2022, malha IBGE 2022, um arquivo por cargo e turno"
+                f"Nova versão de EL{ano}_MU_BRA_CEM: Censo 2022, malha IBGE 2022, uma tabela por cargo e turno"
                 if anterior else "Base nova"
             ),
             "descricao_do_tipo_de_arquivo": (

@@ -14,16 +14,20 @@ trazem, no mínimo, tudo o que as bases de município do CEM (`EL2018_MU_BRA_CEM
 - **cargos**: Presidente (`PS1`, `PS2`), Governador (`GO1`, `GO2`), Senador (`SE`),
   Deputado federal (`DF`) e Deputado estadual/distrital (`DE`), com os códigos de
   cargo do CEM. Deputados somados por partido (nominais + legenda), como no CEM;
-- **locais de votação** do Brasil inteiro (`EL{ano}_LV_BRA_{cargo}{turno}_CEM`). O CEM só
+- **locais de votação** do Brasil inteiro (`EL{ano}_LV_BRA_CEM`). O CEM só
   tem locais do estado de São Paulo e de regiões metropolitanas;
-- **municípios** (`EL{ano}_MU_BRA_{cargo}{turno}_CEM`; `_CEM_V2` em 2018 e
-  2022, nova versão das bases do CEM), com população, domicílios, área e
-  densidade do Censo 2022 nos três anos;
+- **municípios** (`EL{ano}_MU_BRA_CEM`; `_CEM_V2` em 2018 e 2022, nova versão
+  das bases do CEM), com população, domicílios, área e densidade do Censo 2022
+  nos três anos;
 - a **versão 2 do `EL2022_MU_BRA_CEM`**: a base do CEM com população, domicílios,
   área e densidade do Censo 2022 no lugar do Censo 2010, e o dicionário em PDF
   refeito com uma seção de atualização. O zip original não é alterado.
 
-Cada arquivo sai em GeoPackage (camada principal + tabela `candidatos`) e em `.xlsx`.
+Cada base (ano × unidade) é um GeoPackage com várias camadas: a de geometria
+(`municipios` ou `locais`), uma tabela sem geometria por cargo e turno (`PS1` ... `DE`,
+ligada à de geometria por `cd_mun` ou `id_local`) e uma tabela de candidatos por cargo
+(`candidatos_PS1` ...); a geometria entra uma vez só. O `.xlsx` traz as mesmas camadas
+em abas, mais a aba `conteudo`.
 Votos em `votos_{número}`; percentuais de 0 a 100; o exterior (só Presidente) entra
 como linha sem geometria. Tudo em `dados/04_pacote/`, com um `LEIAME.md`, o
 `dicionario_colunas.csv` e um zip por base em `zips/`.
@@ -69,11 +73,12 @@ len(CHAVES)
 
 ## Locais de votação e municípios
 
-Um arquivo por ano, cargo e turno, nas duas unidades.
+Monta, em memória, uma tabela por ano, cargo e turno nas duas unidades; a gravação,
+um GeoPackage por base, vem depois da Conferência.
 
 ```{python}
 #| label: arquivos
-locais, municipios, candidatos, arquivos = {}, {}, {}, []
+locais, municipios, candidatos = {}, {}, {}
 for chave in CHAVES:
     ano, cargo, turno = chave
     res_mun = pacote.le_resultado(cargo, ano, turno, "municipio")
@@ -84,16 +89,9 @@ for chave in CHAVES:
         ("MU", "municipios", pacote.monta_municipios, municipios),
     ):
         gdf = pacote.anula_fora_da_uf(monta(ano, turno, cargo), cand)
-        nome = pacote.nome_arquivo(ano, cargo, turno, unidade)
-        pacote.escreve_gpkg(gdf, cand, PACOTE_DIR / f"{nome}.gpkg", camada)
-        pacote.escreve_xlsx(gdf, cand, PACOTE_DIR / f"{nome}.xlsx")
         guarda[chave] = gdf
-        arquivos.append({
-            "arquivo": nome, "unidade": "local de votação" if unidade == "LV" else "município",
-            "cargo": CARGOS[cargo]["rotulo"], "ano": ano, "turno": turno, "linhas": len(gdf),
-            "_camada": camada, "_cargo": cargo,
-        })
-        print(nome, len(gdf), "linhas,", int(gdf.geometry.isna().sum()), "sem geometria")
+        print(ano, unidade, pacote.codigo_cargo(cargo, turno), len(gdf), "linhas,",
+              int(gdf.geometry.isna().sum()), "sem geometria")
 ```
 
 ## Conferência
@@ -190,7 +188,7 @@ Coluna a coluna (`PS22_113` × `votos_13` do `PS1`, `GO22_195` × `qt_brancos` d
 #| label: compara-cem
 comparacao = pd.concat([
     pacote.compara_cem(municipios[(ano, cargo, turno)], ano, cargo, turno).assign(
-        ano=ano, arquivo=pacote.nome_arquivo(ano, cargo, turno, "MU")
+        ano=ano, arquivo=pacote.codigo_cargo(cargo, turno)
     )
     for ano, cargo, turno in CHAVES if ano in ANOS_CEM
 ], ignore_index=True)
@@ -207,55 +205,69 @@ comparacao.groupby(["ano", "arquivo"]).agg(
 comparacao[comparacao["municipios_diferentes"] > 0]
 ```
 
-## Releitura
+## Gravação e releitura
 
-Camadas, CRS, contagem e ids como texto.
+Um GeoPackage e um Excel por base (`pacote.escreve_base`), e os arquivos de um por
+cargo da versão anterior saem do caminho. Na releitura: camadas, CRS, ids como texto,
+contagem por tabela, a junção de cada tabela de cargo com a camada de geometria (toda
+linha encontra o seu id) e os votos iguais aos da Conferência.
 
 ```{python}
 #| label: releitura
-for linha in arquivos:
-    gpkg = PACOTE_DIR / f"{linha['arquivo']}.gpkg"
-    principal = linha["_camada"]
-    camadas = [c[0] for c in pyogrio.list_layers(gpkg)]
-    assert camadas == [principal, "candidatos"], camadas
-    info = pyogrio.read_info(gpkg, layer=principal)
-    assert info["crs"] == "EPSG:4674" and info["features"] == linha["linhas"], (gpkg, info["crs"])
-    xlsx = pd.read_excel(PACOTE_DIR / f"{linha['arquivo']}.xlsx", sheet_name=None, dtype=str)
-    assert list(xlsx) == ["dados", "candidatos"] and len(xlsx["dados"]) == linha["linhas"]
-    chave = "id_local" if principal == "locais" else "cd_mun"
-    assert xlsx["dados"][chave].dropna().str.len().min() >= (13 if principal == "locais" else 7), gpkg
-    linha["MB_gpkg"] = round(gpkg.stat().st_size / 1e6, 1)
-    linha["MB_xlsx"] = round((PACOTE_DIR / f"{linha['arquivo']}.xlsx").stat().st_size / 1e6, 1)
+arquivos = []
+for ano in ANOS:
+    for unidade, guarda in (("LV", locais), ("MU", municipios)):
+        chaves = [(cargo, turno) for cargo in CARGOS_GERAIS for turno in pacote.turnos(cargo)]
+        gdfs = {k: guarda[(ano, *k)] for k in chaves}
+        gpkg, xlsx = pacote.escreve_base(ano, unidade, gdfs, {k: candidatos[(ano, *k)] for k in chaves})
+        pacote.remove_arquivos_por_cargo(ano, unidade)
+        principal, chave = pacote.CAMADA_PRINCIPAL[unidade], pacote.CHAVE_UNIDADE[unidade]
+        esperadas = list(pacote.camadas_base(ano, unidade)["camada"])
+        assert [c[0] for c in pyogrio.list_layers(gpkg)] == esperadas, gpkg
+        info = pyogrio.read_info(gpkg, layer=principal)
+        assert info["crs"] == "EPSG:4674", gpkg
+        base = pyogrio.read_dataframe(gpkg, layer=principal, read_geometry=False)
+        assert base[chave].is_unique and base[chave].str.len().min() >= (13 if unidade == "LV" else 7)
+        abas = pd.read_excel(xlsx, sheet_name=None, dtype=str)
+        assert list(abas) == [pacote.ABA_CONTEUDO, *esperadas], xlsx
+        for k, gdf in gdfs.items():
+            tabela = pyogrio.read_dataframe(gpkg, layer=pacote.codigo_cargo(*k))
+            assert len(tabela) == len(gdf) == len(abas[pacote.codigo_cargo(*k)]), (gpkg, k)
+            assert tabela[chave].isin(base[chave]).all(), (gpkg, k)
+            for col in [c for c in gdf.columns if c.startswith("votos_")]:
+                assert int(tabela[col].sum()) == int(gdf[col].sum()), (gpkg, k, col)
+        arquivos.append({
+            "arquivo": pacote.codigo_base(ano, unidade),
+            "unidade": "local de votação" if unidade == "LV" else "município", "ano": ano,
+            "linhas": info["features"], "camadas": len(esperadas),
+            "MB_gpkg": round(gpkg.stat().st_size / 1e6, 1), "MB_xlsx": round(xlsx.stat().st_size / 1e6, 1),
+        })
 arquivos_df = pd.DataFrame(arquivos)
-arquivos_df.drop(columns=["_camada", "_cargo"])
+arquivos_df
 ```
 
 ## LEIAME, dicionário e zips
 
 Um zip por base, com o código da base no padrão do CEM (`zips/EL{ano}_{MU,LV}_BRA_CEM.zip`,
-`_CEM_V2` nos municípios de 2018 e 2022), com os 7 arquivos de cargo, o dicionário em
+`_CEM_V2` nos municípios de 2018 e 2022), com o GeoPackage e o Excel da base, o dicionário em
 PDF (`DIC_` + código da base, nos moldes dos PDFs do CEM), o LEIAME e o dicionário de
 colunas; e `cadastro_cem.xlsx`, uma linha por base no formato da planilha de DOI do CEM.
 
 ```{python}
 #| label: documentacao
-dicionario = pd.concat([
-    pacote.dicionario_colunas(
-        list((locais if l["_camada"] == "locais" else municipios)[(l["ano"], l["_cargo"], l["turno"])].columns),
-        l["_camada"], l["_cargo"], l["ano"],
-    ).assign(arquivo=l["arquivo"])
-    for l in arquivos
-])[["arquivo", "camada", "cargo", "coluna", "descricao"]]
+dicionario = pd.concat(
+    [pacote.dicionario_base(ano, unidade) for ano in ANOS for unidade in ("MU", "LV")], ignore_index=True
+)
 dicionario.to_csv(PACOTE_DIR / "dicionario_colunas.csv", index=False, encoding="utf-8-sig")
 leiame = pacote.escreve_leiame(
     PACOTE_DIR / "LEIAME.md",
-    arquivos_df[["arquivo", "unidade", "cargo", "ano", "turno", "linhas"]],
+    arquivos_df[["arquivo", "unidade", "ano", "linhas", "camadas"]],
     candidatos,
     dicionario,
 )
 # O zip único da versão anterior (só Presidente) sai do caminho.
 (PACOTE_DIR / "EL_PS_BRA_2018_2026.zip").unlink(missing_ok=True)
-# Um zip por base (ano × unidade), como as bases do CEM: os 7 arquivos de cargo,
+# Um zip por base (ano × unidade), como as bases do CEM: o GeoPackage e o Excel,
 # o dicionário em PDF, o LEIAME e o dicionário de colunas. Os zips por ano da
 # versão anterior saem do caminho.
 for ano in ANOS:
